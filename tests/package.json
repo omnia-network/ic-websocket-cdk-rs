@@ -11,7 +11,6 @@
   "scripts": {
     "generate": "dfx generate test_canister",
     "deploy:tests": "dfx deploy test_canister --no-wallet --argument '(opt \"i3gux-m3hwt-5mh2w-t7wwm-fwx5j-6z6ht-hxguo-t4rfw-qp24z-g5ivt-2qe\")'",
-    "test:unit": "jest unit",
     "test:integration": "jest integration"
   },
   "devDependencies": {

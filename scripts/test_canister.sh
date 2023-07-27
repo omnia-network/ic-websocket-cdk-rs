@@ -14,6 +14,8 @@ dfx start --clean --background
 
 npm run deploy:tests
 
-npx jest integration/canister
+npm run generate
+
+npm run test:integration
 
 dfx stop
