@@ -7,6 +7,8 @@ cargo test
 
 cd tests
 
+npm install
+
 # integration tests
 dfx start --clean --background
 
