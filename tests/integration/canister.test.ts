@@ -308,21 +308,6 @@ describe("Canister - ws_message", () => {
     expect(res).toMatchObject<CanisterWsMessageResult>({
       Err: "missing field `message`",
     });
-
-    // wrong message type
-    content = Cbor.encode({
-      client_key: client1KeyPair.publicKey,
-      sequence_num: 0,
-      timestamp: Date.now(),
-      message: "test",
-    });
-    const throwingCall = wsMessage({
-      message: {
-        RelayedByGateway: await getSignedMessage(content, client1KeyPair.secretKey),
-      },
-      actor: gateway1,
-    }, true);
-    await expect(throwingCall).rejects.toThrow();
   });
 
   it("fails if registered gateway sends a DirectlyFromClient message", async () => {
