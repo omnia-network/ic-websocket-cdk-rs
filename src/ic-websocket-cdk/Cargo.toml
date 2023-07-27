@@ -1,0 +1,26 @@
+[package]
+name = "ic-websocket-cdk"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+candid = { workspace = true }
+ic-cdk = { workspace = true }
+ic-cdk-macros = { workspace = true }
+serde = { workspace = true }
+serde_cbor = { workspace = true }
+ic-certified-map = "0.4.0"
+base64 = "0.21.2"
+sha2 = "0.10.7"
+serde_bytes = "0.11.12"
+ed25519-compact = { version = "2.0.4", default-features = false }
+
+[dev-dependencies]
+ic-agent = "0.25.0"
+proptest = "1.2.0"
+ring = "0.16.20"
+
+[package.metadata.docs.rs]
+default-target = "wasm32-unknown-unknown"

@@ -1,0 +1,10 @@
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+target
+node_modules
+.dfx
+dist
+declarations
+.env

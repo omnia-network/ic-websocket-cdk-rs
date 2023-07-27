@@ -1,0 +1,26 @@
+[workspace]
+members = [
+  "src/ic-websocket-cdk",
+  "tests",
+]
+
+[workspace.package]
+edition = "2021"
+repository = "https://github.com/omnia-network/ic-websocket-cdk-rs"
+rust-version = "1.69.0"
+
+[workspace.dependencies]
+ic-websocket-cdk = { path = "src/ic-websocket-cdk", version = "0.1.0" }
+
+candid = "0.8.4"
+ic-cdk = "0.9.2"
+ic-cdk-macros = "0.7.0"
+serde = "1.0.176"
+serde_cbor = "0.11.2"
+
+[profile.canister-release]
+inherits = "release"
+debug = false
+panic = "abort"
+lto = true
+opt-level = 'z'
