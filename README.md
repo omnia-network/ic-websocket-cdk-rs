@@ -8,6 +8,8 @@ TODO: Add usage instructions
 
 ## Development
 
+The **ic-websocket-cdk** library implementation can be found in the [src/ic-websocket-cdk](./src/ic-websocket-cdk/) folder.
+
 ### Testing
 
 There are two types of tests available:
