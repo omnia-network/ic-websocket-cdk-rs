@@ -20,7 +20,7 @@ It will also be available on crates.io soon.
 
 ## Usage
 
-Refer to the [ic_websocket_example](https://github.com/omnia-network/ic-websocket-example) repository for an example of how to use the library.
+Refer to the [ic_websocket_example](https://github.com/omnia-network/ic_websocket_example) repository for an example of how to use the library.
 
 ## Development
 
