@@ -1,6 +1,6 @@
 # ic-websocket-cdk-rs
 
-This repository contains the Rust implementation of IC WebSocket CDK. For more information about IC Websockets, see [ic-websocket](https://github.com/omnia-network/ic-websocket).
+This repository contains the Rust implementation of IC WebSocket CDK. For more information about IC Websockets, see [IC WebSocket Gateway](https://github.com/omnia-network/ic-websocket-gateway).
 
 ## Usage
 
