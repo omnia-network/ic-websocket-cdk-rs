@@ -32,6 +32,7 @@ jobs:
       - name: Prepare environment for integration tests
         run: |
           cd tests
+          rustup target add wasm32-unknown-unknown
           dfx start --clean --background
           npm run deploy:tests
           npm run generate
