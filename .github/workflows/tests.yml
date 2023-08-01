@@ -1,4 +1,4 @@
-name: IC WS Gateway tests
+name: ic-websocket-cdk-rs tests
 
 # only run when a commit is pushed to the main branch
 on:
