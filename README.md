@@ -2,9 +2,25 @@
 
 This repository contains the Rust implementation of IC WebSocket CDK. For more information about IC Websockets, see [IC WebSocket Gateway](https://github.com/omnia-network/ic-websocket-gateway).
 
+## Installation
+
+You can install the library by adding the following line to your `Cargo.toml` file:
+
+```toml
+ic-websocket-cdk = { git = "https://github.com/omnia-network/ic-websocket-cdk-rs", rev = "<last-commit-on-this-repo>" }
+```
+
+For example, a valid installation line would be:
+
+```toml
+ic-websocket-cdk = { git = "https://github.com/omnia-network/ic-websocket-cdk-rs", rev = "989f74b6f871c113628cd20697e42b85d503e37d" }
+```
+
+It will also be available on crates.io soon.
+
 ## Usage
 
-TODO: Add usage instructions
+Refer to the [ic_websocket_example](https://github.com/omnia-network/ic-websocket-example) repository for an example of how to use the library.
 
 ## Development
 

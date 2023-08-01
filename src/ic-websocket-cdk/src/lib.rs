@@ -13,20 +13,20 @@ const MAX_NUMBER_OF_RETURNED_MESSAGES: usize = 10;
 
 pub type ClientPublicKey = Vec<u8>;
 
-/// The result of `ws_register`.
+/// The result of [ws_register].
 pub type CanisterWsRegisterResult = Result<(), String>;
-/// The result of `ws_open`.
+/// The result of [ws_open].
 pub type CanisterWsOpenResult = Result<CanisterWsOpenResultValue, String>;
-/// The result of `ws_message`.
+/// The result of [ws_message].
 pub type CanisterWsMessageResult = Result<(), String>;
-/// The result of `ws_get_messages`.
+/// The result of [ws_get_messages].
 pub type CanisterWsGetMessagesResult = Result<CanisterOutputCertifiedMessages, String>;
-/// The result of `ws_send`.
+/// The result of [ws_send].
 pub type CanisterWsSendResult = Result<(), String>;
-/// The result of `ws_close`.
+/// The result of [ws_close].
 pub type CanisterWsCloseResult = Result<(), String>;
 
-// The Ok value of CanisterWsOpenResult returned by `ws_open`
+/// The Ok value of CanisterWsOpenResult returned by [ws_open].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsOpenResultValue {
     client_key: ClientPublicKey,
@@ -34,7 +34,7 @@ pub struct CanisterWsOpenResultValue {
     nonce: u64,
 }
 
-/// The arguments for `ws_register`.
+/// The arguments for [ws_register].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 #[candid_path("ic_cdk::export::candid")]
 pub struct CanisterWsRegisterArguments {
@@ -42,7 +42,7 @@ pub struct CanisterWsRegisterArguments {
     client_key: ClientPublicKey,
 }
 
-/// The arguments for `ws_open`.
+/// The arguments for [ws_open].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 #[candid_path("ic_cdk::export::candid")]
 pub struct CanisterWsOpenArguments {
@@ -52,7 +52,7 @@ pub struct CanisterWsOpenArguments {
     sig: Vec<u8>,
 }
 
-/// The arguments for `ws_close`.
+/// The arguments for [ws_close].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 #[candid_path("ic_cdk::export::candid")]
 pub struct CanisterWsCloseArguments {
@@ -60,21 +60,21 @@ pub struct CanisterWsCloseArguments {
     client_key: ClientPublicKey,
 }
 
-/// The arguments for `ws_message`.
+/// The arguments for [ws_message].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 #[candid_path("ic_cdk::export::candid")]
 pub struct CanisterWsMessageArguments {
     msg: CanisterIncomingMessage,
 }
 
-/// The arguments for `ws_get_messages`.
+/// The arguments for [ws_get_messages].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 #[candid_path("ic_cdk::export::candid")]
 pub struct CanisterWsGetMessagesArguments {
     nonce: u64,
 }
 
-/// The first message received by the canister in `ws_open`.
+/// The first message received by the canister in [ws_open].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 #[candid_path("ic_cdk::export::candid")]
 struct CanisterFirstMessageContent {
@@ -93,7 +93,7 @@ pub struct RelayedClientMessage {
     sig: Vec<u8>,
 }
 
-/// Message coming directly from client, not relayed by the WS Gateway.
+/// Message coming **directly** from client, not relayed by the WS Gateway.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[candid_path("ic_cdk::export::candid")]
 pub struct DirectClientMessage {
@@ -101,12 +101,12 @@ pub struct DirectClientMessage {
     pub client_key: ClientPublicKey,
 }
 
-/// The variants of the possible messages received by the canister in `ws_message`.
-/// - IcWebSocketEstablished: message sent from WS Gateway to the canister to notify it about the
+/// The variants of the possible messages received by the canister in [ws_message].
+/// - **IcWebSocketEstablished**: message sent from WS Gateway to the canister to notify it about the
 ///                           establishment of the IcWebSocketConnection
-/// - RelayedByGateway: message sent from the client to the WS Gateway (via WebSocket) and
+/// - **RelayedByGateway**: message sent from the client to the WS Gateway (via WebSocket) and
 ///                      relayed to the canister by the WS Gateway
-/// - DirectlyFromClient: message sent from directly client so that it is not necessary to
+/// - **DirectlyFromClient**: message sent from directly client so that it is not necessary to
 ///                       verify the signature
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[candid_path("ic_cdk::export::candid")]
@@ -319,7 +319,7 @@ fn get_messages_for_gateway(start_index: usize, end_index: usize) -> Vec<Caniste
     })
 }
 
-// gets the messages in GATEWAY_MESSAGES starting from the one with the specified nonce
+/// Gets the messages in GATEWAY_MESSAGES starting from the one with the specified nonce
 fn get_cert_messages(gateway_principal: Principal, nonce: u64) -> CanisterWsGetMessagesResult {
     let (start_index, end_index) = get_messages_for_gateway_range(gateway_principal, nonce);
     let messages = get_messages_for_gateway(start_index, end_index);
@@ -379,31 +379,32 @@ fn get_cert_for_range(first: &String, last: &String) -> (Vec<u8>, Vec<u8>) {
     })
 }
 
-/// Arguments passed to the `on_open` handler
+/// Arguments passed to the `on_open` handler.
 pub struct OnOpenCallbackArgs {
     pub client_key: ClientPublicKey,
 }
 /// Handler initialized by the canister and triggered by the CDK once the IC WebSocket connection
-/// is established
+/// is established.
 type OnOpenCallback = fn(OnOpenCallbackArgs);
 
-/// Arguments passed to the `on_message handler
+/// Arguments passed to the `on_message` handler.
 pub struct OnMessageCallbackArgs {
     pub client_key: ClientPublicKey,
     pub message: Vec<u8>,
 }
 /// Handler initialized by the canister and triggered by the CDK once a message is received by
-/// the CDK
+/// the CDK.
 type OnMessageCallback = fn(OnMessageCallbackArgs);
 
-/// Arguments passed to the `on_close` handler
+/// Arguments passed to the `on_close` handler.
 pub struct OnCloseCallbackArgs {
     pub client_key: ClientPublicKey,
 }
 /// Handler initialized by the canister and triggered by the CDK once the WS Gateway closes the
-/// IC WebSocket connection
+/// IC WebSocket connection.
 type OnCloseCallback = fn(OnCloseCallbackArgs);
 
+/// Handlers initialized by the canister and triggered by the CDK.
 pub struct WsHandlers {
     pub on_open: Option<OnOpenCallback>,
     pub on_message: Option<OnMessageCallback>,
@@ -438,7 +439,8 @@ thread_local! {
     });
 }
 
-// init CDK
+/// Initialize the CDK by setting the callback handlers and the **principal** of the WS Gateway that
+/// will be polling the canister.
 pub fn init(handlers: WsHandlers, gateway_principal: &str) {
     // set the handlers specified by the canister that the CDK uses to manage the IC WebSocket connection
     HANDLERS.with(|h| {
@@ -458,6 +460,7 @@ pub fn init(handlers: WsHandlers, gateway_principal: &str) {
 /// Registers the public key that the client SDK has generated to initialize an IcWebSocket connection.
 pub fn ws_register(args: CanisterWsRegisterArguments) -> CanisterWsRegisterResult {
     // TODO: check who is the caller, which can be a client or the anonymous principal
+
     // associate the identity of the client to its public key received as input
     put_client_caller(args.client_key, caller());
     Ok(())
@@ -467,7 +470,7 @@ pub fn ws_register(args: CanisterWsRegisterArguments) -> CanisterWsRegisterResul
 ///
 /// WS Gateway relays the first message sent by the client together with its signature
 /// to prove that the first message is actually coming from the same client that registered its public key
-/// beforehand by calling ws_register()
+/// beforehand by calling the [ws_register] method.
 pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
     // the caller must be the gateway that was registered during CDK initialization
     check_is_registered_gateway(caller())?;
@@ -503,7 +506,7 @@ pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
     })
 }
 
-/// Handles the WS connection close event received from the WS Gateway
+/// Handles the WS connection close event received from the WS Gateway.
 pub fn ws_close(args: CanisterWsCloseArguments) -> CanisterWsCloseResult {
     // the caller must be the gateway that was registered during CDK initialization
     check_is_registered_gateway(caller())?;
@@ -522,7 +525,7 @@ pub fn ws_close(args: CanisterWsCloseArguments) -> CanisterWsCloseResult {
     Ok(())
 }
 
-/// Handles the WS messages received  either directly from the client or relayed by the WS Gateway
+/// Handles the WS messages received either directly from the client or relayed by the WS Gateway.
 pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
     match args.msg {
         // message sent directly from client
