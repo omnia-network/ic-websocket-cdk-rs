@@ -37,3 +37,11 @@ There's a script that runs all the tests together, taking care of setting up the
 ```bash
 ./scripts/test_canister.sh
 ```
+
+## License
+
+TODO: Add a license
+
+## Contributing
+
+Feel free to open issues and pull requests.
