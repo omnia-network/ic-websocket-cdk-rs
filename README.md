@@ -22,6 +22,22 @@ It will also be available on crates.io soon.
 
 Refer to the [ic_websocket_example](https://github.com/omnia-network/ic_websocket_example) repository for an example of how to use the library.
 
+### Candid interface
+In order for the frontend clients and the Gateway to work properly, the canister must expose some specific methods in its Candid interface, between the custom methods that you've implemented for your logic. A valid Candid interface for the canister is the following:
+
+```
+import "./ws_types.did";
+
+service : {
+  "ws_register" : (CanisterWsRegisterArguments) -> (CanisterWsRegisterResult);
+  "ws_open" : (CanisterWsOpenArguments) -> (CanisterWsOpenResult);
+  "ws_close" : (CanisterWsCloseArguments) -> (CanisterWsCloseResult);
+  "ws_message" : (CanisterWsMessageArguments) -> (CanisterWsMessageResult);
+  "ws_get_messages" : (CanisterWsGetMessagesArguments) -> (CanisterWsGetMessagesResult) query;
+};
+```
+This snipped is copied from the [service.example.did](./src/ic-websocket-cdk/service.example.did) file and the types imported are defined in the [ws_types.did](./src/ic-websocket-cdk/ws_types.did) file.
+
 ## Development
 
 The **ic-websocket-cdk** library implementation can be found in the [src/ic-websocket-cdk](./src/ic-websocket-cdk/) folder.

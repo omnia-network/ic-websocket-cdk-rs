@@ -1,18 +1,9 @@
-import "../src/ic-websocket-cdk/ws_types.did";
+import "./types.did";
 
-type CanisterWsSendResult = variant {
-  Ok : null;
-  Err : text;
-};
-
-service : (opt text) -> {
+service : {
   "ws_register" : (CanisterWsRegisterArguments) -> (CanisterWsRegisterResult);
   "ws_open" : (CanisterWsOpenArguments) -> (CanisterWsOpenResult);
   "ws_close" : (CanisterWsCloseArguments) -> (CanisterWsCloseResult);
   "ws_message" : (CanisterWsMessageArguments) -> (CanisterWsMessageResult);
   "ws_get_messages" : (CanisterWsGetMessagesArguments) -> (CanisterWsGetMessagesResult) query;
-
-  // methods used just for debugging/testing
-  "ws_wipe" : () -> ();
-  "ws_send" : (ClientPublicKey, record { text : text }) -> (CanisterWsSendResult);
 };
