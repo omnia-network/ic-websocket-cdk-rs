@@ -1,4 +1,4 @@
-import "./types.did";
+import "./ws_types.did";
 
 service : {
   "ws_register" : (CanisterWsRegisterArguments) -> (CanisterWsRegisterResult);
