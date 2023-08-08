@@ -3,7 +3,6 @@ use ed25519_compact::{PublicKey, Signature};
 #[cfg(not(test))]
 use ic_cdk::api::time;
 use ic_cdk::api::{caller, data_certificate, set_certified_data};
-use ic_cdk::print;
 use ic_cdk_timers::set_timer;
 use ic_certified_map::{labeled, labeled_hash, AsHashTree, Hash as ICHash, RbTree};
 use serde::{Deserialize, Serialize};
@@ -11,6 +10,8 @@ use serde_cbor::{from_slice, Serializer};
 use sha2::{Digest, Sha256};
 use std::time::Duration;
 use std::{cell::RefCell, collections::HashMap, collections::VecDeque, convert::AsRef};
+
+mod logger;
 
 const LABEL_WEBSOCKET: &[u8] = b"websocket";
 const MAX_NUMBER_OF_RETURNED_MESSAGES: usize = 10;
@@ -191,10 +192,7 @@ impl RegisteredGateway {
     fn update_status_index(&mut self, status_index: u64) -> Result<(), String> {
         if status_index <= self.last_status_index {
             if status_index == 0 {
-                #[cfg(not(test))]
-                {
-                    print("Gateway status index set to 0");
-                }
+                custom_print!("Gateway status index set to 0");
             } else {
                 return Err("Gateway status index is equal to or behind the current one".to_owned());
             }
@@ -209,7 +207,7 @@ impl RegisteredGateway {
         self.last_heartbeat = None;
         self.last_status_index = 0;
 
-        print("Gateway has been reset");
+        custom_print!("Gateway has been reset");
     }
 }
 
@@ -300,7 +298,7 @@ pub fn wipe() {
         }
     });
 
-    print("IC WebSocket CDK has been wiped!");
+    custom_print!("IC WebSocket CDK has been wiped!");
 }
 
 fn get_outgoing_message_nonce() -> u64 {
@@ -545,13 +543,13 @@ fn check_registered_gateway_timer_callback() {
         if let Some(v) = registered_gateway.as_mut() {
             if let Some(last_heartbeat) = v.last_heartbeat {
                 if get_current_time() - last_heartbeat > get_check_registered_gateway_delay_ns() {
-                    print("Registered gateway has not sent a heartbeat for a while, resetting all internal state");
+                    custom_print!("Registered gateway has not sent a heartbeat for a while, resetting all internal state");
     
                     reset_internal_state();
     
                     v.reset();
                 } else {
-                    print("Registered gateway is still alive");
+                    custom_print!("Registered gateway is still alive");
                 }
             }
         }
@@ -779,10 +777,10 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
             // check if client registered its public key by calling ws_register
             check_registered_client_key(&client_key)?;
 
-            print(format!(
+            custom_print!(
                 "Can start notifying client with key: {:?}",
                 client_key
-            ));
+            );
             // call the on_open handler
             HANDLERS.with(|h| {
                 // trigger the on_open handler initialized by canister
