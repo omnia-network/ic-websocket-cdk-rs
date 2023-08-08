@@ -1,11 +1,15 @@
 use candid::{CandidType, Principal};
 use ed25519_compact::{PublicKey, Signature};
-use ic_cdk::api::{caller, data_certificate, set_certified_data, time};
+#[cfg(not(test))]
+use ic_cdk::api::time;
+use ic_cdk::api::{caller, data_certificate, set_certified_data};
 use ic_cdk::print;
+use ic_cdk_timers::set_timer;
 use ic_certified_map::{labeled, labeled_hash, AsHashTree, Hash as ICHash, RbTree};
 use serde::{Deserialize, Serialize};
 use serde_cbor::{from_slice, Serializer};
 use sha2::{Digest, Sha256};
+use std::time::Duration;
 use std::{cell::RefCell, collections::HashMap, collections::VecDeque, convert::AsRef};
 
 const LABEL_WEBSOCKET: &[u8] = b"websocket";
@@ -101,19 +105,30 @@ pub struct DirectClientMessage {
     pub client_key: ClientPublicKey,
 }
 
+/// Heartbeat message sent from the WS Gateway to the canister, so that the canister can
+/// verify that the WS Gateway is still alive.
+#[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[candid_path("ic_cdk::export::candid")]
+pub struct GatewayStatusMessage {
+    pub status_index: u64,
+}
+
 /// The variants of the possible messages received by the canister in [ws_message].
 /// - **IcWebSocketEstablished**: message sent from WS Gateway to the canister to notify it about the
-///                           establishment of the IcWebSocketConnection
-/// - **RelayedByGateway**: message sent from the client to the WS Gateway (via WebSocket) and
-///                      relayed to the canister by the WS Gateway
-/// - **DirectlyFromClient**: message sent from directly client so that it is not necessary to
-///                       verify the signature
+///                               establishment of the IcWebSocketConnection
+/// - **IcWebSocketStatus**:      message sent from WS Gateway to the canister to notify it about the
+///                               status of the IcWebSocketConnection
+/// - **RelayedByGateway**:       message sent from the client to the WS Gateway (via WebSocket) and
+///                               relayed to the canister by the WS Gateway
+/// - **DirectlyFromClient**:     message sent from directly client so that it is not necessary to
+///                               verify the signature
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[candid_path("ic_cdk::export::candid")]
 pub enum CanisterIncomingMessage {
     DirectlyFromClient(DirectClientMessage),
     RelayedByGateway(RelayedClientMessage),
     IcWebSocketEstablished(ClientPublicKey),
+    IcWebSocketGatewayStatus(GatewayStatusMessage),
 }
 
 /// Messages exchanged through the WebSocket.
@@ -150,26 +165,111 @@ pub struct CanisterOutputCertifiedMessages {
     tree: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+/// Contains data about the registered WS Gateway.
+struct RegisteredGateway {
+    /// The principal of the gateway.
+    gateway_principal: Principal,
+    /// The last time the gateway sent a heartbeat message.
+    last_heartbeat: Option<u64>,
+    /// The last status index received from the gateway.
+    last_status_index: u64,
+}
+
+impl RegisteredGateway {
+    /// Creates a new instance of RegisteredGateway.
+    pub fn new(gateway_principal: Principal) -> Self {
+        Self {
+            gateway_principal,
+            last_heartbeat: None,
+            last_status_index: 0,
+        }
+    }
+
+    /// Updates the registered gateway's status index with the given one.
+    /// Sets the last heartbeat to the current time.
+    fn update_status_index(&mut self, status_index: u64) -> Result<(), String> {
+        if status_index <= self.last_status_index {
+            if status_index == 0 {
+                #[cfg(not(test))]
+                {
+                    print("Gateway status index set to 0");
+                }
+            } else {
+                return Err("Gateway status index is equal to or behind the current one".to_owned());
+            }
+        }
+        self.last_status_index = status_index;
+        self.last_heartbeat = Some(get_current_time());
+        Ok(())
+    }
+
+    /// Resets the registered gateway to the initial state.
+    fn reset(&mut self) {
+        self.last_heartbeat = None;
+        self.last_status_index = 0;
+
+        print("Gateway has been reset");
+    }
+}
+
+fn get_current_time() -> u64 {
+    #[cfg(test)]
+    {
+        0u64
+    }
+    #[cfg(not(test))]
+    {
+        time()
+    }
+}
+
+/// Returns true if the canister is running in an integration test.
+///
+/// To run the canister in an integration test,
+/// the `IC_WS_CDK_INTEGRATION_TEST` environment variable must be set to `1` at build time.
+fn is_integration_test() -> bool {
+    let integration_test = option_env!("IC_WS_CDK_INTEGRATION_TEST");
+    integration_test.is_some() && integration_test.unwrap() == "1"
+}
+
+/// Returns the delay in milliseconds between two consecutive checks if the registered gateway is still alive.
+fn get_check_registered_gateway_delay_ns() -> u64 {
+    if is_integration_test() {
+        15_000_000_000
+    } else {
+        60_000_000_000
+    }
+}
+
 thread_local! {
     /// Maps the client's public key to the client's identity (anonymous if not authenticated).
-    static CLIENT_CALLER_MAP: RefCell<HashMap<ClientPublicKey, Principal>> = RefCell::new(HashMap::new());
+    /* flexible */ static CLIENT_CALLER_MAP: RefCell<HashMap<ClientPublicKey, Principal>> = RefCell::new(HashMap::new());
     /// Maps the client's public key to the sequence number to use for the next outgoing message (to that client).
-    static OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP: RefCell<HashMap<ClientPublicKey, u64>> = RefCell::new(HashMap::new());
+    /* flexible */ static OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP: RefCell<HashMap<ClientPublicKey, u64>> = RefCell::new(HashMap::new());
     /// Maps the client's public key to the expected sequence number of the next incoming message (from that client).
-    static INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP: RefCell<HashMap<ClientPublicKey, u64>> = RefCell::new(HashMap::new());
+    /* flexible */ static INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP: RefCell<HashMap<ClientPublicKey, u64>> = RefCell::new(HashMap::new());
     /// Keeps track of the Merkle tree used for certified queries
-    static CERT_TREE: RefCell<RbTree<String, ICHash>> = RefCell::new(RbTree::new());
+    /* flexible */ static CERT_TREE: RefCell<RbTree<String, ICHash>> = RefCell::new(RbTree::new());
     /// Keeps track of the principal of the WS Gateway which polls the canister
-    static GATEWAY_PRINCIPAL: RefCell<Option<Principal>> = RefCell::new(None);
-    /// Keeps tarck of the messages that have to be sent to the WS Gateway
-    static MESSAGES_FOR_GATEWAY: RefCell<VecDeque<CanisterOutputMessage>> = RefCell::new(VecDeque::new());
+    /* flexible */ static REGISTERED_GATEWAY: RefCell<Option<RegisteredGateway>> = RefCell::new(None);
+    /// Keeps track of the messages that have to be sent to the WS Gateway
+    /* flexible */ static MESSAGES_FOR_GATEWAY: RefCell<VecDeque<CanisterOutputMessage>> = RefCell::new(VecDeque::new());
     /// Keeps track of the nonce which:
     /// - the WS Gateway uses to specify the first index of the certified messages to be returned when polling
     /// - the client uses as part of the path in the Merkle tree in order to verify the certificate of the messages relayed by the WS Gateway
-    static OUTGOING_MESSAGE_NONCE: RefCell<u64> = RefCell::new(0u64);
+    /* flexible */ static OUTGOING_MESSAGE_NONCE: RefCell<u64> = RefCell::new(0u64);
+    /// The callback handlers for the WebSocket.
+    /* flexible */ static HANDLERS: RefCell<WsHandlers> = RefCell::new(WsHandlers {
+        on_open: None,
+        on_message: None,
+        on_close: None,
+    });
 }
 
-pub fn wipe() {
+/// Resets all RefCells to their initial state.
+/// If there is a registered gateway, resets its state as well.
+fn reset_internal_state() {
     CLIENT_CALLER_MAP.with(|map| {
         map.borrow_mut().clear();
     });
@@ -184,6 +284,23 @@ pub fn wipe() {
     });
     MESSAGES_FOR_GATEWAY.with(|m| *m.borrow_mut() = VecDeque::new());
     OUTGOING_MESSAGE_NONCE.with(|next_id| next_id.replace(0u64));
+}
+
+/// Resets the internal state of the IC WebSocket CDK.
+///
+/// **Note:** You should only call this function in tests.
+pub fn wipe() {
+    reset_internal_state();
+
+    // if there is a registered gateway, reset its state
+    REGISTERED_GATEWAY.with(|state| {
+        let mut registered_gateway = state.borrow_mut();
+        if let Some(v) = registered_gateway.as_mut() {
+            v.reset();
+        }
+    });
+
+    print("IC WebSocket CDK has been wiped!");
 }
 
 fn get_outgoing_message_nonce() -> u64 {
@@ -204,8 +321,34 @@ fn get_client_caller(client_key: &ClientPublicKey) -> Option<Principal> {
     CLIENT_CALLER_MAP.with(|map| Some(map.borrow().get(client_key)?.to_owned()))
 }
 
-fn get_gateway_principal() -> Principal {
-    GATEWAY_PRINCIPAL.with(|g| g.borrow().expect("gateway principal should be initialized"))
+fn initialize_registered_gateway(gateway_principal: &str) {
+    REGISTERED_GATEWAY.with(|p| {
+        let gateway_principal =
+            Principal::from_text(gateway_principal).expect("invalid gateway principal");
+        *p.borrow_mut() = Some(RegisteredGateway::new(gateway_principal));
+    });
+}
+
+fn get_registered_gateway_principal() -> Principal {
+    REGISTERED_GATEWAY.with(|g| {
+        g.borrow()
+            .expect("gateway should be initialized")
+            .gateway_principal
+    })
+}
+
+/// Updates the registered gateway with the new status index.
+/// If the status index is not greater than the current one, the function returns an error.
+fn update_registered_gateway_status_index(status_index: u64) -> Result<(), String> {
+    REGISTERED_GATEWAY.with(|state| {
+        let mut registered_gateway = state.borrow_mut();
+
+        if let Some(v) = registered_gateway.as_mut() {
+            v.update_status_index(status_index)
+        } else {
+            Err("no gateway registered".to_owned())
+        }
+    })
 }
 
 fn check_registered_client_key(client_key: &ClientPublicKey) -> Result<(), String> {
@@ -345,7 +488,7 @@ fn get_cert_messages(gateway_principal: Principal, nonce: u64) -> CanisterWsGetM
 
 /// Checks if the caller of the method is the same as the one that was registered during the initialization of the CDK
 fn check_is_registered_gateway(input_principal: Principal) -> Result<(), String> {
-    let gateway_principal = get_gateway_principal();
+    let gateway_principal = get_registered_gateway_principal();
     // check if the caller is the same as the one that was registered during the initialization of the CDK
     if gateway_principal != input_principal {
         return Err(String::from(
@@ -377,6 +520,44 @@ fn get_cert_for_range(first: &String, last: &String) -> (Vec<u8>, Vec<u8>) {
         tree.serialize(&mut serializer).unwrap();
         (data_certificate().unwrap(), data)
     })
+}
+
+/// Schedules a timer to check if the registered gateway has sent a heartbeat recently.
+///
+/// The timer delay is given by the [get_check_registered_gateway_delay_ms] function.
+///
+/// The timer callback is [check_registered_gateway_timer_callback].
+fn schedule_registered_gateway_check() {
+    set_timer(
+        Duration::from_nanos(get_check_registered_gateway_delay_ns()),
+        check_registered_gateway_timer_callback,
+    );
+}
+
+/// Checks if the registered gateway has sent a heartbeat recently.
+/// If not, this means that the gateway has been restarted and all clients registered have been disconnected.
+/// In this case, all internal IC WebSocket CDK state is reset.
+/// 
+/// At the end, a new timer is scheduled to check again if the registered gateway has sent a heartbeat recently.
+fn check_registered_gateway_timer_callback() {
+    REGISTERED_GATEWAY.with(|state| {
+        let mut registered_gateway = state.borrow_mut();
+        if let Some(v) = registered_gateway.as_mut() {
+            if let Some(last_heartbeat) = v.last_heartbeat {
+                if get_current_time() - last_heartbeat > get_check_registered_gateway_delay_ns() {
+                    print("Registered gateway has not sent a heartbeat for a while, resetting all internal state");
+    
+                    reset_internal_state();
+    
+                    v.reset();
+                } else {
+                    print("Registered gateway is still alive");
+                }
+            }
+        }
+    });
+
+    schedule_registered_gateway_check();
 }
 
 /// Arguments passed to the `on_open` handler.
@@ -431,11 +612,10 @@ impl WsHandlers {
     }
 }
 
-thread_local! {
-    /* flexible */ static HANDLERS: RefCell<WsHandlers> = RefCell::new(WsHandlers {
-        on_open: None,
-        on_message: None,
-        on_close: None,
+fn initialize_handlers(handlers: WsHandlers) {
+    HANDLERS.with(|h| {
+        let mut h = h.borrow_mut();
+        *h = handlers;
     });
 }
 
@@ -443,16 +623,13 @@ thread_local! {
 /// will be polling the canister.
 pub fn init(handlers: WsHandlers, gateway_principal: &str) {
     // set the handlers specified by the canister that the CDK uses to manage the IC WebSocket connection
-    HANDLERS.with(|h| {
-        let mut h = h.borrow_mut();
-        *h = handlers;
-    });
+    initialize_handlers(handlers);
+
     // set the principal of the (only) WS Gateway that will be polling the canister
-    GATEWAY_PRINCIPAL.with(|p| {
-        let gateway_principal =
-            Principal::from_text(gateway_principal).expect("invalid gateway principal");
-        *p.borrow_mut() = Some(gateway_principal);
-    });
+    initialize_registered_gateway(gateway_principal);
+
+    // schedule a timer that will check if the registered gateway is still alive
+    schedule_registered_gateway_check();
 }
 
 /// Handles the register event received from the client.
@@ -481,7 +658,7 @@ pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
     } = from_slice(&args.msg).map_err(|e| e.to_string())?;
     // check if client_key is a Ed25519 public key
     let public_key = PublicKey::from_slice(&client_key).map_err(|e| e.to_string())?;
-    // check if the signature realyed by the WS Gateway is a Ed25519 signature
+    // check if the signature relayed by the WS Gateway is a Ed25519 signature
     let sig = Signature::from_slice(&args.sig).map_err(|e| e.to_string())?;
 
     // check if client registered its public key by calling ws_register
@@ -613,7 +790,15 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
             });
             Ok(())
         },
-        // TODO: remove registered client when connection is closed
+        // WS Gateway notifies the canister that it is up and running
+        CanisterIncomingMessage::IcWebSocketGatewayStatus(gateway_status) => {
+            // this message can come only from the registered gateway
+            check_is_registered_gateway(caller())?;
+
+            update_registered_gateway_status_index(gateway_status.status_index)?;
+
+            Ok(())
+        },
     }
 }
 
@@ -638,9 +823,9 @@ pub fn ws_send<T: Serialize>(client_key: ClientPublicKey, msg: T) -> CanisterWsS
     msg.serialize(&mut serializer).map_err(|e| e.to_string())?;
 
     // get the principal of the gateway that is polling the canister
-    let gateway_principal = get_gateway_principal();
+    let gateway_principal = get_registered_gateway_principal();
 
-    let time = time();
+    let time = get_current_time();
 
     // the nonce in key is used by the WS Gateway to determine the message to start in the polling iteration
     // the key is also passed to the client in order to validate the body of the certified message
@@ -722,7 +907,7 @@ mod test {
 
         pub fn get_static_principal() -> Principal {
             Principal::from_text("wnkwv-wdqb5-7wlzr-azfpw-5e5n5-dyxrf-uug7x-qxb55-mkmpa-5jqik-tqe")
-                .unwrap() // a random valid but static principal
+                .unwrap() // a random static but valid principal
         }
 
         pub fn add_messages_for_gateway(
@@ -748,9 +933,9 @@ mod test {
 
     // we don't need to proptest get_gateway_principal if principal is not set, as it just panics
     #[test]
-    #[should_panic = "gateway principal should be initialized"]
+    #[should_panic = "gateway should be initialized"]
     fn test_get_gateway_principal_not_set() {
-        get_gateway_principal();
+        get_registered_gateway_principal();
     }
 
     #[test]
@@ -781,15 +966,25 @@ mod test {
             on_close: None,
         };
 
-        handlers.call_on_open(OnOpenCallbackArgs {
-            client_key: test_utils::generate_random_public_key(),
-        });
-        handlers.call_on_message(OnMessageCallbackArgs {
-            client_key: test_utils::generate_random_public_key(),
-            message: vec![],
-        });
-        handlers.call_on_close(OnCloseCallbackArgs {
-            client_key: test_utils::generate_random_public_key(),
+        initialize_handlers(handlers);
+
+        HANDLERS.with(|h| {
+            let h = h.borrow();
+
+            assert!(h.on_open.is_none());
+            assert!(h.on_message.is_none());
+            assert!(h.on_close.is_none());
+
+            h.call_on_open(OnOpenCallbackArgs {
+                client_key: test_utils::generate_random_public_key(),
+            });
+            h.call_on_message(OnMessageCallbackArgs {
+                client_key: test_utils::generate_random_public_key(),
+                message: vec![],
+            });
+            h.call_on_close(OnCloseCallbackArgs {
+                client_key: test_utils::generate_random_public_key(),
+            });
         });
 
         // test that the handlers are not called if they are not initialized
@@ -823,15 +1018,25 @@ mod test {
             on_close: Some(on_close),
         };
 
-        handlers.call_on_open(OnOpenCallbackArgs {
-            client_key: test_utils::generate_random_public_key(),
-        });
-        handlers.call_on_message(OnMessageCallbackArgs {
-            client_key: test_utils::generate_random_public_key(),
-            message: vec![],
-        });
-        handlers.call_on_close(OnCloseCallbackArgs {
-            client_key: test_utils::generate_random_public_key(),
+        initialize_handlers(handlers);
+
+        HANDLERS.with(|h| {
+            let h = h.borrow();
+
+            assert!(h.on_open.is_some());
+            assert!(h.on_message.is_some());
+            assert!(h.on_close.is_some());
+
+            h.call_on_open(OnOpenCallbackArgs {
+                client_key: test_utils::generate_random_public_key(),
+            });
+            h.call_on_message(OnMessageCallbackArgs {
+                client_key: test_utils::generate_random_public_key(),
+                message: vec![],
+            });
+            h.call_on_close(OnCloseCallbackArgs {
+                client_key: test_utils::generate_random_public_key(),
+            });
         });
 
         // test that the handlers are called if they are initialized
@@ -842,32 +1047,15 @@ mod test {
 
     proptest! {
         #[test]
-        fn test_init(test_gateway_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
-            let on_open = |_| {};
-            let on_message = |_| {};
-            let on_close = |_| {};
+        fn test_initialize_registered_gateway(test_gateway_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
+            initialize_registered_gateway(&test_gateway_principal.to_string());
 
-            let handlers = WsHandlers {
-                on_open: Some(on_open),
-                on_message: Some(on_message),
-                on_close: Some(on_close),
-            };
-
-            init(handlers, &test_gateway_principal.to_string());
-
-            HANDLERS.with(|h| {
-                let h = h.borrow();
-                assert!(h.on_open.is_some());
-                assert!(h.on_message.is_some());
-                assert!(h.on_close.is_some());
-            });
-
-            GATEWAY_PRINCIPAL.with(|p| {
+            REGISTERED_GATEWAY.with(|p| {
                 let p = p.borrow();
                 assert!(p.is_some());
                 assert_eq!(
-                    p.as_ref().unwrap().to_string(),
-                    test_gateway_principal.to_string()
+                    p.unwrap(),
+                    RegisteredGateway::new(test_gateway_principal)
                 );
             });
         }
@@ -916,10 +1104,43 @@ mod test {
         #[test]
         fn test_get_gateway_principal(test_gateway_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
             // Set up
-            GATEWAY_PRINCIPAL.with(|p| *p.borrow_mut() = Some(test_gateway_principal.clone()));
+            REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(test_gateway_principal.clone())));
 
-            let actual_gateway_principal = get_gateway_principal();
+            let actual_gateway_principal = get_registered_gateway_principal();
             prop_assert_eq!(actual_gateway_principal, test_gateway_principal);
+        }
+
+        #[test]
+        fn test_update_registered_gateway_status_index(test_gateway_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
+            // Set up
+            REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(test_gateway_principal.clone())));
+
+            // test with a valid status index
+            let _ = update_registered_gateway_status_index(2);
+            let actual_status_index = REGISTERED_GATEWAY.with(|p| p.borrow().as_ref().unwrap().last_status_index.clone());
+            prop_assert_eq!(actual_status_index, 2);
+
+            // test with an invalid status index (behind the current one)
+            let actual_result = update_registered_gateway_status_index(1);
+            let actual_status_index = REGISTERED_GATEWAY.with(|p| p.borrow().as_ref().unwrap().last_status_index.clone());
+            prop_assert_eq!(actual_status_index, 2);
+            prop_assert_eq!(actual_result.err(), Some(String::from("Gateway status index is equal to or behind the current one")));
+
+            // test with an invalid status index (equal to the current one)
+            let actual_result = update_registered_gateway_status_index(2);
+            let actual_status_index = REGISTERED_GATEWAY.with(|p| p.borrow().as_ref().unwrap().last_status_index.clone());
+            prop_assert_eq!(actual_status_index, 2);
+            prop_assert_eq!(actual_result.err(), Some(String::from("Gateway status index is equal to or behind the current one")));
+
+            // test with a valid status index (greater one)
+            let _ = update_registered_gateway_status_index(10);
+            let actual_status_index = REGISTERED_GATEWAY.with(|p| p.borrow().as_ref().unwrap().last_status_index.clone());
+            prop_assert_eq!(actual_status_index, 10);
+
+            // reset the registered gateway
+            let _ = update_registered_gateway_status_index(0);
+            let actual_status_index = REGISTERED_GATEWAY.with(|p| p.borrow().as_ref().unwrap().last_status_index.clone());
+            prop_assert_eq!(actual_status_index, 0);
         }
 
         #[test]
@@ -1053,7 +1274,7 @@ mod test {
         fn test_get_messages_for_gateway_range_empty(messages_count in any::<u64>().prop_map(|c| c % 1000)) {
             // Set up
             let gateway_principal = test_utils::generate_random_principal();
-            GATEWAY_PRINCIPAL.with(|p| *p.borrow_mut() = Some(gateway_principal.clone()));
+            REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(gateway_principal.clone())));
 
             // Test
             // we ask for a random range of messages to check if it always returns the same range for empty messages
@@ -1067,7 +1288,7 @@ mod test {
         #[test]
         fn test_get_messages_for_gateway_range_smaller_than_max(gateway_principal in any::<u8>().prop_map(|_| test_utils::get_static_principal())) {
             // Set up
-            GATEWAY_PRINCIPAL.with(|p| *p.borrow_mut() = Some(gateway_principal.clone()));
+            REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(gateway_principal.clone())));
 
             let messages_count = 4;
             let test_client_key = test_utils::generate_random_public_key();
@@ -1089,7 +1310,7 @@ mod test {
         #[test]
         fn test_get_messages_for_gateway_range_larger_than_max(gateway_principal in any::<u8>().prop_map(|_| test_utils::get_static_principal())) {
             // Set up
-            GATEWAY_PRINCIPAL.with(|p| *p.borrow_mut() = Some(gateway_principal.clone()));
+            REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(gateway_principal.clone())));
 
             let messages_count: u64 = (2 * MAX_NUMBER_OF_RETURNED_MESSAGES).try_into().unwrap();
             let test_client_key = test_utils::generate_random_public_key();
@@ -1115,7 +1336,7 @@ mod test {
         #[test]
         fn test_get_messages_for_gateway(gateway_principal in any::<u8>().prop_map(|_| test_utils::get_static_principal()), messages_count in any::<u64>().prop_map(|c| c % 100)) {
             // Set up
-            GATEWAY_PRINCIPAL.with(|p| *p.borrow_mut() = Some(gateway_principal.clone()));
+            REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(gateway_principal.clone())));
 
             let test_client_key = test_utils::generate_random_public_key();
             test_utils::add_messages_for_gateway(test_client_key.clone(), gateway_principal, messages_count);
@@ -1140,7 +1361,7 @@ mod test {
         #[test]
         fn test_check_is_registered_gateway(test_gateway_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
             // Set up
-            GATEWAY_PRINCIPAL.with(|p| *p.borrow_mut() = Some(test_gateway_principal.clone()));
+            REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(test_gateway_principal.clone())));
 
             let actual_result = check_is_registered_gateway(test_gateway_principal);
             prop_assert!(actual_result.is_ok());

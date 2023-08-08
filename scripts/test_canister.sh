@@ -3,7 +3,7 @@
 set -e
 
 # unit tests
-cargo test
+cargo test -p ic-websocket-cdk
 
 cd tests
 
@@ -12,7 +12,7 @@ npm install
 # integration tests
 dfx start --clean --background
 
-npm run deploy:tests
+IC_WS_CDK_INTEGRATION_TEST=1 npm run deploy:tests
 
 npm run generate
 
