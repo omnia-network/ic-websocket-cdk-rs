@@ -13,8 +13,14 @@ use std::{cell::RefCell, collections::HashMap, collections::VecDeque, convert::A
 
 mod logger;
 
+/// The label used when constructing the certification tree.
 const LABEL_WEBSOCKET: &[u8] = b"websocket";
+/// The maximum number of messages returned by [ws_get_messages] at each poll.
 const MAX_NUMBER_OF_RETURNED_MESSAGES: usize = 10;
+/// The delay between two consecutive checks if the registered gateway is still alive.
+const CHECK_REGISTERED_GATEWAY_DELAY_NS: u64 = 60_000_000_000; // 60 seconds
+/// (**Used for integration tests**) The delay between two consecutive checks if the registered gateway is still alive.
+const CHECK_REGISTERED_GATEWAY_DELAY_NS_TEST: u64 = 15_000_000_000; // 15 seconds
 
 pub type ClientPublicKey = Vec<u8>;
 
@@ -231,12 +237,12 @@ fn is_integration_test() -> bool {
     integration_test.is_some() && integration_test.unwrap() == "1"
 }
 
-/// Returns the delay in milliseconds between two consecutive checks if the registered gateway is still alive.
+/// Returns the delay in nanoseconds between two consecutive checks if the registered gateway is still alive.
 fn get_check_registered_gateway_delay_ns() -> u64 {
     if is_integration_test() {
-        15_000_000_000
+        CHECK_REGISTERED_GATEWAY_DELAY_NS_TEST
     } else {
-        60_000_000_000
+        CHECK_REGISTERED_GATEWAY_DELAY_NS
     }
 }
 
@@ -551,8 +557,6 @@ fn schedule_registered_gateway_check() {
         Duration::from_nanos(get_check_registered_gateway_delay_ns()),
         check_registered_gateway_timer_callback,
     );
-
-    custom_print!("Timer scheduled to check if the registered gateway is alive");
 }
 
 /// Checks if the registered gateway has sent a heartbeat recently.
@@ -566,7 +570,7 @@ fn check_registered_gateway_timer_callback() {
         if let Some(v) = registered_gateway.as_mut() {
             if let Some(last_heartbeat) = v.last_heartbeat {
                 if get_current_time() - last_heartbeat > get_check_registered_gateway_delay_ns() {
-                    custom_print!("[timer-cb]: Registered gateway has not sent a heartbeat for a while, resetting all internal state");
+                    custom_print!("[timer-cb]: Registered gateway has not sent a heartbeat for more than {} seconds, resetting all internal state", get_check_registered_gateway_delay_ns() / 1_000_000_000);
 
                     reset_internal_state();
 
@@ -1078,6 +1082,15 @@ mod test {
     fn test_current_time() {
         // test
         assert_eq!(get_current_time(), 0u64);
+    }
+
+    #[test]
+    fn test_get_check_registered_gateway_delay() {
+        // test
+        assert_eq!(
+            get_check_registered_gateway_delay_ns(),
+            CHECK_REGISTERED_GATEWAY_DELAY_NS
+        );
     }
 
     proptest! {
