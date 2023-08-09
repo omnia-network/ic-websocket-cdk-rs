@@ -274,7 +274,9 @@ fn reset_internal_state() {
     CLIENT_CALLER_MAP.with(|map| {
         // for each client, call the on_close handler before clearing the map
         for (client_public_key, _) in map.borrow().iter() {
-            handlers.call_on_close(OnCloseCallbackArgs { client_key: client_public_key.clone() })
+            handlers.call_on_close(OnCloseCallbackArgs {
+                client_key: client_public_key.clone(),
+            })
         }
 
         map.borrow_mut().clear();
@@ -307,7 +309,7 @@ pub fn wipe() {
         }
     });
 
-    custom_print!("IC WebSocket CDK has been wiped!");
+    custom_print!("Internal state has been wiped!");
 }
 
 fn get_outgoing_message_nonce() -> u64 {
@@ -549,12 +551,14 @@ fn schedule_registered_gateway_check() {
         Duration::from_nanos(get_check_registered_gateway_delay_ns()),
         check_registered_gateway_timer_callback,
     );
+
+    custom_print!("Timer scheduled to check if the registered gateway is alive");
 }
 
 /// Checks if the registered gateway has sent a heartbeat recently.
 /// If not, this means that the gateway has been restarted and all clients registered have been disconnected.
 /// In this case, all internal IC WebSocket CDK state is reset.
-/// 
+///
 /// At the end, a new timer is scheduled to check again if the registered gateway has sent a heartbeat recently.
 fn check_registered_gateway_timer_callback() {
     REGISTERED_GATEWAY.with(|state| {
@@ -562,15 +566,19 @@ fn check_registered_gateway_timer_callback() {
         if let Some(v) = registered_gateway.as_mut() {
             if let Some(last_heartbeat) = v.last_heartbeat {
                 if get_current_time() - last_heartbeat > get_check_registered_gateway_delay_ns() {
-                    custom_print!("Registered gateway has not sent a heartbeat for a while, resetting all internal state");
-    
+                    custom_print!("[timer-cb]: Registered gateway has not sent a heartbeat for a while, resetting all internal state");
+
                     reset_internal_state();
-    
+
                     v.reset();
                 } else {
-                    custom_print!("Registered gateway is still alive");
+                    custom_print!("[timer-cb]: Registered gateway is still alive");
                 }
+            } else {
+                custom_print!("[timer-cb]: Registered gateway has not sent a heartbeat yet");
             }
+        } else {
+            custom_print!("[timer-cb]: No registered gateway");
         }
     });
 
@@ -726,10 +734,9 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
         // message sent directly from client
         CanisterIncomingMessage::DirectlyFromClient(received_message) => {
             // check if the identity of the caller corresponds to the one registered for the given public key
-            let expected_caller =
-                get_client_caller(&received_message.client_key).ok_or(String::from(
-                    "client is not registered, call ws_register first",
-                ))?;
+            let expected_caller = get_client_caller(&received_message.client_key).ok_or(
+                String::from("client is not registered, call ws_register first"),
+            )?;
             if caller() != expected_caller {
                 return Err(String::from(
                     "caller is not the same that registered the public key",
@@ -797,10 +804,7 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
             // check if client registered its public key by calling ws_register
             check_registered_client_key(&client_key)?;
 
-            custom_print!(
-                "Can start notifying client with key: {:?}",
-                client_key
-            );
+            custom_print!("Can start notifying client with key: {:?}", client_key);
             // call the on_open handler
             HANDLERS.with(|h| {
                 // trigger the on_open handler initialized by canister
