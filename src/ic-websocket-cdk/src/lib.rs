@@ -268,9 +268,18 @@ thread_local! {
 /// Resets all RefCells to their initial state.
 /// If there is a registered gateway, resets its state as well.
 fn reset_internal_state() {
+    // get the handlers to call the on_close handler for each client
+    let handlers = HANDLERS.with(|state| state.borrow().clone());
+
     CLIENT_CALLER_MAP.with(|map| {
+        // for each client, call the on_close handler before clearing the map
+        for (client_public_key, _) in map.borrow().iter() {
+            handlers.call_on_close(OnCloseCallbackArgs { client_key: client_public_key.clone() })
+        }
+
         map.borrow_mut().clear();
     });
+
     OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
         map.borrow_mut().clear();
     });
@@ -342,7 +351,17 @@ fn update_registered_gateway_status_index(status_index: u64) -> Result<(), Strin
         let mut registered_gateway = state.borrow_mut();
 
         if let Some(v) = registered_gateway.as_mut() {
-            v.update_status_index(status_index)
+            // if the current status index is > 0 and the new status index is 0, it means that the gateway has been restarted
+            // in this case, we reset the internal state because all clients are not connected to the gateway anymore
+            if v.last_status_index > 0 && status_index == 0 {
+                reset_internal_state();
+
+                v.reset();
+
+                Ok(())
+            } else {
+                v.update_status_index(status_index)
+            }
         } else {
             Err("no gateway registered".to_owned())
         }
@@ -584,6 +603,7 @@ pub struct OnCloseCallbackArgs {
 type OnCloseCallback = fn(OnCloseCallbackArgs);
 
 /// Handlers initialized by the canister and triggered by the CDK.
+#[derive(Clone)]
 pub struct WsHandlers {
     pub on_open: Option<OnOpenCallback>,
     pub on_message: Option<OnMessageCallback>,
@@ -708,7 +728,7 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
             // check if the identity of the caller corresponds to the one registered for the given public key
             let expected_caller =
                 get_client_caller(&received_message.client_key).ok_or(String::from(
-                    "client was was not authenticated with II when it registered its public key",
+                    "client is not registered, call ws_register first",
                 ))?;
             if caller() != expected_caller {
                 return Err(String::from(
@@ -814,6 +834,9 @@ pub fn ws_get_messages(args: CanisterWsGetMessagesArguments) -> CanisterWsGetMes
 /// Under the hood, the message is serialized and certified, and then it is added to the queue of messages
 /// that the WS Gateway will poll in the next iteration.
 pub fn ws_send<T: Serialize>(client_key: ClientPublicKey, msg: T) -> CanisterWsSendResult {
+    // check if the client is registered
+    check_registered_client_key(&client_key)?;
+
     // serialize the message for the client into msg_cbor
     let mut msg_cbor = vec![];
     let mut serializer = Serializer::new(&mut msg_cbor);
@@ -822,8 +845,6 @@ pub fn ws_send<T: Serialize>(client_key: ClientPublicKey, msg: T) -> CanisterWsS
 
     // get the principal of the gateway that is polling the canister
     let gateway_principal = get_registered_gateway_principal();
-
-    let time = get_current_time();
 
     // the nonce in key is used by the WS Gateway to determine the message to start in the polling iteration
     // the key is also passed to the client in order to validate the body of the certified message
@@ -839,7 +860,7 @@ pub fn ws_send<T: Serialize>(client_key: ClientPublicKey, msg: T) -> CanisterWsS
     let input = WebsocketMessage {
         client_key: client_key.clone(),
         sequence_num: get_outgoing_message_to_client_num(&client_key)?,
-        timestamp: time,
+        timestamp: get_current_time(),
         message: msg_cbor,
     };
 
@@ -1041,6 +1062,18 @@ mod test {
         assert!(CUSTOM_STATE.with(|h| h.borrow().is_on_open_called));
         assert!(CUSTOM_STATE.with(|h| h.borrow().is_on_message_called));
         assert!(CUSTOM_STATE.with(|h| h.borrow().is_on_close_called));
+    }
+
+    #[test]
+    fn test_is_integration_test() {
+        // test
+        assert_eq!(is_integration_test(), false);
+    }
+
+    #[test]
+    fn test_current_time() {
+        // test
+        assert_eq!(get_current_time(), 0u64);
     }
 
     proptest! {
