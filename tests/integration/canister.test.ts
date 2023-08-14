@@ -33,9 +33,26 @@ import {
 
 const MAX_NUMBER_OF_RETURNED_MESSAGES = 10; // set in the CDK
 const SEND_MESSAGES_COUNT = MAX_NUMBER_OF_RETURNED_MESSAGES + 2; // test with more messages to check the indexes and limits
+const MAX_GATEWAY_KEEP_ALIVE_TIME_MS = 15_000; // set in the CDK
 
 let client1KeyPair: { publicKey: Uint8Array; secretKey: Uint8Array | string; };
 let client2KeyPair: { publicKey: Uint8Array; secretKey: Uint8Array | string; };
+
+// the status index used by the gateway to send a keep-alive message
+let gatewayStatusIndex = 0;
+
+const sendGatewayStatusMessage = async () => {
+  await wsMessage({
+    message: {
+      IcWebSocketGatewayStatus: {
+        status_index: BigInt(gatewayStatusIndex),
+      }
+    },
+    actor: gateway1,
+  }, true);
+
+  gatewayStatusIndex += 1;
+};
 
 const assignKeyPairsToClients = async () => {
   if (!client1KeyPair) {
@@ -82,6 +99,10 @@ describe("Canister - ws_open", () => {
 
   afterAll(async () => {
     await wsWipe(gateway1);
+  });
+
+  beforeEach(async () => {
+    await sendGatewayStatusMessage();
   });
 
   it("fails for a gateway which is not registered", async () => {
@@ -163,6 +184,10 @@ describe("Canister - ws_message", () => {
     await wsWipe(gateway1);
   });
 
+  beforeEach(async () => {
+    await sendGatewayStatusMessage();
+  });
+
   it("fails if a non registered gateway sends an IcWebSocketEstablished message", async () => {
     const res = await wsMessage({
       message: {
@@ -203,7 +228,7 @@ describe("Canister - ws_message", () => {
     });
 
     expect(res).toMatchObject<CanisterWsMessageResult>({
-      Err: "client was was not authenticated with II when it registered its public key",
+      Err: "client is not registered, call ws_register first",
     });
   });
 
@@ -467,6 +492,10 @@ describe("Canister - ws_get_messages (failures,empty)", () => {
     await wsWipe(gateway1);
   });
 
+  beforeEach(async () => {
+    await sendGatewayStatusMessage();
+  });
+
   it("fails if a non registered gateway tries to get messages", async () => {
     const res = await gateway2.ws_get_messages({
       nonce: BigInt(0),
@@ -504,6 +533,224 @@ describe("Canister - ws_get_messages (failures,empty)", () => {
   });
 });
 
+describe("Canister - ws_message (gateway status)", () => {
+  beforeAll(async () => {
+    await assignKeyPairsToClients();
+
+    await wsRegister({
+      clientActor: client1,
+      clientKey: client1KeyPair.publicKey,
+    }, true);
+
+    await wsOpen({
+      clientPublicKey: client1KeyPair.publicKey,
+      clientSecretKey: client1KeyPair.secretKey,
+      canisterId,
+      gatewayActor: gateway1,
+    }, true);
+
+    await wsSend({
+      clientPublicKey: client1KeyPair.publicKey,
+      actor: client1,
+      message: { text: "test" },
+    }, true);
+  });
+
+  afterAll(async () => {
+    await wsWipe(gateway1);
+  });
+
+  it("fails if a non registered gateway sends an IcWebSocketGatewayStatus message", async () => {
+    const res = await wsMessage({
+      message: {
+        IcWebSocketGatewayStatus: {
+          status_index: BigInt(1),
+        },
+      },
+      actor: gateway2,
+    });
+
+    expect(res).toMatchObject<CanisterWsMessageResult>({
+      Err: "caller is not the gateway that has been registered during CDK initialization",
+    });
+  });
+
+  it("registered gateway should update the status index", async () => {
+    const res = await wsMessage({
+      message: {
+        IcWebSocketGatewayStatus: {
+          status_index: BigInt(2), // set it high to test behavior for indexes behind the current one
+        },
+      },
+      actor: gateway1,
+    });
+
+    expect(res).toMatchObject<CanisterWsMessageResult>({
+      Ok: null,
+    });
+  });
+
+  it("fails if a registered gateway sends an IcWebSocketGatewayStatus with a wrong status index (equal to current)", async () => {
+    const res = await wsMessage({
+      message: {
+        IcWebSocketGatewayStatus: {
+          status_index: BigInt(2),
+        },
+      },
+      actor: gateway1,
+    });
+
+    expect(res).toMatchObject<CanisterWsMessageResult>({
+      Err: "Gateway status index is equal to or behind the current one",
+    });
+  });
+
+  it("fails if a registered gateway sends an IcWebSocketGatewayStatus with a wrong status index (behind the current)", async () => {
+    const res = await wsMessage({
+      message: {
+        IcWebSocketGatewayStatus: {
+          status_index: BigInt(1),
+        },
+      },
+      actor: gateway1,
+    });
+
+    expect(res).toMatchObject<CanisterWsMessageResult>({
+      Err: "Gateway status index is equal to or behind the current one",
+    });
+  });
+
+  it("registered gateway should disconnect after maximum time", async () => {
+    let res = await gateway1.ws_get_messages({
+      nonce: BigInt(0),
+    });
+
+    expect(res).toMatchObject<CanisterWsGetMessagesResult>({
+      Ok: {
+        messages: expect.any(Array),
+        cert: expect.any(Uint8Array),
+        tree: expect.any(Uint8Array),
+      },
+    });
+    expect((res as { Ok: CanisterOutputCertifiedMessages }).Ok.messages.length).toEqual(1);
+
+    // wait for the maximum time the gateway can send a status message,
+    // so that the internal canister state is reset
+    // double the time to make sure the canister state is reset
+    await new Promise((resolve) => setTimeout(resolve, 2 * MAX_GATEWAY_KEEP_ALIVE_TIME_MS));
+
+    // check if messages have been deleted
+    res = await gateway1.ws_get_messages({
+      nonce: BigInt(0),
+    });
+    expect(res).toMatchObject<CanisterWsGetMessagesResult>({
+      Ok: {
+        messages: [],
+        cert: expect.any(Uint8Array),
+        tree: expect.any(Uint8Array),
+      },
+    });
+
+    // check if registered client has been deleted
+    const sendRes = await wsSend({
+      clientPublicKey: client1KeyPair.publicKey,
+      actor: client1,
+      message: { text: "test" },
+    });
+    expect(sendRes).toMatchObject<CanisterWsSendResult>({
+      Err: "client's public key has not been previously registered by client",
+    });
+  });
+
+  it("registered gateway should reconnect by resetting the status index", async () => {
+    let res = await wsMessage({
+      message: {
+        IcWebSocketGatewayStatus: {
+          status_index: BigInt(0),
+        },
+      },
+      actor: gateway1,
+    });
+
+    expect(res).toMatchObject<CanisterWsMessageResult>({
+      Ok: null,
+    });
+
+    res = await wsMessage({
+      message: {
+        IcWebSocketGatewayStatus: {
+          status_index: BigInt(1),
+        },
+      },
+      actor: gateway1,
+    });
+
+    expect(res).toMatchObject<CanisterWsMessageResult>({
+      Ok: null,
+    });
+  });
+
+  it("registered gateway should reconnect before maximum time", async () => {
+    // reconnect the client
+    await wsRegister({
+      clientActor: client1,
+      clientKey: client1KeyPair.publicKey,
+    }, true);
+
+    await wsOpen({
+      clientPublicKey: client1KeyPair.publicKey,
+      clientSecretKey: client1KeyPair.secretKey,
+      canisterId,
+      gatewayActor: gateway1,
+    }, true);
+
+    // send a test message from the canister to check if the internal state is reset
+    await wsSend({
+      clientPublicKey: client1KeyPair.publicKey,
+      actor: client1,
+      message: { text: "test" },
+    }, true);
+
+    // check if the canister has the message in the queue
+    let messagesRes = await gateway1.ws_get_messages({
+      nonce: BigInt(0),
+    });
+    expect(messagesRes).toMatchObject<CanisterWsGetMessagesResult>({
+      Ok: {
+        messages: expect.any(Array),
+        cert: expect.any(Uint8Array),
+        tree: expect.any(Uint8Array),
+      },
+    });
+    expect((messagesRes as { Ok: CanisterOutputCertifiedMessages }).Ok.messages.length).toEqual(1);
+
+    // simulate a reconnection
+    const res = await wsMessage({
+      message: {
+        IcWebSocketGatewayStatus: {
+          status_index: BigInt(0),
+        },
+      },
+      actor: gateway1,
+    });
+    expect(res).toMatchObject<CanisterWsMessageResult>({
+      Ok: null,
+    });
+
+    // check if the canister reset the internal state
+    messagesRes = await gateway1.ws_get_messages({
+      nonce: BigInt(0),
+    });
+    expect(messagesRes).toMatchObject<CanisterWsGetMessagesResult>({
+      Ok: {
+        messages: [],
+        cert: expect.any(Uint8Array),
+        tree: expect.any(Uint8Array),
+      },
+    });
+  });
+});
+
 describe("Canister - ws_get_messages (receive)", () => {
   beforeAll(async () => {
     await assignKeyPairsToClients();
@@ -535,6 +782,10 @@ describe("Canister - ws_get_messages (receive)", () => {
 
   afterAll(async () => {
     await wsWipe(gateway1);
+  });
+
+  beforeEach(async () => {
+    await sendGatewayStatusMessage();
   });
 
   it("registered gateway can receive correct amount of messages", async () => {
@@ -665,6 +916,10 @@ describe("Canister - ws_close", () => {
     await wsWipe(gateway1);
   });
 
+  beforeEach(async () => {
+    await sendGatewayStatusMessage();
+  });
+
   it("fails if gateway is not registered", async () => {
     const res = await wsClose({
       clientPublicKey: client1KeyPair.publicKey,
@@ -728,7 +983,7 @@ describe("Canister - ws_send", () => {
     });
 
     expect(res).toMatchObject<CanisterWsSendResult>({
-      Err: "outgoing message to client num not initialized for client",
+      Err: "client's public key has not been previously registered by client",
     });
   });
 
