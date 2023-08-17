@@ -1,4 +1,5 @@
-use ic_cdk::{export::candid::CandidType, print};
+use candid::CandidType;
+use ic_cdk::print;
 use serde::{Deserialize, Serialize};
 
 use ic_websocket_cdk::{OnCloseCallbackArgs, OnMessageCallbackArgs, OnOpenCallbackArgs};
@@ -7,7 +8,6 @@ pub const GATEWAY_PRINCIPAL: &str =
     "sqdfl-mr4km-2hfjy-gajqo-xqvh7-hf4mf-nra4i-3it6l-neaw4-soolw-tae";
 
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-#[candid_path("ic_cdk::export::candid")]
 pub struct AppMessage {
     pub text: String,
 }
