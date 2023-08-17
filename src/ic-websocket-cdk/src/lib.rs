@@ -123,7 +123,7 @@ pub struct GatewayStatusMessage {
 /// The variants of the possible messages received by the canister in [ws_message].
 /// - **IcWebSocketEstablished**: message sent from WS Gateway to the canister to notify it about the
 ///                               establishment of the IcWebSocketConnection
-/// - **IcWebSocketStatus**:      message sent from WS Gateway to the canister to notify it about the
+/// - **IcWebSocketGatewayStatus**:      message sent from WS Gateway to the canister to notify it about the
 ///                               status of the IcWebSocketConnection
 /// - **RelayedByGateway**:       message sent from the client to the WS Gateway (via WebSocket) and
 ///                               relayed to the canister by the WS Gateway
@@ -821,9 +821,7 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
             // this message can come only from the registered gateway
             check_is_registered_gateway(caller())?;
 
-            update_registered_gateway_status_index(gateway_status.status_index)?;
-
-            Ok(())
+            update_registered_gateway_status_index(gateway_status.status_index)
         },
     }
 }
