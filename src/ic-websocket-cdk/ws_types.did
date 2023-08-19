@@ -1,19 +1,12 @@
 type ClientPublicKey = blob;
 
-type WebsocketMessage = record {
-  sequence_num : nat64;
-  timestamp : nat64;
-  message : blob;
-};
-
 type DirectClientMessage = record {
   client_key : ClientPublicKey;
   message : blob;
 };
 
 type RelayedClientMessage = record {
-  client_key : ClientPublicKey;
-  content : WebsocketMessage;
+  content : blob;
   sig : blob;
 };
 
@@ -28,13 +21,9 @@ type CanisterIncomingMessage = variant {
   IcWebSocketGatewayStatus : GatewayStatusMessage;
 };
 
-type CanisterFirstMessageContent = record {
-  canister_id : Principal;
-};
-
 type CanisterOutputMessage = record {
   client_key : ClientPublicKey;
-  content : WebsocketMessage;
+  content : blob;
   key : text;
 };
 
@@ -54,8 +43,7 @@ type CanisterWsRegisterResult = variant {
 };
 
 type CanisterWsOpenArguments = record {
-  client_key : ClientPublicKey;
-  content : CanisterFirstMessageContent;
+  content : blob;
   sig : blob;
 };
 

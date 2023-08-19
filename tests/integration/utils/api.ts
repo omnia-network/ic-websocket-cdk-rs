@@ -1,10 +1,11 @@
 // helpers for functions that are called frequently in tests
 
 import { ActorSubclass, Cbor, Certificate, HashTree, HttpAgent, compare, lookup_path, reconstruct } from "@dfinity/agent";
-import { CanisterIncomingMessage, ClientPublicKey, _SERVICE } from "../../src/declarations/test_canister/test_canister.did";
-import { getSignedMessage } from "./crypto";
 import { Secp256k1KeyIdentity } from "@dfinity/identity-secp256k1";
 import { Principal } from "@dfinity/principal";
+import { IDL } from "@dfinity/candid";
+import { getMessageSignature } from "./crypto";
+import type { CanisterIncomingMessage, ClientPublicKey, _SERVICE } from "../../src/declarations/test_canister/test_canister.did";
 
 type WsRegisterArgs = {
   clientActor: ActorSubclass<_SERVICE>,
@@ -32,16 +33,22 @@ type WsOpenArgs = {
   gatewayActor: ActorSubclass<_SERVICE>,
 };
 
+export type CanisterOpenMessageContent = {
+  client_key: ClientPublicKey,
+  canister_id: Principal,
+};
+
 export const wsOpen = async (args: WsOpenArgs, throwIfError = false) => {
-  const content = Cbor.encode({
+  const firstMessage: CanisterOpenMessageContent = {
     client_key: args.clientPublicKey,
-    canister_id: args.canisterId,
-  });
-  const signedMessage = await getSignedMessage(content, args.clientSecretKey);
+    canister_id: Principal.fromText(args.canisterId),
+  };
+  const contentBuf = new Uint8Array(Cbor.encode(firstMessage));
+  const sig = await getMessageSignature(contentBuf, args.clientSecretKey);
 
   const res = await args.gatewayActor.ws_open({
-    msg: signedMessage.content,
-    sig: signedMessage.sig,
+    content: contentBuf,
+    sig,
   });
 
   if (throwIfError) {
@@ -84,7 +91,7 @@ export const getWebsocketMessage = (clientPublicKey: ClientPublicKey, sequenceNu
     client_key: clientPublicKey,
     sequence_num: sequenceNumber,
     timestamp: Date.now(),
-    message: new Uint8Array(content || [1, 2, 3, 4]),
+    message: new Uint8Array(content || []),
   };
 
   return new Uint8Array(Cbor.encode(websocketMessage));
@@ -122,7 +129,8 @@ type WsSendArgs = {
 };
 
 export const wsSend = async (args: WsSendArgs, throwIfError = false) => {
-  const res = await args.actor.ws_send(args.clientPublicKey, args.message);
+  const msgBytes = IDL.encode([IDL.Record({ 'text': IDL.Text })], [args.message]);
+  const res = await args.actor.ws_send(args.clientPublicKey, new Uint8Array(msgBytes));
 
   if (throwIfError) {
     if ('Err' in res) {
@@ -172,7 +180,7 @@ export const isValidCertificate = async (canisterId: string, certificate: Uint8A
   return compare(witness, reconstructed) === 0;
 };
 
-export const isMessageBodyValid = async (path: string, body: Uint8Array, tree: Uint8Array) => {
+export const isMessageBodyValid = async (path: string, body: Uint8Array | ArrayBuffer, tree: Uint8Array) => {
   const hashTree = Cbor.decode<HashTree>(tree);
   const sha = await crypto.subtle.digest("SHA-256", body);
   let treeSha = lookup_path(["websocket", path], hashTree);
