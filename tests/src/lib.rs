@@ -1,6 +1,6 @@
 use ic_cdk_macros::*;
 
-use canister::{on_close, on_message, on_open, AppMessage, GATEWAY_PRINCIPAL};
+use canister::{on_close, on_message, on_open};
 use ic_websocket_cdk::{
     CanisterWsCloseArguments, CanisterWsCloseResult, CanisterWsGetMessagesArguments,
     CanisterWsGetMessagesResult, CanisterWsMessageArguments, CanisterWsMessageResult,
@@ -11,22 +11,18 @@ use ic_websocket_cdk::{
 mod canister;
 
 #[init]
-fn init(gateway_principal: Option<String>) {
+fn init(gateway_principal: String) {
     let handlers = WsHandlers {
         on_open: Some(on_open),
         on_message: Some(on_message),
         on_close: Some(on_close),
     };
 
-    if let Some(gateway_principal) = gateway_principal {
-        ic_websocket_cdk::init(handlers, &gateway_principal)
-    } else {
-        ic_websocket_cdk::init(handlers, GATEWAY_PRINCIPAL)
-    }
+    ic_websocket_cdk::init(handlers, &gateway_principal)
 }
 
 #[post_upgrade]
-fn post_upgrade(gateway_principal: Option<String>) {
+fn post_upgrade(gateway_principal: String) {
     init(gateway_principal);
 }
 
@@ -69,6 +65,6 @@ fn ws_wipe() {
 
 // send a message to the client, usually called by the canister itself
 #[update]
-fn ws_send(client_key: ClientPublicKey, msg: AppMessage) -> CanisterWsSendResult {
-    ic_websocket_cdk::ws_send(client_key, msg)
+fn ws_send(client_key: ClientPublicKey, msg_bytes: Vec<u8>) -> CanisterWsSendResult {
+    ic_websocket_cdk::ws_send(client_key, msg_bytes)
 }

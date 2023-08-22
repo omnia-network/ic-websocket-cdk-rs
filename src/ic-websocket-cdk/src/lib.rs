@@ -47,7 +47,6 @@ pub struct CanisterWsOpenResultValue {
 
 /// The arguments for [ws_register].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
-#[candid_path("ic_cdk::export::candid")]
 pub struct CanisterWsRegisterArguments {
     #[serde(with = "serde_bytes")]
     client_key: ClientPublicKey,
@@ -55,17 +54,15 @@ pub struct CanisterWsRegisterArguments {
 
 /// The arguments for [ws_open].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
-#[candid_path("ic_cdk::export::candid")]
 pub struct CanisterWsOpenArguments {
     #[serde(with = "serde_bytes")]
-    msg: Vec<u8>,
+    content: Vec<u8>,
     #[serde(with = "serde_bytes")]
     sig: Vec<u8>,
 }
 
 /// The arguments for [ws_close].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
-#[candid_path("ic_cdk::export::candid")]
 pub struct CanisterWsCloseArguments {
     #[serde(with = "serde_bytes")]
     client_key: ClientPublicKey,
@@ -73,22 +70,19 @@ pub struct CanisterWsCloseArguments {
 
 /// The arguments for [ws_message].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
-#[candid_path("ic_cdk::export::candid")]
 pub struct CanisterWsMessageArguments {
     msg: CanisterIncomingMessage,
 }
 
 /// The arguments for [ws_get_messages].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
-#[candid_path("ic_cdk::export::candid")]
 pub struct CanisterWsGetMessagesArguments {
     nonce: u64,
 }
 
 /// The first message received by the canister in [ws_open].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
-#[candid_path("ic_cdk::export::candid")]
-struct CanisterFirstMessageContent {
+struct CanisterOpenMessageContent {
     #[serde(with = "serde_bytes")]
     client_key: ClientPublicKey,
     canister_id: Principal,
@@ -96,8 +90,7 @@ struct CanisterFirstMessageContent {
 
 /// Message + signature from client, **relayed** by the WS Gateway.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-#[candid_path("ic_cdk::export::candid")]
-pub struct RelayedClientMessage {
+struct RelayedClientMessage {
     #[serde(with = "serde_bytes")]
     content: Vec<u8>,
     #[serde(with = "serde_bytes")]
@@ -106,18 +99,16 @@ pub struct RelayedClientMessage {
 
 /// Message coming **directly** from client, not relayed by the WS Gateway.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-#[candid_path("ic_cdk::export::candid")]
-pub struct DirectClientMessage {
-    pub message: Vec<u8>,
-    pub client_key: ClientPublicKey,
+struct DirectClientMessage {
+    message: Vec<u8>,
+    client_key: ClientPublicKey,
 }
 
 /// Heartbeat message sent from the WS Gateway to the canister, so that the canister can
 /// verify that the WS Gateway is still alive.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-#[candid_path("ic_cdk::export::candid")]
-pub struct GatewayStatusMessage {
-    pub status_index: u64,
+struct GatewayStatusMessage {
+    status_index: u64,
 }
 
 /// The variants of the possible messages received by the canister in [ws_message].
@@ -130,8 +121,7 @@ pub struct GatewayStatusMessage {
 /// - **DirectlyFromClient**:     message sent from directly client so that it is not necessary to
 ///                               verify the signature
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-#[candid_path("ic_cdk::export::candid")]
-pub enum CanisterIncomingMessage {
+enum CanisterIncomingMessage {
     DirectlyFromClient(DirectClientMessage),
     RelayedByGateway(RelayedClientMessage),
     IcWebSocketEstablished(ClientPublicKey),
@@ -139,32 +129,40 @@ pub enum CanisterIncomingMessage {
 }
 
 /// Messages exchanged through the WebSocket.
-#[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
-#[candid_path("ic_cdk::export::candid")]
-pub struct WebsocketMessage {
+#[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+struct WebsocketMessage {
     #[serde(with = "serde_bytes")]
-    pub client_key: ClientPublicKey, // To or from client key.
-    pub sequence_num: u64, // Both ways, messages should arrive with sequence numbers 0, 1, 2...
-    pub timestamp: u64,    // Timestamp of when the message was made for the recipient to inspect.
+    client_key: ClientPublicKey, // The client that the gateway will forward the message to or that sent the message.
+    sequence_num: u64, // Both ways, messages should arrive with sequence numbers 0, 1, 2...
+    timestamp: u64,    // Timestamp of when the message was made for the recipient to inspect.
     #[serde(with = "serde_bytes")]
-    pub message: Vec<u8>, // Application message encoded in binary.
+    message: Vec<u8>, // Application message encoded in binary.
+}
+
+impl WebsocketMessage {
+    /// Serializes the message into a Vec<u8>, using CBOR.
+    fn cbor_serialize(&self) -> Result<Vec<u8>, String> {
+        let mut data = vec![];
+        let mut serializer = Serializer::new(&mut data);
+        serializer.self_describe().map_err(|e| e.to_string())?;
+        self.serialize(&mut serializer).map_err(|e| e.to_string())?;
+        Ok(data)
+    }
 }
 
 /// Element of the list of messages returned to the WS Gateway after polling.
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
-#[candid_path("ic_cdk::export::candid")]
-pub struct CanisterOutputMessage {
+struct CanisterOutputMessage {
     #[serde(with = "serde_bytes")]
-    client_key: ClientPublicKey, // The client that the gateway will forward the message to.
+    client_key: Vec<u8>, // The client that the gateway will forward the message to or that sent the message.
+    #[serde(with = "serde_bytes")]
+    content: Vec<u8>, // The message to be relayed, that contains the application message.
     key: String, // Key for certificate verification.
-    #[serde(with = "serde_bytes")]
-    val: Vec<u8>, // Encoded WebsocketMessage.
 }
 
 /// List of messages returned to the WS Gateway after polling.
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
-#[candid_path("ic_cdk::export::candid")]
-pub struct CanisterOutputCertifiedMessages {
+struct CanisterOutputCertifiedMessages {
     messages: Vec<CanisterOutputMessage>, // List of messages.
     #[serde(with = "serde_bytes")]
     cert: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
@@ -185,7 +183,7 @@ struct RegisteredGateway {
 
 impl RegisteredGateway {
     /// Creates a new instance of RegisteredGateway.
-    pub fn new(gateway_principal: Principal) -> Self {
+    fn new(gateway_principal: Principal) -> Self {
         Self {
             gateway_principal,
             last_heartbeat: None,
@@ -591,7 +589,7 @@ fn check_registered_gateway_timer_callback() {
 
 /// Arguments passed to the `on_open` handler.
 pub struct OnOpenCallbackArgs {
-    pub client_key: ClientPublicKey,
+    client_key: ClientPublicKey,
 }
 /// Handler initialized by the canister and triggered by the CDK once the IC WebSocket connection
 /// is established.
@@ -599,8 +597,8 @@ type OnOpenCallback = fn(OnOpenCallbackArgs);
 
 /// Arguments passed to the `on_message` handler.
 pub struct OnMessageCallbackArgs {
-    pub client_key: ClientPublicKey,
-    pub message: Vec<u8>,
+    client_key: ClientPublicKey,
+    message: Vec<u8>,
 }
 /// Handler initialized by the canister and triggered by the CDK once a message is received by
 /// the CDK.
@@ -608,7 +606,7 @@ type OnMessageCallback = fn(OnMessageCallbackArgs);
 
 /// Arguments passed to the `on_close` handler.
 pub struct OnCloseCallbackArgs {
-    pub client_key: ClientPublicKey,
+    client_key: ClientPublicKey,
 }
 /// Handler initialized by the canister and triggered by the CDK once the WS Gateway closes the
 /// IC WebSocket connection.
@@ -649,6 +647,21 @@ fn initialize_handlers(handlers: WsHandlers) {
     });
 }
 
+/// Checks the content signature
+fn check_content_signature(
+    client_key: &ClientPublicKey,
+    content: &Vec<u8>,
+    sig: &Vec<u8>,
+) -> Result<(), String> {
+    // check if client_key is a Ed25519 public key
+    let public_key = PublicKey::from_slice(client_key).map_err(|e| e.to_string())?;
+    // check if the signature relayed by the WS Gateway is a Ed25519 signature
+    let sig = Signature::from_slice(sig).map_err(|e| e.to_string())?;
+    // check if the signature on the first message verifies against the public key of the registered client
+    // if so, the first message came from the same client that registered its public key using ws_register
+    public_key.verify(content, &sig).map_err(|e| e.to_string())
+}
+
 /// Initialize the CDK by setting the callback handlers and the **principal** of the WS Gateway that
 /// will be polling the canister.
 pub fn init(handlers: WsHandlers, gateway_principal: &str) {
@@ -681,23 +694,18 @@ pub fn ws_register(args: CanisterWsRegisterArguments) -> CanisterWsRegisterResul
 pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
     // the caller must be the gateway that was registered during CDK initialization
     check_is_registered_gateway(caller())?;
+
     // decode the first message sent by the client
-    let CanisterFirstMessageContent {
+    let CanisterOpenMessageContent {
         client_key,
         canister_id,
-    } = from_slice(&args.msg).map_err(|e| e.to_string())?;
-    // check if client_key is a Ed25519 public key
-    let public_key = PublicKey::from_slice(&client_key).map_err(|e| e.to_string())?;
-    // check if the signature relayed by the WS Gateway is a Ed25519 signature
-    let sig = Signature::from_slice(&args.sig).map_err(|e| e.to_string())?;
+    } = from_slice(&args.content).map_err(|e| e.to_string())?;
 
     // check if client registered its public key by calling ws_register
     check_registered_client_key(&client_key)?;
+
     // check if the signature on the first message verifies against the public key of the registered client
-    // if so, the first message came from the same client that registered its public key using ws_register
-    public_key
-        .verify(&args.msg, &sig)
-        .map_err(|e| e.to_string())?;
+    check_content_signature(&client_key, &args.content, &args.sig)?;
 
     // initialize client maps
     add_client(client_key.clone());
@@ -761,6 +769,7 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
             // this message can come only from the registered gateway
             check_is_registered_gateway(caller())?;
 
+            // decode the message sent by the client
             let WebsocketMessage {
                 client_key,
                 sequence_num,
@@ -771,18 +780,17 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
             // check if client registered its public key by calling ws_register
             check_registered_client_key(&client_key)?;
 
-            // check if the signature is a Ed25519 signature
-            let sig = Signature::from_slice(&received_message.sig).map_err(|e| e.to_string())?;
-            // check if client_key is a Ed25519 public key
-            let public_key = PublicKey::from_slice(&client_key).map_err(|e| e.to_string())?;
-            // check if the signature on the content of the client message verifies against the public key of the registered client
-            // if so, the message came from the same client that registered its public key using ws_register
-            public_key
-                .verify(&received_message.content, &sig)
-                .map_err(|e| e.to_string())?;
+            // check if the signature on the message verifies against the public key of the registered client
+            check_content_signature(
+                &client_key,
+                &received_message.content,
+                &received_message.sig,
+            )?;
+
+            let expected_sequence_num = get_expected_incoming_message_from_client_num(&client_key)?;
 
             // check if the incoming message has the expected sequence number
-            if sequence_num == get_expected_incoming_message_from_client_num(&client_key)? {
+            if sequence_num == expected_sequence_num {
                 // increase the expected sequence number by 1
                 increment_expected_incoming_message_from_client_num(&client_key)?;
                 // call the on_message handler initialized in init()
@@ -835,19 +843,13 @@ pub fn ws_get_messages(args: CanisterWsGetMessagesArguments) -> CanisterWsGetMes
     get_cert_messages(gateway_principal, args.nonce)
 }
 
-/// Sends a message to the client.
+/// Sends a message to the client. The message must already be serialized, using a method of your choice, like Candid or CBOR.
 ///
 /// Under the hood, the message is serialized and certified, and then it is added to the queue of messages
 /// that the WS Gateway will poll in the next iteration.
-pub fn ws_send<T: Serialize>(client_key: ClientPublicKey, msg: T) -> CanisterWsSendResult {
+pub fn ws_send(client_key: ClientPublicKey, msg_bytes: Vec<u8>) -> CanisterWsSendResult {
     // check if the client is registered
     check_registered_client_key(&client_key)?;
-
-    // serialize the message for the client into msg_cbor
-    let mut msg_cbor = vec![];
-    let mut serializer = Serializer::new(&mut msg_cbor);
-    serializer.self_describe().map_err(|e| e.to_string())?;
-    msg.serialize(&mut serializer).map_err(|e| e.to_string())?;
 
     // get the principal of the gateway that is polling the canister
     let gateway_principal = get_registered_gateway_principal();
@@ -863,23 +865,18 @@ pub fn ws_send<T: Serialize>(client_key: ClientPublicKey, msg: T) -> CanisterWsS
     // increment the sequence number for the next message to the client
     increment_outgoing_message_to_client_num(&client_key)?;
 
-    let input = WebsocketMessage {
+    let websocket_message = WebsocketMessage {
         client_key: client_key.clone(),
         sequence_num: get_outgoing_message_to_client_num(&client_key)?,
         timestamp: get_current_time(),
-        message: msg_cbor,
+        message: msg_bytes,
     };
 
-    // serialize the message of type WebsocketMessage into data
-    let mut data = vec![];
-    let mut serializer = Serializer::new(&mut data);
-    serializer.self_describe().map_err(|e| e.to_string())?;
-    input
-        .serialize(&mut serializer)
-        .map_err(|e| e.to_string())?;
+    // CBOR serialize message of type WebsocketMessage
+    let content = websocket_message.cbor_serialize()?;
 
     // certify data
-    put_cert_for_message(key.clone(), &data);
+    put_cert_for_message(key.clone(), &content);
 
     MESSAGES_FOR_GATEWAY.with(|m| {
         // messages in the queue are inserted with contiguous and increasing nonces
@@ -887,8 +884,8 @@ pub fn ws_send<T: Serialize>(client_key: ClientPublicKey, msg: T) -> CanisterWsS
         // is incremented by one in each call, and the message is pushed at the end of the queue
         m.borrow_mut().push_back(CanisterOutputMessage {
             client_key,
+            content,
             key,
-            val: data,
         });
     });
     Ok(())
@@ -898,6 +895,7 @@ pub fn ws_send<T: Serialize>(client_key: ClientPublicKey, msg: T) -> CanisterWsS
 mod test {
     use super::*;
     use proptest::prelude::*;
+    use ring::signature::KeyPair;
 
     mod test_utils {
         use candid::Principal;
@@ -909,7 +907,7 @@ mod test {
             MESSAGES_FOR_GATEWAY,
         };
 
-        fn load_key_pair() -> Ed25519KeyPair {
+        pub fn generate_random_key_pair() -> Ed25519KeyPair {
             let rng = ring::rand::SystemRandom::new();
             let key_pair =
                 Ed25519KeyPair::generate_pkcs8(&rng).expect("Could not generate a key pair.");
@@ -917,7 +915,7 @@ mod test {
         }
 
         pub fn generate_random_principal() -> candid::Principal {
-            let key_pair = load_key_pair();
+            let key_pair = generate_random_key_pair();
             let identity = BasicIdentity::from_key_pair(key_pair);
 
             // workaround to keep the principal in the version of candid used by the canister
@@ -925,7 +923,7 @@ mod test {
         }
 
         pub fn generate_random_public_key() -> Vec<u8> {
-            let key_pair = load_key_pair();
+            let key_pair = generate_random_key_pair();
 
             key_pair.public_key().as_ref().to_vec()
         }
@@ -945,7 +943,7 @@ mod test {
                     m.borrow_mut().push_back(CanisterOutputMessage {
                         client_key: client_key.clone(),
                         key: get_message_for_gateway_key(gateway_principal.clone(), i),
-                        val: vec![],
+                        content: vec![],
                     });
                 }
             });
@@ -1415,6 +1413,43 @@ mod test {
             let other_principal = test_utils::generate_random_principal();
             let actual_result = check_is_registered_gateway(other_principal);
             prop_assert_eq!(actual_result.err(), Some(String::from("caller is not the gateway that has been registered during CDK initialization")));
+        }
+
+        #[test]
+        fn test_check_content_signature(test_content in any::<Vec<u8>>(), test_key_pair in any::<u8>().prop_map(|_| test_utils::generate_random_key_pair())) {
+            let signature = test_key_pair.sign(&test_content);
+
+            // wrong content
+            let actual_result = check_content_signature(&test_key_pair.public_key().as_ref().to_vec(), &vec![0], &signature.as_ref().to_vec());
+            prop_assert_eq!(actual_result.err(), Some(String::from("Signature doesn't verify")));
+
+            // wrong public key
+            let other_key_pair = test_utils::generate_random_key_pair();
+            let actual_result = check_content_signature(&other_key_pair.public_key().as_ref().to_vec(), &test_content, &signature.as_ref().to_vec());
+            prop_assert_eq!(actual_result.err(), Some(String::from("Signature doesn't verify")));
+
+            // wrong signature
+            let other_signature = other_key_pair.sign(&test_content);
+            let actual_result = check_content_signature(&test_key_pair.public_key().as_ref().to_vec(), &test_content, &other_signature.as_ref().to_vec());
+            prop_assert_eq!(actual_result.err(), Some(String::from("Signature doesn't verify")));
+
+            // correct signature
+            let actual_result = check_content_signature(&test_key_pair.public_key().as_ref().to_vec(), &test_content, &signature.as_ref().to_vec());
+            prop_assert!(actual_result.is_ok());
+        }
+
+        #[test]
+        fn test_serialize_websocket_message(test_msg_bytes in any::<Vec<u8>>(), test_sequence_num in any::<u64>(), test_timestamp in any::<u64>()) {
+            // TODO: add more tests, in which we check the serialized message
+            let websocket_message = WebsocketMessage {
+                client_key: test_utils::generate_random_public_key(),
+                sequence_num: test_sequence_num,
+                timestamp: test_timestamp,
+                message: test_msg_bytes,
+            };
+
+            let serialized_message = websocket_message.cbor_serialize();
+            assert!(serialized_message.is_ok()); // not so useful as a test
         }
     }
 }
