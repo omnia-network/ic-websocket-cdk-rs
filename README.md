@@ -15,7 +15,7 @@ ic-websocket-cdk = { git = "https://github.com/omnia-network/ic-websocket-cdk-rs
 For example, a valid installation line would be:
 
 ```toml
-ic-websocket-cdk = { git = "https://github.com/omnia-network/ic-websocket-cdk-rs", rev = "d27c2f25b3f0da044b80628dd843fee76fb356c4" }
+ic-websocket-cdk = { git = "https://github.com/omnia-network/ic-websocket-cdk-rs", rev = "6dc50dbf65cc8f24ab47596c1ce06a16d23e5508" }
 ```
 
 It will also be available on crates.io soon.
