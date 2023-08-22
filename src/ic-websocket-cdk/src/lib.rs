@@ -90,7 +90,7 @@ struct CanisterOpenMessageContent {
 
 /// Message + signature from client, **relayed** by the WS Gateway.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-pub struct RelayedClientMessage {
+struct RelayedClientMessage {
     #[serde(with = "serde_bytes")]
     content: Vec<u8>,
     #[serde(with = "serde_bytes")]
@@ -99,16 +99,16 @@ pub struct RelayedClientMessage {
 
 /// Message coming **directly** from client, not relayed by the WS Gateway.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-pub struct DirectClientMessage {
-    pub message: Vec<u8>,
-    pub client_key: ClientPublicKey,
+struct DirectClientMessage {
+    message: Vec<u8>,
+    client_key: ClientPublicKey,
 }
 
 /// Heartbeat message sent from the WS Gateway to the canister, so that the canister can
 /// verify that the WS Gateway is still alive.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-pub struct GatewayStatusMessage {
-    pub status_index: u64,
+struct GatewayStatusMessage {
+    status_index: u64,
 }
 
 /// The variants of the possible messages received by the canister in [ws_message].
@@ -121,7 +121,7 @@ pub struct GatewayStatusMessage {
 /// - **DirectlyFromClient**:     message sent from directly client so that it is not necessary to
 ///                               verify the signature
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-pub enum CanisterIncomingMessage {
+enum CanisterIncomingMessage {
     DirectlyFromClient(DirectClientMessage),
     RelayedByGateway(RelayedClientMessage),
     IcWebSocketEstablished(ClientPublicKey),
@@ -130,13 +130,13 @@ pub enum CanisterIncomingMessage {
 
 /// Messages exchanged through the WebSocket.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-pub struct WebsocketMessage {
+struct WebsocketMessage {
     #[serde(with = "serde_bytes")]
-    pub client_key: ClientPublicKey, // The client that the gateway will forward the message to or that sent the message.
-    pub sequence_num: u64, // Both ways, messages should arrive with sequence numbers 0, 1, 2...
-    pub timestamp: u64,    // Timestamp of when the message was made for the recipient to inspect.
+    client_key: ClientPublicKey, // The client that the gateway will forward the message to or that sent the message.
+    sequence_num: u64, // Both ways, messages should arrive with sequence numbers 0, 1, 2...
+    timestamp: u64,    // Timestamp of when the message was made for the recipient to inspect.
     #[serde(with = "serde_bytes")]
-    pub message: Vec<u8>, // Application message encoded in binary.
+    message: Vec<u8>, // Application message encoded in binary.
 }
 
 impl WebsocketMessage {
@@ -152,7 +152,7 @@ impl WebsocketMessage {
 
 /// Element of the list of messages returned to the WS Gateway after polling.
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
-pub struct CanisterOutputMessage {
+struct CanisterOutputMessage {
     #[serde(with = "serde_bytes")]
     client_key: Vec<u8>, // The client that the gateway will forward the message to or that sent the message.
     #[serde(with = "serde_bytes")]
@@ -162,7 +162,7 @@ pub struct CanisterOutputMessage {
 
 /// List of messages returned to the WS Gateway after polling.
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
-pub struct CanisterOutputCertifiedMessages {
+struct CanisterOutputCertifiedMessages {
     messages: Vec<CanisterOutputMessage>, // List of messages.
     #[serde(with = "serde_bytes")]
     cert: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
@@ -183,7 +183,7 @@ struct RegisteredGateway {
 
 impl RegisteredGateway {
     /// Creates a new instance of RegisteredGateway.
-    pub fn new(gateway_principal: Principal) -> Self {
+    fn new(gateway_principal: Principal) -> Self {
         Self {
             gateway_principal,
             last_heartbeat: None,
@@ -589,7 +589,7 @@ fn check_registered_gateway_timer_callback() {
 
 /// Arguments passed to the `on_open` handler.
 pub struct OnOpenCallbackArgs {
-    pub client_key: ClientPublicKey,
+    client_key: ClientPublicKey,
 }
 /// Handler initialized by the canister and triggered by the CDK once the IC WebSocket connection
 /// is established.
@@ -597,8 +597,8 @@ type OnOpenCallback = fn(OnOpenCallbackArgs);
 
 /// Arguments passed to the `on_message` handler.
 pub struct OnMessageCallbackArgs {
-    pub client_key: ClientPublicKey,
-    pub message: Vec<u8>,
+    client_key: ClientPublicKey,
+    message: Vec<u8>,
 }
 /// Handler initialized by the canister and triggered by the CDK once a message is received by
 /// the CDK.
@@ -606,7 +606,7 @@ type OnMessageCallback = fn(OnMessageCallbackArgs);
 
 /// Arguments passed to the `on_close` handler.
 pub struct OnCloseCallbackArgs {
-    pub client_key: ClientPublicKey,
+    client_key: ClientPublicKey,
 }
 /// Handler initialized by the canister and triggered by the CDK once the WS Gateway closes the
 /// IC WebSocket connection.
