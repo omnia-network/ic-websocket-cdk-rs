@@ -152,7 +152,7 @@ impl WebsocketMessage {
 
 /// Element of the list of messages returned to the WS Gateway after polling.
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
-struct CanisterOutputMessage {
+pub struct CanisterOutputMessage {
     #[serde(with = "serde_bytes")]
     client_key: Vec<u8>, // The client that the gateway will forward the message to or that sent the message.
     #[serde(with = "serde_bytes")]
@@ -162,7 +162,7 @@ struct CanisterOutputMessage {
 
 /// List of messages returned to the WS Gateway after polling.
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
-struct CanisterOutputCertifiedMessages {
+pub struct CanisterOutputCertifiedMessages {
     messages: Vec<CanisterOutputMessage>, // List of messages.
     #[serde(with = "serde_bytes")]
     cert: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
@@ -589,7 +589,7 @@ fn check_registered_gateway_timer_callback() {
 
 /// Arguments passed to the `on_open` handler.
 pub struct OnOpenCallbackArgs {
-    client_key: ClientPublicKey,
+    pub client_key: ClientPublicKey,
 }
 /// Handler initialized by the canister and triggered by the CDK once the IC WebSocket connection
 /// is established.
@@ -597,8 +597,8 @@ type OnOpenCallback = fn(OnOpenCallbackArgs);
 
 /// Arguments passed to the `on_message` handler.
 pub struct OnMessageCallbackArgs {
-    client_key: ClientPublicKey,
-    message: Vec<u8>,
+    pub client_key: ClientPublicKey,
+    pub message: Vec<u8>,
 }
 /// Handler initialized by the canister and triggered by the CDK once a message is received by
 /// the CDK.
@@ -606,7 +606,7 @@ type OnMessageCallback = fn(OnMessageCallbackArgs);
 
 /// Arguments passed to the `on_close` handler.
 pub struct OnCloseCallbackArgs {
-    client_key: ClientPublicKey,
+    pub client_key: ClientPublicKey,
 }
 /// Handler initialized by the canister and triggered by the CDK once the WS Gateway closes the
 /// IC WebSocket connection.
