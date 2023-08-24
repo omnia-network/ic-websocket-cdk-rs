@@ -188,6 +188,8 @@ describe("Canister - ws_open", () => {
   });
 
   it("fails for a client which is registered, but after the gateway increased the status index by two and then been reset", async () => {
+    // reset the canister state from the previous test
+    await wsWipe(gateway1);
     // register the client again
     await wsRegister({
       clientActor: client1,
@@ -214,6 +216,8 @@ describe("Canister - ws_open", () => {
   });
 
   it("should open the websocket for a registered client after gateway has been reset", async () => {
+    // reset the canister state from the previous test
+    await wsWipe(gateway1);
     // register the client again
     await wsRegister({
       clientActor: client1,

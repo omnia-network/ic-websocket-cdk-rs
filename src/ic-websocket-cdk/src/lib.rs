@@ -294,7 +294,7 @@ impl TmpClients {
 thread_local! {
     /// Maps the client's public key to the client's identity (anonymous if not authenticated).
     /* flexible */ static CLIENT_CALLER_MAP: RefCell<HashMap<ClientPublicKey, Principal>> = RefCell::new(HashMap::new());
-    /// Maps the clients that don't still have a connection open, based on the gateway status index at which they were registered.
+    /// Maps the clients that still don't have a connection open, based on the gateway status index at which they were registered.
     /* flexible */ static TMP_CLIENTS: RefCell<TmpClients> = RefCell::new(TmpClients::new());
     /// Maps the client's public key to the sequence number to use for the next outgoing message (to that client).
     /* flexible */ static OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP: RefCell<HashMap<ClientPublicKey, u64>> = RefCell::new(HashMap::new());
