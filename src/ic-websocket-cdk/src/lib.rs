@@ -9,7 +9,12 @@ use serde::{Deserialize, Serialize};
 use serde_cbor::{from_slice, Serializer};
 use sha2::{Digest, Sha256};
 use std::time::Duration;
-use std::{cell::RefCell, collections::HashMap, collections::VecDeque, convert::AsRef};
+use std::{
+    cell::RefCell,
+    collections::VecDeque,
+    collections::{HashMap, HashSet},
+    convert::AsRef,
+};
 
 mod logger;
 
@@ -244,9 +249,53 @@ fn get_check_registered_gateway_delay_ns() -> u64 {
     }
 }
 
+/// The temporary clients that don't still have a connection open, based on the gateway status index at which they were registered.
+/// The last two status indexes are kept in order to be able to handle the case when the gateway crashes and restarts.
+struct TmpClients {
+    second_last_index_clients: HashSet<ClientPublicKey>,
+    last_index_clients: HashSet<ClientPublicKey>,
+}
+
+impl TmpClients {
+    fn new() -> Self {
+        Self {
+            second_last_index_clients: HashSet::new(),
+            last_index_clients: HashSet::new(),
+        }
+    }
+
+    fn shift(&mut self) {
+        self.second_last_index_clients = self.last_index_clients.clone();
+        self.last_index_clients = HashSet::new();
+    }
+
+    fn clear(&mut self) {
+        self.second_last_index_clients.clear();
+        self.last_index_clients.clear();
+    }
+
+    fn insert(&mut self, client_key: ClientPublicKey) {
+        self.last_index_clients.insert(client_key);
+    }
+
+    fn contain_client(&self, client_key: &ClientPublicKey) -> bool {
+        self.last_index_clients.contains(client_key)
+            || self.second_last_index_clients.contains(client_key)
+    }
+
+    fn remove(&mut self, client_key: &ClientPublicKey) {
+        let is_removed = self.last_index_clients.remove(client_key);
+        if !is_removed {
+            self.second_last_index_clients.remove(client_key);
+        }
+    }
+}
+
 thread_local! {
     /// Maps the client's public key to the client's identity (anonymous if not authenticated).
     /* flexible */ static CLIENT_CALLER_MAP: RefCell<HashMap<ClientPublicKey, Principal>> = RefCell::new(HashMap::new());
+    /// Maps the clients that still don't have a connection open, based on the gateway status index at which they were registered.
+    /* flexible */ static TMP_CLIENTS: RefCell<TmpClients> = RefCell::new(TmpClients::new());
     /// Maps the client's public key to the sequence number to use for the next outgoing message (to that client).
     /* flexible */ static OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP: RefCell<HashMap<ClientPublicKey, u64>> = RefCell::new(HashMap::new());
     /// Maps the client's public key to the expected sequence number of the next incoming message (from that client).
@@ -275,15 +324,22 @@ fn reset_internal_state() {
     // get the handlers to call the on_close handler for each client
     let handlers = HANDLERS.with(|state| state.borrow().clone());
 
-    CLIENT_CALLER_MAP.with(|map| {
+    CLIENT_CALLER_MAP.with(|state| {
+        let mut map = state.borrow_mut();
         // for each client, call the on_close handler before clearing the map
-        for (client_public_key, _) in map.borrow().iter() {
-            handlers.call_on_close(OnCloseCallbackArgs {
-                client_key: client_public_key.clone(),
-            })
-        }
+        for (client_key, _) in map.clone().iter() {
+            // If a client registers while the gateway crashes and restarts, we have to keep the client in the map,
+            // so that the ws_open invoked by the gateway doesn't fail.
+            // To be sure that we retain the latest unregistered clients,
+            // we keep all the clients that have registered after the last two times the gateway updated the status index
+            if !is_client_in_tmp_clients(client_key) {
+                handlers.call_on_close(OnCloseCallbackArgs {
+                    client_key: client_key.clone(),
+                });
 
-        map.borrow_mut().clear();
+                map.remove(client_key);
+            }
+        }
     });
 
     OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
@@ -313,6 +369,16 @@ pub fn wipe() {
         }
     });
 
+    // remove all clients from the map
+    CLIENT_CALLER_MAP.with(|map| {
+        map.borrow_mut().clear();
+    });
+
+    // clear the temporary clients
+    TMP_CLIENTS.with(|tmp_clients| {
+        tmp_clients.borrow_mut().clear();
+    });
+
     custom_print!("Internal state has been wiped!");
 }
 
@@ -326,8 +392,11 @@ fn increment_outgoing_message_nonce() {
 
 fn put_client_caller(client_key: ClientPublicKey, caller: Principal) {
     CLIENT_CALLER_MAP.with(|map| {
-        map.borrow_mut().insert(client_key, caller);
-    })
+        map.borrow_mut().insert(client_key.clone(), caller);
+    });
+
+    // add the client to the temporary clients
+    insert_in_tmp_clients(client_key);
 }
 
 fn get_client_caller(client_key: &ClientPublicKey) -> Option<Principal> {
@@ -350,6 +419,34 @@ fn get_registered_gateway_principal() -> Principal {
     })
 }
 
+fn insert_in_tmp_clients(client_key: ClientPublicKey) {
+    TMP_CLIENTS.with(|tmp_clients| {
+        let mut tmp_clients = tmp_clients.borrow_mut();
+        tmp_clients.insert(client_key);
+    });
+}
+
+fn shift_tmp_clients() {
+    TMP_CLIENTS.with(|tmp_clients| {
+        let mut tmp_clients = tmp_clients.borrow_mut();
+        tmp_clients.shift();
+    });
+}
+
+fn is_client_in_tmp_clients(client_key: &ClientPublicKey) -> bool {
+    TMP_CLIENTS.with(|tmp_clients| {
+        let tmp_clients = tmp_clients.borrow();
+        tmp_clients.contain_client(client_key)
+    })
+}
+
+fn remove_client_from_tmp_clients(client_key: &ClientPublicKey) {
+    TMP_CLIENTS.with(|tmp_clients| {
+        let mut tmp_clients = tmp_clients.borrow_mut();
+        tmp_clients.remove(client_key);
+    });
+}
+
 /// Updates the registered gateway with the new status index.
 /// If the status index is not greater than the current one, the function returns an error.
 fn update_registered_gateway_status_index(status_index: u64) -> Result<(), String> {
@@ -366,6 +463,9 @@ fn update_registered_gateway_status_index(status_index: u64) -> Result<(), Strin
 
                 Ok(())
             } else {
+                // update the temporary clients, shifting the last index clients to the second last index clients
+                shift_tmp_clients();
+
                 v.update_status_index(status_index)
             }
         } else {
@@ -441,7 +541,10 @@ fn add_client(client_key: ClientPublicKey) {
     // initialize incoming client's message sequence number to 0
     init_expected_incoming_message_from_client_num(client_key.clone());
     // initialize outgoing message sequence number to 0
-    init_outgoing_message_to_client_num(client_key);
+    init_outgoing_message_to_client_num(client_key.clone());
+
+    // now that the client is registered, remove it from the temporary clients
+    remove_client_from_tmp_clients(&client_key);
 }
 
 fn remove_client(client_key: ClientPublicKey) {
@@ -1130,8 +1233,10 @@ mod test {
                 map.borrow_mut().insert(test_client_key.clone(), caller_principal);
             });
 
-            let actual_client_caller = CLIENT_CALLER_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
-            prop_assert_eq!(actual_client_caller, caller_principal);
+            let actual_client_caller = get_client_caller(&test_client_key);
+            prop_assert_eq!(actual_client_caller, Some(caller_principal));
+            let actual_client_caller = get_client_caller(&test_utils::generate_random_public_key());
+            prop_assert_eq!(actual_client_caller, None);
         }
 
         #[test]
@@ -1141,8 +1246,10 @@ mod test {
 
             put_client_caller(test_client_key.clone(), caller_principal);
 
-            let actual_client_caller = CLIENT_CALLER_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
-            prop_assert_eq!(actual_client_caller, caller_principal);
+            let actual_client = CLIENT_CALLER_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
+            prop_assert_eq!(actual_client, caller_principal);
+            let actual_result = TMP_CLIENTS.with(|map| map.borrow().last_index_clients.get(&test_client_key).unwrap().clone());
+            prop_assert_eq!(actual_result, test_client_key);
         }
 
         #[test]
@@ -1155,14 +1262,22 @@ mod test {
         }
 
         #[test]
-        fn test_update_registered_gateway_status_index(test_gateway_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
+        fn test_update_registered_gateway_status_index(test_gateway_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal()), test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
             // Set up
+            CLIENT_CALLER_MAP.with(|map| {
+                map.borrow_mut().insert(test_client_key.clone(), test_utils::generate_random_principal());
+            });
+            TMP_CLIENTS.with(|map| {
+                map.borrow_mut().last_index_clients.insert(test_client_key.clone());
+            });
             REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(test_gateway_principal.clone())));
 
             // test with a valid status index
             let _ = update_registered_gateway_status_index(2);
             let actual_status_index = REGISTERED_GATEWAY.with(|p| p.borrow().as_ref().unwrap().last_status_index.clone());
             prop_assert_eq!(actual_status_index, 2);
+            let actual_result = TMP_CLIENTS.with(|map| map.borrow().second_last_index_clients.get(&test_client_key).unwrap().clone());
+            prop_assert_eq!(actual_result, test_client_key.clone());
 
             // test with an invalid status index (behind the current one)
             let actual_result = update_registered_gateway_status_index(1);
@@ -1180,15 +1295,31 @@ mod test {
             let _ = update_registered_gateway_status_index(10);
             let actual_status_index = REGISTERED_GATEWAY.with(|p| p.borrow().as_ref().unwrap().last_status_index.clone());
             prop_assert_eq!(actual_status_index, 10);
+            let actual_result = TMP_CLIENTS.with(|map| map.borrow().second_last_index_clients.get(&test_client_key).is_none());
+            prop_assert!(actual_result);
 
             // reset the registered gateway
+            let new_client_key = test_utils::generate_random_public_key();
+            CLIENT_CALLER_MAP.with(|map| {
+                map.borrow_mut().insert(new_client_key.clone(), test_utils::generate_random_principal());
+            });
+            TMP_CLIENTS.with(|map| {
+                map.borrow_mut().last_index_clients.insert(new_client_key.clone());
+            });
             let _ = update_registered_gateway_status_index(0);
             let actual_status_index = REGISTERED_GATEWAY.with(|p| p.borrow().as_ref().unwrap().last_status_index.clone());
             prop_assert_eq!(actual_status_index, 0);
+            let actual_result = TMP_CLIENTS.with(|map| map.borrow().last_index_clients.get(&new_client_key).unwrap().clone());
+            prop_assert_eq!(actual_result, new_client_key.clone());
+            let actual_result = CLIENT_CALLER_MAP.with(|map| {
+                let map = map.borrow();
+                map.get(&test_client_key).is_none() && map.get(&new_client_key).is_some()
+            });
+            prop_assert!(actual_result);
         }
 
         #[test]
-        fn test_check_registered_client_key_not_set(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
+        fn test_check_registered_client_key_empty(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
             let actual_result = check_registered_client_key(&test_client_key);
             prop_assert_eq!(actual_result.err(), Some(String::from("client's public key has not been previously registered by client")));
         }
@@ -1202,6 +1333,8 @@ mod test {
 
             let actual_result = check_registered_client_key(&test_client_key);
             prop_assert!(actual_result.is_ok());
+            let actual_result = check_registered_client_key(&test_utils::generate_random_public_key());
+            prop_assert_eq!(actual_result.err(), Some(String::from("client's public key has not been previously registered by client")));
         }
 
         #[test]
@@ -1274,6 +1407,12 @@ mod test {
 
         #[test]
         fn test_add_client(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
+            // Set up
+            TMP_CLIENTS.with(|map| {
+                map.borrow_mut().last_index_clients.insert(test_client_key.clone());
+            });
+
+            // Test
             add_client(test_client_key.clone());
 
             let actual_result = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
@@ -1281,6 +1420,9 @@ mod test {
 
             let actual_result = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
             prop_assert_eq!(actual_result, 0);
+
+            let actual_result = TMP_CLIENTS.with(|map| map.borrow().last_index_clients.get(&test_client_key).is_none());
+            prop_assert!(actual_result);
         }
 
         #[test]
@@ -1450,6 +1592,82 @@ mod test {
 
             let serialized_message = websocket_message.cbor_serialize();
             assert!(serialized_message.is_ok()); // not so useful as a test
+        }
+
+        #[test]
+        fn test_insert_in_tmp_clients(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
+            insert_in_tmp_clients(test_client_key.clone());
+
+            let actual_result = TMP_CLIENTS.with(|map| map.borrow().last_index_clients.get(&test_client_key).unwrap().clone());
+            prop_assert_eq!(actual_result, test_client_key);
+        }
+
+        #[test]
+        fn test_shift_tmp_clients(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
+            // Set up
+            TMP_CLIENTS.with(|map| {
+                map.borrow_mut().last_index_clients.insert(test_client_key.clone());
+            });
+
+            // Test
+            // shift and check if the client is still there
+            shift_tmp_clients();
+
+            let actual_result = TMP_CLIENTS.with(|map| map.borrow().last_index_clients.get(&test_client_key).is_none());
+            prop_assert!(actual_result);
+            let actual_result = TMP_CLIENTS.with(|map| map.borrow().second_last_index_clients.get(&test_client_key).unwrap().clone());
+            prop_assert_eq!(actual_result, test_client_key.clone());
+
+            // add a new client to the last index clients, and check if the old one is still there
+            let new_client = test_utils::generate_random_public_key();
+            TMP_CLIENTS.with(|map| {
+                map.borrow_mut().last_index_clients.insert(new_client.clone());
+            });
+
+            // shift again and check if the old one is removed
+            shift_tmp_clients();
+
+            let actual_result = TMP_CLIENTS.with(|map| map.borrow().second_last_index_clients.get(&new_client).unwrap().clone());
+            prop_assert_eq!(actual_result, new_client);
+            let actual_result = TMP_CLIENTS.with(|map| map.borrow().second_last_index_clients.get(&test_client_key).is_none());
+            prop_assert!(actual_result);
+
+            // shift again and check if everything is empty
+            shift_tmp_clients();
+
+            let actual_result = TMP_CLIENTS.with(|map| map.borrow().second_last_index_clients.is_empty());
+            prop_assert!(actual_result);
+            let actual_result = TMP_CLIENTS.with(|map| map.borrow().last_index_clients.is_empty());
+            prop_assert!(actual_result);
+        }
+
+        #[test]
+        fn test_is_client_in_tmp_clients(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
+            // Set up
+            TMP_CLIENTS.with(|map| {
+                map.borrow_mut().last_index_clients.insert(test_client_key.clone());
+            });
+
+            // Test
+            let actual_result = is_client_in_tmp_clients(&test_client_key);
+            prop_assert!(actual_result);
+
+            let actual_result = is_client_in_tmp_clients(&test_utils::generate_random_public_key());
+            prop_assert!(!actual_result);
+        }
+
+        #[test]
+        fn test_remove_client_from_tmp_clients(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
+            // Set up
+            TMP_CLIENTS.with(|map| {
+                map.borrow_mut().last_index_clients.insert(test_client_key.clone());
+            });
+
+            // Test
+            remove_client_from_tmp_clients(&test_client_key);
+
+            let actual_result = TMP_CLIENTS.with(|map| map.borrow().last_index_clients.get(&test_client_key).is_none());
+            prop_assert!(actual_result);
         }
     }
 }

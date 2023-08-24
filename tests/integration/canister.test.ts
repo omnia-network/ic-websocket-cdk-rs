@@ -42,11 +42,13 @@ let client2KeyPair: { publicKey: Uint8Array; secretKey: Uint8Array | string; };
 // the status index used by the gateway to send a keep-alive message
 let gatewayStatusIndex = 0;
 
-const sendGatewayStatusMessage = async () => {
+const sendGatewayStatusMessage = async (index?: number) => {
+  const statusIndex = index !== undefined ? index : gatewayStatusIndex;
+
   await wsMessage({
     message: {
       IcWebSocketGatewayStatus: {
-        status_index: BigInt(gatewayStatusIndex),
+        status_index: BigInt(statusIndex),
       }
     },
     actor: gateway1,
@@ -170,7 +172,88 @@ describe("Canister - ws_open", () => {
     });
   });
 
+  it("fails for a client which is not registered after the gateway has been reset", async () => {
+    await sendGatewayStatusMessage(0);
+
+    const res = await wsOpen({
+      clientPublicKey: client2KeyPair.publicKey,
+      clientSecretKey: client2KeyPair.secretKey,
+      canisterId,
+      gatewayActor: gateway1,
+    });
+
+    expect(res).toMatchObject<CanisterWsOpenResult>({
+      Err: "client's public key has not been previously registered by client",
+    });
+  });
+
+  it("fails for a client which is registered, but after the gateway increased the status index by two and then been reset", async () => {
+    // reset the canister state from the previous test
+    await wsWipe(gateway1);
+    // register the client again
+    await wsRegister({
+      clientActor: client1,
+      clientKey: client1KeyPair.publicKey,
+    }, true);
+
+    // send two status messages to make the client key shift out of the tmp ones
+    await sendGatewayStatusMessage();
+    await sendGatewayStatusMessage();
+
+    // reset the gateway on the canister
+    await sendGatewayStatusMessage(0);
+
+    const res = await wsOpen({
+      clientPublicKey: client1KeyPair.publicKey,
+      clientSecretKey: client1KeyPair.secretKey,
+      canisterId,
+      gatewayActor: gateway1,
+    });
+
+    expect(res).toMatchObject<CanisterWsOpenResult>({
+      Err: "client's public key has not been previously registered by client",
+    });
+  });
+
+  it("should open the websocket for a registered client after gateway has been reset", async () => {
+    // reset the canister state from the previous test
+    await wsWipe(gateway1);
+    // register the client again
+    await wsRegister({
+      clientActor: client1,
+      clientKey: client1KeyPair.publicKey,
+    }, true);
+
+    // reset the gateway on the canister
+    await sendGatewayStatusMessage(0);
+
+    const res = await wsOpen({
+      clientPublicKey: client1KeyPair.publicKey,
+      clientSecretKey: client1KeyPair.secretKey,
+      canisterId,
+      gatewayActor: gateway1,
+    });
+
+    expect(res).toMatchObject<CanisterWsOpenResult>({
+      Ok: {
+        client_key: client1KeyPair.publicKey,
+        canister_id: Principal.fromText(canisterId),
+        nonce: BigInt(0),
+      },
+    });
+  });
+
   it("should open the websocket for a registered client", async () => {
+    // reset the canister state from the previous test
+    await wsWipe(gateway1);
+    // setup the canister state again
+    await sendGatewayStatusMessage();
+    await wsRegister({
+      clientActor: client1,
+      clientKey: client1KeyPair.publicKey,
+    }, true);
+
+    // open the websocket
     const res = await wsOpen({
       clientPublicKey: client1KeyPair.publicKey,
       clientSecretKey: client1KeyPair.secretKey,
