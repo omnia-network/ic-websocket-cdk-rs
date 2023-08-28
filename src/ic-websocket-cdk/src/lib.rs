@@ -1,20 +1,14 @@
 use candid::{CandidType, Principal};
-use ed25519_compact::{PublicKey, Signature};
 #[cfg(not(test))]
 use ic_cdk::api::time;
 use ic_cdk::api::{caller, data_certificate, set_certified_data};
 use ic_cdk_timers::set_timer;
 use ic_certified_map::{labeled, labeled_hash, AsHashTree, Hash as ICHash, RbTree};
 use serde::{Deserialize, Serialize};
-use serde_cbor::{from_slice, Serializer};
+use serde_cbor::Serializer;
 use sha2::{Digest, Sha256};
 use std::time::Duration;
-use std::{
-    cell::RefCell,
-    collections::VecDeque,
-    collections::{HashMap, HashSet},
-    convert::AsRef,
-};
+use std::{cell::RefCell, collections::HashMap, collections::VecDeque, convert::AsRef};
 
 mod logger;
 
@@ -27,56 +21,50 @@ const CHECK_REGISTERED_GATEWAY_DELAY_NS: u64 = 60_000_000_000; // 60 seconds
 /// (**Used for integration tests**) The delay between two consecutive checks if the registered gateway is still alive.
 const CHECK_REGISTERED_GATEWAY_DELAY_NS_TEST: u64 = 15_000_000_000; // 15 seconds
 
-pub type ClientPublicKey = Vec<u8>;
+pub type ClientPrincipal = Principal;
 
-/// The result of [ws_register].
-pub type CanisterWsRegisterResult = Result<(), String>;
 /// The result of [ws_open].
 pub type CanisterWsOpenResult = Result<CanisterWsOpenResultValue, String>;
+/// The result of [ws_close].
+pub type CanisterWsCloseResult = Result<(), String>;
 /// The result of [ws_message].
 pub type CanisterWsMessageResult = Result<(), String>;
+/// The result of [ws_status].
+pub type CanisterWsStatusResult = Result<(), String>;
 /// The result of [ws_get_messages].
 pub type CanisterWsGetMessagesResult = Result<CanisterOutputCertifiedMessages, String>;
 /// The result of [ws_send].
 pub type CanisterWsSendResult = Result<(), String>;
-/// The result of [ws_close].
-pub type CanisterWsCloseResult = Result<(), String>;
 
 /// The Ok value of CanisterWsOpenResult returned by [ws_open].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsOpenResultValue {
-    client_key: ClientPublicKey,
-    canister_id: Principal,
+    client_principal: ClientPrincipal,
     nonce: u64,
-}
-
-/// The arguments for [ws_register].
-#[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
-pub struct CanisterWsRegisterArguments {
-    #[serde(with = "serde_bytes")]
-    client_key: ClientPublicKey,
 }
 
 /// The arguments for [ws_open].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsOpenArguments {
-    #[serde(with = "serde_bytes")]
-    content: Vec<u8>,
-    #[serde(with = "serde_bytes")]
-    sig: Vec<u8>,
+    is_anonymous: bool,
 }
 
 /// The arguments for [ws_close].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsCloseArguments {
-    #[serde(with = "serde_bytes")]
-    client_key: ClientPublicKey,
+    client_principal: ClientPrincipal,
 }
 
 /// The arguments for [ws_message].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsMessageArguments {
-    msg: CanisterIncomingMessage,
+    msg: WebsocketMessage,
+}
+
+/// The arguments for [ws_status].
+#[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
+pub struct CanisterWsStatusArguments {
+    status_index: u64,
 }
 
 /// The arguments for [ws_get_messages].
@@ -85,63 +73,14 @@ pub struct CanisterWsGetMessagesArguments {
     nonce: u64,
 }
 
-/// The first message received by the canister in [ws_open].
-#[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
-struct CanisterOpenMessageContent {
-    #[serde(with = "serde_bytes")]
-    client_key: ClientPublicKey,
-    canister_id: Principal,
-}
-
-/// Message + signature from client, **relayed** by the WS Gateway.
-#[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-struct RelayedClientMessage {
-    #[serde(with = "serde_bytes")]
-    content: Vec<u8>,
-    #[serde(with = "serde_bytes")]
-    sig: Vec<u8>,
-}
-
-/// Message coming **directly** from client, not relayed by the WS Gateway.
-#[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-struct DirectClientMessage {
-    message: Vec<u8>,
-    client_key: ClientPublicKey,
-}
-
-/// Heartbeat message sent from the WS Gateway to the canister, so that the canister can
-/// verify that the WS Gateway is still alive.
-#[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-struct GatewayStatusMessage {
-    status_index: u64,
-}
-
-/// The variants of the possible messages received by the canister in [ws_message].
-/// - **IcWebSocketEstablished**: message sent from WS Gateway to the canister to notify it about the
-///                               establishment of the IcWebSocketConnection
-/// - **IcWebSocketGatewayStatus**:      message sent from WS Gateway to the canister to notify it about the
-///                               status of the IcWebSocketConnection
-/// - **RelayedByGateway**:       message sent from the client to the WS Gateway (via WebSocket) and
-///                               relayed to the canister by the WS Gateway
-/// - **DirectlyFromClient**:     message sent from directly client so that it is not necessary to
-///                               verify the signature
-#[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-enum CanisterIncomingMessage {
-    DirectlyFromClient(DirectClientMessage),
-    RelayedByGateway(RelayedClientMessage),
-    IcWebSocketEstablished(ClientPublicKey),
-    IcWebSocketGatewayStatus(GatewayStatusMessage),
-}
-
 /// Messages exchanged through the WebSocket.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 struct WebsocketMessage {
-    #[serde(with = "serde_bytes")]
-    client_key: ClientPublicKey, // The client that the gateway will forward the message to or that sent the message.
+    client_principal: ClientPrincipal, // The client that the gateway will forward the message to or that sent the message.
     sequence_num: u64, // Both ways, messages should arrive with sequence numbers 0, 1, 2...
     timestamp: u64,    // Timestamp of when the message was made for the recipient to inspect.
     #[serde(with = "serde_bytes")]
-    message: Vec<u8>, // Application message encoded in binary.
+    content: Vec<u8>, // Application message encoded in binary.
 }
 
 impl WebsocketMessage {
@@ -158,11 +97,10 @@ impl WebsocketMessage {
 /// Element of the list of messages returned to the WS Gateway after polling.
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
 pub struct CanisterOutputMessage {
-    #[serde(with = "serde_bytes")]
-    client_key: Vec<u8>, // The client that the gateway will forward the message to or that sent the message.
+    client_principal: ClientPrincipal, // The client that the gateway will forward the message to or that sent the message.
+    key: String,                       // Key for certificate verification.
     #[serde(with = "serde_bytes")]
     content: Vec<u8>, // The message to be relayed, that contains the application message.
-    key: String, // Key for certificate verification.
 }
 
 /// List of messages returned to the WS Gateway after polling.
@@ -249,57 +187,24 @@ fn get_check_registered_gateway_delay_ns() -> u64 {
     }
 }
 
-/// The temporary clients that don't still have a connection open, based on the gateway status index at which they were registered.
-/// The last two status indexes are kept in order to be able to handle the case when the gateway crashes and restarts.
-struct TmpClients {
-    second_last_index_clients: HashSet<ClientPublicKey>,
-    last_index_clients: HashSet<ClientPublicKey>,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RegisteredClient {
+    is_anonymous: bool,
 }
 
-impl TmpClients {
-    fn new() -> Self {
-        Self {
-            second_last_index_clients: HashSet::new(),
-            last_index_clients: HashSet::new(),
-        }
-    }
-
-    fn shift(&mut self) {
-        self.second_last_index_clients = self.last_index_clients.clone();
-        self.last_index_clients = HashSet::new();
-    }
-
-    fn clear(&mut self) {
-        self.second_last_index_clients.clear();
-        self.last_index_clients.clear();
-    }
-
-    fn insert(&mut self, client_key: ClientPublicKey) {
-        self.last_index_clients.insert(client_key);
-    }
-
-    fn contain_client(&self, client_key: &ClientPublicKey) -> bool {
-        self.last_index_clients.contains(client_key)
-            || self.second_last_index_clients.contains(client_key)
-    }
-
-    fn remove(&mut self, client_key: &ClientPublicKey) {
-        let is_removed = self.last_index_clients.remove(client_key);
-        if !is_removed {
-            self.second_last_index_clients.remove(client_key);
-        }
+impl RegisteredClient {
+    fn is_anonymous(&self) -> bool {
+        self.is_anonymous
     }
 }
 
 thread_local! {
     /// Maps the client's public key to the client's identity (anonymous if not authenticated).
-    /* flexible */ static CLIENT_CALLER_MAP: RefCell<HashMap<ClientPublicKey, Principal>> = RefCell::new(HashMap::new());
-    /// Maps the clients that still don't have a connection open, based on the gateway status index at which they were registered.
-    /* flexible */ static TMP_CLIENTS: RefCell<TmpClients> = RefCell::new(TmpClients::new());
+    /* flexible */ static REGISTERED_CLIENTS: RefCell<HashMap<ClientPrincipal, RegisteredClient>> = RefCell::new(HashMap::new());
     /// Maps the client's public key to the sequence number to use for the next outgoing message (to that client).
-    /* flexible */ static OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP: RefCell<HashMap<ClientPublicKey, u64>> = RefCell::new(HashMap::new());
+    /* flexible */ static OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP: RefCell<HashMap<ClientPrincipal, u64>> = RefCell::new(HashMap::new());
     /// Maps the client's public key to the expected sequence number of the next incoming message (from that client).
-    /* flexible */ static INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP: RefCell<HashMap<ClientPublicKey, u64>> = RefCell::new(HashMap::new());
+    /* flexible */ static INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP: RefCell<HashMap<ClientPrincipal, u64>> = RefCell::new(HashMap::new());
     /// Keeps track of the Merkle tree used for certified queries
     /* flexible */ static CERT_TREE: RefCell<RbTree<String, ICHash>> = RefCell::new(RbTree::new());
     /// Keeps track of the principal of the WS Gateway which polls the canister
@@ -324,21 +229,15 @@ fn reset_internal_state() {
     // get the handlers to call the on_close handler for each client
     let handlers = HANDLERS.with(|state| state.borrow().clone());
 
-    CLIENT_CALLER_MAP.with(|state| {
+    REGISTERED_CLIENTS.with(|state| {
         let mut map = state.borrow_mut();
         // for each client, call the on_close handler before clearing the map
-        for (client_key, _) in map.clone().iter() {
-            // If a client registers while the gateway crashes and restarts, we have to keep the client in the map,
-            // so that the ws_open invoked by the gateway doesn't fail.
-            // To be sure that we retain the latest unregistered clients,
-            // we keep all the clients that have registered after the last two times the gateway updated the status index
-            if !is_client_in_tmp_clients(client_key) {
-                handlers.call_on_close(OnCloseCallbackArgs {
-                    client_key: client_key.clone(),
-                });
+        for (client_principal, _) in map.clone().iter() {
+            handlers.call_on_close(OnCloseCallbackArgs {
+                client_principal: client_principal.clone(),
+            });
 
-                map.remove(client_key);
-            }
+            map.remove(client_principal);
         }
     });
 
@@ -370,13 +269,8 @@ pub fn wipe() {
     });
 
     // remove all clients from the map
-    CLIENT_CALLER_MAP.with(|map| {
+    REGISTERED_CLIENTS.with(|map| {
         map.borrow_mut().clear();
-    });
-
-    // clear the temporary clients
-    TMP_CLIENTS.with(|tmp_clients| {
-        tmp_clients.borrow_mut().clear();
     });
 
     custom_print!("Internal state has been wiped!");
@@ -390,17 +284,30 @@ fn increment_outgoing_message_nonce() {
     OUTGOING_MESSAGE_NONCE.with(|n| n.replace_with(|&mut old| old + 1));
 }
 
-fn put_client_caller(client_key: ClientPublicKey, caller: Principal) {
-    CLIENT_CALLER_MAP.with(|map| {
-        map.borrow_mut().insert(client_key.clone(), caller);
+fn insert_client(client_principal: ClientPrincipal, new_client: RegisteredClient) {
+    REGISTERED_CLIENTS.with(|map| {
+        map.borrow_mut()
+            .insert(client_principal.clone(), new_client);
     });
-
-    // add the client to the temporary clients
-    insert_in_tmp_clients(client_key);
 }
 
-fn get_client_caller(client_key: &ClientPublicKey) -> Option<Principal> {
-    CLIENT_CALLER_MAP.with(|map| Some(map.borrow().get(client_key)?.to_owned()))
+fn get_registered_client(client_principal: &ClientPrincipal) -> Option<RegisteredClient> {
+    REGISTERED_CLIENTS.with(|map| map.borrow().get(client_principal).cloned())
+}
+
+fn is_client_registered(client_principal: &ClientPrincipal) -> bool {
+    REGISTERED_CLIENTS.with(|map| map.borrow().contains_key(client_principal))
+}
+
+fn check_registered_client(client_principal: &ClientPrincipal) -> Result<(), String> {
+    if !REGISTERED_CLIENTS.with(|map| map.borrow().contains_key(client_principal)) {
+        return Err(String::from(format!(
+            "client with principal {:?} doesn't have an open connection",
+            client_principal
+        )));
+    }
+
+    Ok(())
 }
 
 fn initialize_registered_gateway(gateway_principal: &str) {
@@ -419,34 +326,6 @@ fn get_registered_gateway_principal() -> Principal {
     })
 }
 
-fn insert_in_tmp_clients(client_key: ClientPublicKey) {
-    TMP_CLIENTS.with(|tmp_clients| {
-        let mut tmp_clients = tmp_clients.borrow_mut();
-        tmp_clients.insert(client_key);
-    });
-}
-
-fn shift_tmp_clients() {
-    TMP_CLIENTS.with(|tmp_clients| {
-        let mut tmp_clients = tmp_clients.borrow_mut();
-        tmp_clients.shift();
-    });
-}
-
-fn is_client_in_tmp_clients(client_key: &ClientPublicKey) -> bool {
-    TMP_CLIENTS.with(|tmp_clients| {
-        let tmp_clients = tmp_clients.borrow();
-        tmp_clients.contain_client(client_key)
-    })
-}
-
-fn remove_client_from_tmp_clients(client_key: &ClientPublicKey) {
-    TMP_CLIENTS.with(|tmp_clients| {
-        let mut tmp_clients = tmp_clients.borrow_mut();
-        tmp_clients.remove(client_key);
-    });
-}
-
 /// Updates the registered gateway with the new status index.
 /// If the status index is not greater than the current one, the function returns an error.
 fn update_registered_gateway_status_index(status_index: u64) -> Result<(), String> {
@@ -463,9 +342,6 @@ fn update_registered_gateway_status_index(status_index: u64) -> Result<(), Strin
 
                 Ok(())
             } else {
-                // update the temporary clients, shifting the last index clients to the second last index clients
-                shift_tmp_clients();
-
                 v.update_status_index(status_index)
             }
         } else {
@@ -474,52 +350,44 @@ fn update_registered_gateway_status_index(status_index: u64) -> Result<(), Strin
     })
 }
 
-fn check_registered_client_key(client_key: &ClientPublicKey) -> Result<(), String> {
-    if !CLIENT_CALLER_MAP.with(|map| map.borrow().contains_key(client_key)) {
-        return Err(String::from(
-            "client's public key has not been previously registered by client",
-        ));
-    }
-
-    Ok(())
-}
-
-fn init_outgoing_message_to_client_num(client_key: ClientPublicKey) {
+fn init_outgoing_message_to_client_num(client_principal: ClientPrincipal) {
     OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
-        map.borrow_mut().insert(client_key, 0);
+        map.borrow_mut().insert(client_principal, 0);
     });
 }
 
-fn get_outgoing_message_to_client_num(client_key: &ClientPublicKey) -> Result<u64, String> {
+fn get_outgoing_message_to_client_num(client_principal: &ClientPrincipal) -> Result<u64, String> {
     OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
         let map = map.borrow();
-        let num = *map.get(client_key).ok_or(String::from(
+        let num = *map.get(client_principal).ok_or(String::from(
             "outgoing message to client num not initialized for client",
         ))?;
         Ok(num)
     })
 }
 
-fn increment_outgoing_message_to_client_num(client_key: &ClientPublicKey) -> Result<(), String> {
-    let num = get_outgoing_message_to_client_num(client_key)?;
+fn increment_outgoing_message_to_client_num(
+    client_principal: &ClientPrincipal,
+) -> Result<(), String> {
+    let num = get_outgoing_message_to_client_num(client_principal)?;
     OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
         let mut map = map.borrow_mut();
-        map.insert(client_key.clone(), num + 1);
+        map.insert(client_principal.clone(), num + 1);
         Ok(())
     })
 }
 
-fn init_expected_incoming_message_from_client_num(client_key: ClientPublicKey) {
+fn init_expected_incoming_message_from_client_num(client_principal: ClientPrincipal) {
     INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
-        map.borrow_mut().insert(client_key, 0);
+        map.borrow_mut().insert(client_principal, 0);
     });
 }
 
 fn get_expected_incoming_message_from_client_num(
-    client_key: &ClientPublicKey,
+    client_principal: &ClientPrincipal,
 ) -> Result<u64, String> {
     INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
-        let num = *map.borrow().get(client_key).ok_or(String::from(
+        let num = *map.borrow().get(client_principal).ok_or(String::from(
             "expected incoming message num not initialized for client",
         ))?;
         Ok(num)
@@ -527,35 +395,34 @@ fn get_expected_incoming_message_from_client_num(
 }
 
 fn increment_expected_incoming_message_from_client_num(
-    client_key: &ClientPublicKey,
+    client_principal: &ClientPrincipal,
 ) -> Result<(), String> {
-    let num = get_expected_incoming_message_from_client_num(client_key)?;
+    let num = get_expected_incoming_message_from_client_num(client_principal)?;
     INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
         let mut map = map.borrow_mut();
-        map.insert(client_key.clone(), num + 1);
+        map.insert(client_principal.clone(), num + 1);
         Ok(())
     })
 }
 
-fn add_client(client_key: ClientPublicKey) {
+fn add_client(client_principal: ClientPrincipal, new_client: RegisteredClient) {
+    // insert the client in the map
+    insert_client(client_principal.clone(), new_client);
     // initialize incoming client's message sequence number to 0
-    init_expected_incoming_message_from_client_num(client_key.clone());
+    init_expected_incoming_message_from_client_num(client_principal.clone());
     // initialize outgoing message sequence number to 0
-    init_outgoing_message_to_client_num(client_key.clone());
-
-    // now that the client is registered, remove it from the temporary clients
-    remove_client_from_tmp_clients(&client_key);
+    init_outgoing_message_to_client_num(client_principal);
 }
 
-fn remove_client(client_key: ClientPublicKey) {
-    CLIENT_CALLER_MAP.with(|map| {
-        map.borrow_mut().remove(&client_key);
+fn remove_client(client_principal: ClientPrincipal) {
+    REGISTERED_CLIENTS.with(|map| {
+        map.borrow_mut().remove(&client_principal);
     });
     OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
-        map.borrow_mut().remove(&client_key);
+        map.borrow_mut().remove(&client_principal);
     });
     INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
-        map.borrow_mut().remove(&client_key);
+        map.borrow_mut().remove(&client_principal);
     });
 }
 
@@ -612,6 +479,11 @@ fn get_cert_messages(gateway_principal: Principal, nonce: u64) -> CanisterWsGetM
     })
 }
 
+fn is_registered_gateway(principal: Principal) -> bool {
+    let registered_gateway_principal = get_registered_gateway_principal();
+    return registered_gateway_principal == principal;
+}
+
 /// Checks if the caller of the method is the same as the one that was registered during the initialization of the CDK
 fn check_is_registered_gateway(input_principal: Principal) -> Result<(), String> {
     let gateway_principal = get_registered_gateway_principal();
@@ -662,7 +534,7 @@ fn schedule_registered_gateway_check() {
 
 /// Checks if the registered gateway has sent a heartbeat recently.
 /// If not, this means that the gateway has been restarted and all clients registered have been disconnected.
-/// In this case, all internal IC WebSocket CDK state is reset.
+/// In this case, the internal IC WebSocket CDK state is reset.
 ///
 /// At the end, a new timer is scheduled to check again if the registered gateway has sent a heartbeat recently.
 fn check_registered_gateway_timer_callback() {
@@ -692,27 +564,29 @@ fn check_registered_gateway_timer_callback() {
 
 /// Arguments passed to the `on_open` handler.
 pub struct OnOpenCallbackArgs {
-    pub client_key: ClientPublicKey,
+    pub client_principal: ClientPrincipal,
 }
-/// Handler initialized by the canister and triggered by the CDK once the IC WebSocket connection
-/// is established.
+/// Handler initialized by the canister
+/// and triggered by the CDK once the IC WebSocket connection is established.
 type OnOpenCallback = fn(OnOpenCallbackArgs);
 
 /// Arguments passed to the `on_message` handler.
 pub struct OnMessageCallbackArgs {
-    pub client_key: ClientPublicKey,
+    pub client_principal: ClientPrincipal,
+    pub is_anonymous: bool,
     pub message: Vec<u8>,
 }
-/// Handler initialized by the canister and triggered by the CDK once a message is received by
-/// the CDK.
+/// Handler initialized by the canister
+/// and triggered by the CDK once an IC WebSocket message is received.
 type OnMessageCallback = fn(OnMessageCallbackArgs);
 
 /// Arguments passed to the `on_close` handler.
 pub struct OnCloseCallbackArgs {
-    pub client_key: ClientPublicKey,
+    pub client_principal: ClientPrincipal,
 }
-/// Handler initialized by the canister and triggered by the CDK once the WS Gateway closes the
-/// IC WebSocket connection.
+/// Handler initialized by the canister
+/// and triggered by the CDK once the WS Gateway closes the IC WebSocket connection
+/// for that client.
 type OnCloseCallback = fn(OnCloseCallbackArgs);
 
 /// Handlers initialized by the canister and triggered by the CDK.
@@ -750,23 +624,11 @@ fn initialize_handlers(handlers: WsHandlers) {
     });
 }
 
-/// Checks the content signature
-fn check_content_signature(
-    client_key: &ClientPublicKey,
-    content: &Vec<u8>,
-    sig: &Vec<u8>,
-) -> Result<(), String> {
-    // check if client_key is a Ed25519 public key
-    let public_key = PublicKey::from_slice(client_key).map_err(|e| e.to_string())?;
-    // check if the signature relayed by the WS Gateway is a Ed25519 signature
-    let sig = Signature::from_slice(sig).map_err(|e| e.to_string())?;
-    // check if the signature on the first message verifies against the public key of the registered client
-    // if so, the first message came from the same client that registered its public key using ws_register
-    public_key.verify(content, &sig).map_err(|e| e.to_string())
-}
-
 /// Initialize the CDK by setting the callback handlers and the **principal** of the WS Gateway that
 /// will be polling the canister.
+///
+/// Under the hood, an interval (**60 seconds**) is started using [ic_cdk_timers::set_timer]
+/// to check if the WS Gateway is still alive.
 pub fn init(handlers: WsHandlers, gateway_principal: &str) {
     // set the handlers specified by the canister that the CDK uses to manage the IC WebSocket connection
     initialize_handlers(handlers);
@@ -778,44 +640,40 @@ pub fn init(handlers: WsHandlers, gateway_principal: &str) {
     schedule_registered_gateway_check();
 }
 
-/// Handles the register event received from the client.
-///
-/// Registers the public key that the client SDK has generated to initialize an IcWebSocket connection.
-pub fn ws_register(args: CanisterWsRegisterArguments) -> CanisterWsRegisterResult {
-    // TODO: check who is the caller, which can be a client or the anonymous principal
-
-    // associate the identity of the client to its public key received as input
-    put_client_caller(args.client_key, caller());
-    Ok(())
-}
-
-/// Handles the WS connection open event received from the WS Gateway
-///
-/// WS Gateway relays the first message sent by the client together with its signature
-/// to prove that the first message is actually coming from the same client that registered its public key
-/// beforehand by calling the [ws_register] method.
+/// Handles the WS connection open event sent by the client and relayed by the Gateway.
 pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
-    // the caller must be the gateway that was registered during CDK initialization
-    check_is_registered_gateway(caller())?;
+    let client_principal = caller();
 
-    // decode the first message sent by the client
-    let CanisterOpenMessageContent {
-        client_key,
-        canister_id,
-    } = from_slice(&args.content).map_err(|e| e.to_string())?;
+    // check if client is not registered yet
+    if is_client_registered(&client_principal) {
+        return Err(format!(
+            "client with principal {:?} already has an open connection",
+            client_principal,
+        ));
+    }
 
-    // check if client registered its public key by calling ws_register
-    check_registered_client_key(&client_key)?;
-
-    // check if the signature on the first message verifies against the public key of the registered client
-    check_content_signature(&client_key, &args.content, &args.sig)?;
+    // avoid gateway opening a connection for its own principal
+    if is_registered_gateway(client_principal) {
+        return Err(String::from(
+            "caller is the registered gateway, cannot open a connection",
+        ));
+    }
 
     // initialize client maps
-    add_client(client_key.clone());
+    let new_client = RegisteredClient {
+        is_anonymous: args.is_anonymous,
+    };
+    add_client(client_principal.clone(), new_client);
+
+    // call the on_open handler initialized in init()
+    HANDLERS.with(|h| {
+        h.borrow().call_on_open(OnOpenCallbackArgs {
+            client_principal: client_principal.clone(),
+        });
+    });
 
     Ok(CanisterWsOpenResultValue {
-        client_key,
-        canister_id,
+        client_principal,
         // returns the current nonce so that in case the WS Gateway has to open a new poller for this canister
         // it knows which nonce to start polling from. This is needed in order to make sure that the WS Gateway
         // does not poll messages it has already relayed when a new it starts polling a canister
@@ -829,14 +687,14 @@ pub fn ws_close(args: CanisterWsCloseArguments) -> CanisterWsCloseResult {
     // the caller must be the gateway that was registered during CDK initialization
     check_is_registered_gateway(caller())?;
 
-    // check if client registered its public key by calling ws_register
-    check_registered_client_key(&args.client_key)?;
+    // check if client registered its principal by calling ws_open
+    check_registered_client(&args.client_principal)?;
 
-    remove_client(args.client_key.clone());
+    remove_client(args.client_principal.clone());
 
     HANDLERS.with(|h| {
         h.borrow().call_on_close(OnCloseCallbackArgs {
-            client_key: args.client_key,
+            client_principal: args.client_principal,
         });
     });
 
@@ -845,96 +703,57 @@ pub fn ws_close(args: CanisterWsCloseArguments) -> CanisterWsCloseResult {
 
 /// Handles the WS messages received either directly from the client or relayed by the WS Gateway.
 pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
-    match args.msg {
-        // message sent directly from client
-        CanisterIncomingMessage::DirectlyFromClient(received_message) => {
-            // check if the identity of the caller corresponds to the one registered for the given public key
-            let expected_caller = get_client_caller(&received_message.client_key).ok_or(
-                String::from("client is not registered, call ws_register first"),
-            )?;
-            if caller() != expected_caller {
-                return Err(String::from(
-                    "caller is not the same that registered the public key",
-                ));
-            }
-            // call the on_message handler initialized in init()
-            HANDLERS.with(|h| {
-                // trigger the on_message handler initialized by canister
-                h.borrow().call_on_message(OnMessageCallbackArgs {
-                    client_key: received_message.client_key,
-                    message: received_message.message,
-                });
-            });
-            Ok(())
-        },
-        // WS Gateway relays a message from the client
-        CanisterIncomingMessage::RelayedByGateway(received_message) => {
-            // this message can come only from the registered gateway
-            check_is_registered_gateway(caller())?;
-
-            // decode the message sent by the client
-            let WebsocketMessage {
-                client_key,
-                sequence_num,
-                timestamp: _timestamp,
-                message,
-            } = from_slice(&received_message.content).map_err(|e| e.to_string())?;
-
-            // check if client registered its public key by calling ws_register
-            check_registered_client_key(&client_key)?;
-
-            // check if the signature on the message verifies against the public key of the registered client
-            check_content_signature(
-                &client_key,
-                &received_message.content,
-                &received_message.sig,
-            )?;
-
-            let expected_sequence_num = get_expected_incoming_message_from_client_num(&client_key)?;
-
-            // check if the incoming message has the expected sequence number
-            if sequence_num == expected_sequence_num {
-                // increase the expected sequence number by 1
-                increment_expected_incoming_message_from_client_num(&client_key)?;
-                // call the on_message handler initialized in init()
-                HANDLERS.with(|h| {
-                    // trigger the on_message handler initialized by canister
-                    // create message to send to client
-                    h.borrow().call_on_message(OnMessageCallbackArgs {
-                        client_key,
-                        message,
-                    });
-                });
-                return Ok(());
-            }
-            Err(String::from(
-                "incoming client's message relayed from WS Gateway does not have the expected sequence number",
+    let client_principal = caller();
+    // check if client registered its principal by calling ws_open
+    check_registered_client(&client_principal)?;
+    let registered_client = match get_registered_client(&client_principal) {
+        Some(v) => v,
+        None => {
+            return Err(String::from(
+                "client with principal {:?} doesn't have an open connection",
             ))
         },
-        // WS Gateway notifies the canister of the established IC WebSocket connection
-        CanisterIncomingMessage::IcWebSocketEstablished(client_key) => {
-            // this message can come only from the registered gateway
-            check_is_registered_gateway(caller())?;
+    };
 
-            // check if client registered its public key by calling ws_register
-            check_registered_client_key(&client_key)?;
+    let WebsocketMessage {
+        client_principal: _,
+        sequence_num,
+        timestamp: _,
+        content,
+    } = args.msg;
 
-            custom_print!("Can start notifying client with key: {:?}", client_key);
-            // call the on_open handler
-            HANDLERS.with(|h| {
-                // trigger the on_open handler initialized by canister
-                h.borrow().call_on_open(OnOpenCallbackArgs { client_key });
-            });
-            Ok(())
-        },
-        // WS Gateway notifies the canister that it is up and running
-        CanisterIncomingMessage::IcWebSocketGatewayStatus(gateway_status) => {
-            // this message can come only from the registered gateway
-            check_is_registered_gateway(caller())?;
+    let expected_sequence_num = get_expected_incoming_message_from_client_num(&client_principal)?;
 
-            update_registered_gateway_status_index(gateway_status.status_index)
-        },
+    // check if the incoming message has the expected sequence number
+    if sequence_num != expected_sequence_num {
+        return Err(String::from(
+                        "incoming client's message relayed from WS Gateway does not have the expected sequence number",
+                    ));
     }
+    // increase the expected sequence number by 1
+    increment_expected_incoming_message_from_client_num(&client_principal)?;
+
+    // call the on_message handler initialized in init()
+    HANDLERS.with(|h| {
+        // trigger the on_message handler initialized by canister
+        // create message to send to client
+        h.borrow().call_on_message(OnMessageCallbackArgs {
+            client_principal,
+            is_anonymous: registered_client.is_anonymous(),
+            message: content,
+        });
+    });
+    Ok(())
+}
+
+/// Used by the WS Gateway to update its status on the canister.
+/// This way, the canister can check if the WS Gateway is still alive.
+pub fn ws_status(args: CanisterWsStatusArguments) -> CanisterWsStatusResult {
+    // check if the caller of this method is the WS Gateway that has been set during the initialization of the SDK
+    let gateway_principal = caller();
+    check_is_registered_gateway(gateway_principal)?;
+
+    update_registered_gateway_status_index(args.status_index)
 }
 
 /// Returns messages to the WS Gateway in response of a polling iteration.
@@ -950,9 +769,9 @@ pub fn ws_get_messages(args: CanisterWsGetMessagesArguments) -> CanisterWsGetMes
 ///
 /// Under the hood, the message is serialized and certified, and then it is added to the queue of messages
 /// that the WS Gateway will poll in the next iteration.
-pub fn ws_send(client_key: ClientPublicKey, msg_bytes: Vec<u8>) -> CanisterWsSendResult {
+pub fn ws_send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> CanisterWsSendResult {
     // check if the client is registered
-    check_registered_client_key(&client_key)?;
+    check_registered_client(&client_principal)?;
 
     // get the principal of the gateway that is polling the canister
     let gateway_principal = get_registered_gateway_principal();
@@ -966,13 +785,13 @@ pub fn ws_send(client_key: ClientPublicKey, msg_bytes: Vec<u8>) -> CanisterWsSen
     increment_outgoing_message_nonce();
 
     // increment the sequence number for the next message to the client
-    increment_outgoing_message_to_client_num(&client_key)?;
+    increment_outgoing_message_to_client_num(&client_principal)?;
 
     let websocket_message = WebsocketMessage {
-        client_key: client_key.clone(),
-        sequence_num: get_outgoing_message_to_client_num(&client_key)?,
+        client_principal: client_principal.clone(),
+        sequence_num: get_outgoing_message_to_client_num(&client_principal)?,
         timestamp: get_current_time(),
-        message: msg_bytes,
+        content: msg_bytes,
     };
 
     // CBOR serialize message of type WebsocketMessage
@@ -986,7 +805,7 @@ pub fn ws_send(client_key: ClientPublicKey, msg_bytes: Vec<u8>) -> CanisterWsSen
         // (from beginning to end of the queue) as ws_send is called sequentially, the nonce
         // is incremented by one in each call, and the message is pushed at the end of the queue
         m.borrow_mut().push_back(CanisterOutputMessage {
-            client_key,
+            client_principal,
             content,
             key,
         });
@@ -998,19 +817,18 @@ pub fn ws_send(client_key: ClientPublicKey, msg_bytes: Vec<u8>) -> CanisterWsSen
 mod test {
     use super::*;
     use proptest::prelude::*;
-    use ring::signature::KeyPair;
 
     mod test_utils {
         use candid::Principal;
         use ic_agent::{identity::BasicIdentity, Identity};
-        use ring::signature::{Ed25519KeyPair, KeyPair};
+        use ring::signature::Ed25519KeyPair;
 
         use crate::{
-            get_message_for_gateway_key, CanisterOutputMessage, ClientPublicKey,
+            get_message_for_gateway_key, CanisterOutputMessage, ClientPrincipal, RegisteredClient,
             MESSAGES_FOR_GATEWAY,
         };
 
-        pub fn generate_random_key_pair() -> Ed25519KeyPair {
+        fn generate_random_key_pair() -> Ed25519KeyPair {
             let rng = ring::rand::SystemRandom::new();
             let key_pair =
                 Ed25519KeyPair::generate_pkcs8(&rng).expect("Could not generate a key pair.");
@@ -1025,10 +843,10 @@ mod test {
             candid::Principal::from_text(identity.sender().unwrap().to_text()).unwrap()
         }
 
-        pub fn generate_random_public_key() -> Vec<u8> {
-            let key_pair = generate_random_key_pair();
-
-            key_pair.public_key().as_ref().to_vec()
+        pub fn generate_random_registered_client() -> RegisteredClient {
+            RegisteredClient {
+                is_anonymous: false,
+            }
         }
 
         pub fn get_static_principal() -> Principal {
@@ -1037,14 +855,14 @@ mod test {
         }
 
         pub fn add_messages_for_gateway(
-            client_key: ClientPublicKey,
+            client_principal: ClientPrincipal,
             gateway_principal: Principal,
             count: u64,
         ) {
             MESSAGES_FOR_GATEWAY.with(|m| {
                 for i in 0..count {
                     m.borrow_mut().push_back(CanisterOutputMessage {
-                        client_key: client_key.clone(),
+                        client_principal: client_principal.clone(),
                         key: get_message_for_gateway_key(gateway_principal.clone(), i),
                         content: vec![],
                     });
@@ -1102,14 +920,15 @@ mod test {
             assert!(h.on_close.is_none());
 
             h.call_on_open(OnOpenCallbackArgs {
-                client_key: test_utils::generate_random_public_key(),
+                client_principal: test_utils::generate_random_principal(),
             });
             h.call_on_message(OnMessageCallbackArgs {
-                client_key: test_utils::generate_random_public_key(),
+                client_principal: test_utils::generate_random_principal(),
+                is_anonymous: false, // doesn't matter
                 message: vec![],
             });
             h.call_on_close(OnCloseCallbackArgs {
-                client_key: test_utils::generate_random_public_key(),
+                client_principal: test_utils::generate_random_principal(),
             });
         });
 
@@ -1154,14 +973,15 @@ mod test {
             assert!(h.on_close.is_some());
 
             h.call_on_open(OnOpenCallbackArgs {
-                client_key: test_utils::generate_random_public_key(),
+                client_principal: test_utils::generate_random_principal(),
             });
             h.call_on_message(OnMessageCallbackArgs {
-                client_key: test_utils::generate_random_public_key(),
+                client_principal: test_utils::generate_random_principal(),
+                is_anonymous: false, // doesn't matter
                 message: vec![],
             });
             h.call_on_close(OnCloseCallbackArgs {
-                client_key: test_utils::generate_random_public_key(),
+                client_principal: test_utils::generate_random_principal(),
             });
         });
 
@@ -1226,30 +1046,28 @@ mod test {
         }
 
         #[test]
-        fn test_get_client_caller(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
+        fn test_get_registered_client(test_client_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
             // Set up
-            let caller_principal = test_utils::generate_random_principal();
-            CLIENT_CALLER_MAP.with(|map| {
-                map.borrow_mut().insert(test_client_key.clone(), caller_principal);
+            let registered_client = test_utils::generate_random_registered_client();
+            REGISTERED_CLIENTS.with(|map| {
+                map.borrow_mut().insert(test_client_principal.clone(), registered_client.clone());
             });
 
-            let actual_client_caller = get_client_caller(&test_client_key);
-            prop_assert_eq!(actual_client_caller, Some(caller_principal));
-            let actual_client_caller = get_client_caller(&test_utils::generate_random_public_key());
-            prop_assert_eq!(actual_client_caller, None);
+            let actual_client = get_registered_client(&test_client_principal);
+            prop_assert_eq!(actual_client, Some(registered_client));
+            let actual_client = get_registered_client(&test_utils::generate_random_principal());
+            prop_assert_eq!(actual_client, None);
         }
 
         #[test]
-        fn test_put_client_caller(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
+        fn test_insert_client(test_client_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
             // Set up
-            let caller_principal = test_utils::generate_random_principal();
+            let registered_client = test_utils::generate_random_registered_client();
 
-            put_client_caller(test_client_key.clone(), caller_principal);
+            insert_client(test_client_principal.clone(), registered_client.clone());
 
-            let actual_client = CLIENT_CALLER_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
-            prop_assert_eq!(actual_client, caller_principal);
-            let actual_result = TMP_CLIENTS.with(|map| map.borrow().last_index_clients.get(&test_client_key).unwrap().clone());
-            prop_assert_eq!(actual_result, test_client_key);
+            let actual_client = REGISTERED_CLIENTS.with(|map| map.borrow().get(&test_client_principal).unwrap().clone());
+            prop_assert_eq!(actual_client, registered_client);
         }
 
         #[test]
@@ -1262,13 +1080,10 @@ mod test {
         }
 
         #[test]
-        fn test_update_registered_gateway_status_index(test_gateway_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal()), test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
+        fn test_update_registered_gateway_status_index(test_gateway_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal()), test_client_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
             // Set up
-            CLIENT_CALLER_MAP.with(|map| {
-                map.borrow_mut().insert(test_client_key.clone(), test_utils::generate_random_principal());
-            });
-            TMP_CLIENTS.with(|map| {
-                map.borrow_mut().last_index_clients.insert(test_client_key.clone());
+            REGISTERED_CLIENTS.with(|map| {
+                map.borrow_mut().insert(test_client_principal.clone(), test_utils::generate_random_registered_client());
             });
             REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(test_gateway_principal.clone())));
 
@@ -1276,8 +1091,6 @@ mod test {
             let _ = update_registered_gateway_status_index(2);
             let actual_status_index = REGISTERED_GATEWAY.with(|p| p.borrow().as_ref().unwrap().last_status_index.clone());
             prop_assert_eq!(actual_status_index, 2);
-            let actual_result = TMP_CLIENTS.with(|map| map.borrow().second_last_index_clients.get(&test_client_key).unwrap().clone());
-            prop_assert_eq!(actual_result, test_client_key.clone());
 
             // test with an invalid status index (behind the current one)
             let actual_result = update_registered_gateway_status_index(1);
@@ -1295,158 +1108,149 @@ mod test {
             let _ = update_registered_gateway_status_index(10);
             let actual_status_index = REGISTERED_GATEWAY.with(|p| p.borrow().as_ref().unwrap().last_status_index.clone());
             prop_assert_eq!(actual_status_index, 10);
-            let actual_result = TMP_CLIENTS.with(|map| map.borrow().second_last_index_clients.get(&test_client_key).is_none());
-            prop_assert!(actual_result);
 
             // reset the registered gateway
-            let new_client_key = test_utils::generate_random_public_key();
-            CLIENT_CALLER_MAP.with(|map| {
-                map.borrow_mut().insert(new_client_key.clone(), test_utils::generate_random_principal());
-            });
-            TMP_CLIENTS.with(|map| {
-                map.borrow_mut().last_index_clients.insert(new_client_key.clone());
+            let new_client_principal = test_utils::generate_random_principal();
+            REGISTERED_CLIENTS.with(|map| {
+                map.borrow_mut().insert(new_client_principal.clone(), test_utils::generate_random_registered_client());
             });
             let _ = update_registered_gateway_status_index(0);
             let actual_status_index = REGISTERED_GATEWAY.with(|p| p.borrow().as_ref().unwrap().last_status_index.clone());
             prop_assert_eq!(actual_status_index, 0);
-            let actual_result = TMP_CLIENTS.with(|map| map.borrow().last_index_clients.get(&new_client_key).unwrap().clone());
-            prop_assert_eq!(actual_result, new_client_key.clone());
-            let actual_result = CLIENT_CALLER_MAP.with(|map| {
+            let actual_result = REGISTERED_CLIENTS.with(|map| {
                 let map = map.borrow();
-                map.get(&test_client_key).is_none() && map.get(&new_client_key).is_some()
+                map.get(&test_client_principal).is_none() && map.get(&new_client_principal).is_none()
             });
             prop_assert!(actual_result);
         }
 
         #[test]
-        fn test_check_registered_client_key_empty(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
-            let actual_result = check_registered_client_key(&test_client_key);
-            prop_assert_eq!(actual_result.err(), Some(String::from("client's public key has not been previously registered by client")));
+        fn test_check_registered_client_principal_empty(test_client_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
+            let actual_result = check_registered_client(&test_client_principal);
+            prop_assert_eq!(actual_result.err(), Some(format!("client with principal {:?} doesn't have an open connection", test_client_principal)));
         }
 
         #[test]
-        fn test_check_registered_client_key(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
+        fn test_check_registered_client_principal(test_client_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
             // Set up
-            CLIENT_CALLER_MAP.with(|map| {
-                map.borrow_mut().insert(test_client_key.clone(), test_utils::generate_random_principal());
+            REGISTERED_CLIENTS.with(|map| {
+                map.borrow_mut().insert(test_client_principal.clone(), test_utils::generate_random_registered_client());
             });
 
-            let actual_result = check_registered_client_key(&test_client_key);
+            let actual_result = check_registered_client(&test_client_principal);
             prop_assert!(actual_result.is_ok());
-            let actual_result = check_registered_client_key(&test_utils::generate_random_public_key());
-            prop_assert_eq!(actual_result.err(), Some(String::from("client's public key has not been previously registered by client")));
+            let non_existing_client_principal = test_utils::generate_random_principal();
+            let actual_result = check_registered_client(&non_existing_client_principal);
+            prop_assert_eq!(actual_result.err(), Some(format!("client with principal {:?} doesn't have an open connection", non_existing_client_principal)));
         }
 
         #[test]
-        fn test_init_outgoing_message_to_client_num(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
-            init_outgoing_message_to_client_num(test_client_key.clone());
+        fn test_init_outgoing_message_to_client_num(test_client_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
+            init_outgoing_message_to_client_num(test_client_principal.clone());
 
-            let actual_result = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
+            let actual_result = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_principal).unwrap().clone());
             prop_assert_eq!(actual_result, 0);
         }
 
         #[test]
-        fn test_increment_outgoing_message_to_client_num(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key()), test_num in any::<u64>()) {
+        fn test_increment_outgoing_message_to_client_num(test_client_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal()), test_num in any::<u64>()) {
             // Set up
             OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
-                map.borrow_mut().insert(test_client_key.clone(), test_num);
+                map.borrow_mut().insert(test_client_principal.clone(), test_num);
             });
 
-            let increment_result = increment_outgoing_message_to_client_num(&test_client_key);
+            let increment_result = increment_outgoing_message_to_client_num(&test_client_principal);
             prop_assert!(increment_result.is_ok());
 
-            let actual_result = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
+            let actual_result = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_principal).unwrap().clone());
             prop_assert_eq!(actual_result, test_num + 1);
         }
 
         #[test]
-        fn test_get_outgoing_message_to_client_num(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key()), test_num in any::<u64>()) {
+        fn test_get_outgoing_message_to_client_num(test_client_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal()), test_num in any::<u64>()) {
             // Set up
             OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
-                map.borrow_mut().insert(test_client_key.clone(), test_num);
+                map.borrow_mut().insert(test_client_principal.clone(), test_num);
             });
 
-            let actual_result = get_outgoing_message_to_client_num(&test_client_key);
+            let actual_result = get_outgoing_message_to_client_num(&test_client_principal);
             prop_assert!(actual_result.is_ok());
             prop_assert_eq!(actual_result.unwrap(), test_num);
         }
 
         #[test]
-        fn test_init_expected_incoming_message_from_client_num(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
-            init_expected_incoming_message_from_client_num(test_client_key.clone());
+        fn test_init_expected_incoming_message_from_client_num(test_client_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
+            init_expected_incoming_message_from_client_num(test_client_principal.clone());
 
-            let actual_result = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
+            let actual_result = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_principal).unwrap().clone());
             prop_assert_eq!(actual_result, 0);
         }
 
         #[test]
-        fn test_get_expected_incoming_message_from_client_num(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key()), test_num in any::<u64>()) {
+        fn test_get_expected_incoming_message_from_client_num(test_client_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal()), test_num in any::<u64>()) {
             // Set up
             INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
-                map.borrow_mut().insert(test_client_key.clone(), test_num);
+                map.borrow_mut().insert(test_client_principal.clone(), test_num);
             });
 
-            let actual_result = get_expected_incoming_message_from_client_num(&test_client_key);
+            let actual_result = get_expected_incoming_message_from_client_num(&test_client_principal);
             prop_assert!(actual_result.is_ok());
             prop_assert_eq!(actual_result.unwrap(), test_num);
         }
 
         #[test]
-        fn test_increment_expected_incoming_message_from_client_num(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key()), test_num in any::<u64>()) {
+        fn test_increment_expected_incoming_message_from_client_num(test_client_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal()), test_num in any::<u64>()) {
             // Set up
             INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
-                map.borrow_mut().insert(test_client_key.clone(), test_num);
+                map.borrow_mut().insert(test_client_principal.clone(), test_num);
             });
 
-            let increment_result = increment_expected_incoming_message_from_client_num(&test_client_key);
+            let increment_result = increment_expected_incoming_message_from_client_num(&test_client_principal);
             prop_assert!(increment_result.is_ok());
 
-            let actual_result = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
+            let actual_result = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_principal).unwrap().clone());
             prop_assert_eq!(actual_result, test_num + 1);
         }
 
         #[test]
-        fn test_add_client(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
-            // Set up
-            TMP_CLIENTS.with(|map| {
-                map.borrow_mut().last_index_clients.insert(test_client_key.clone());
-            });
+        fn test_add_client(test_client_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
+            let registered_client = test_utils::generate_random_registered_client();
 
             // Test
-            add_client(test_client_key.clone());
+            add_client(test_client_principal.clone(), registered_client.clone());
 
-            let actual_result = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
+            let actual_result = REGISTERED_CLIENTS.with(|map| map.borrow().get(&test_client_principal).unwrap().clone());
+            prop_assert_eq!(actual_result, registered_client);
+
+            let actual_result = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_principal).unwrap().clone());
             prop_assert_eq!(actual_result, 0);
 
-            let actual_result = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
+            let actual_result = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_principal).unwrap().clone());
             prop_assert_eq!(actual_result, 0);
-
-            let actual_result = TMP_CLIENTS.with(|map| map.borrow().last_index_clients.get(&test_client_key).is_none());
-            prop_assert!(actual_result);
         }
 
         #[test]
-        fn test_remove_client(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
+        fn test_remove_client(test_client_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
             // Set up
-            CLIENT_CALLER_MAP.with(|map| {
-                map.borrow_mut().insert(test_client_key.clone(), test_utils::generate_random_principal());
+            REGISTERED_CLIENTS.with(|map| {
+                map.borrow_mut().insert(test_client_principal.clone(), test_utils::generate_random_registered_client());
             });
             INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
-                map.borrow_mut().insert(test_client_key.clone(), 0);
+                map.borrow_mut().insert(test_client_principal.clone(), 0);
             });
             OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
-                map.borrow_mut().insert(test_client_key.clone(), 0);
+                map.borrow_mut().insert(test_client_principal.clone(), 0);
             });
 
-            remove_client(test_client_key.clone());
+            remove_client(test_client_principal.clone());
 
-            let is_none = CLIENT_CALLER_MAP.with(|map| map.borrow().get(&test_client_key).is_none());
+            let is_none = REGISTERED_CLIENTS.with(|map| map.borrow().get(&test_client_principal).is_none());
             prop_assert!(is_none);
 
-            let is_none = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).is_none());
+            let is_none = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_principal).is_none());
             prop_assert!(is_none);
 
-            let is_none = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).is_none());
+            let is_none = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_principal).is_none());
             prop_assert!(is_none);
         }
 
@@ -1477,8 +1281,8 @@ mod test {
             REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(gateway_principal.clone())));
 
             let messages_count = 4;
-            let test_client_key = test_utils::generate_random_public_key();
-            test_utils::add_messages_for_gateway(test_client_key.clone(), gateway_principal, messages_count);
+            let test_client_principal = test_utils::generate_random_principal();
+            test_utils::add_messages_for_gateway(test_client_principal.clone(), gateway_principal, messages_count);
 
             // Test
             // messages are just 4, so we don't exceed the max number of returned messages
@@ -1499,8 +1303,8 @@ mod test {
             REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(gateway_principal.clone())));
 
             let messages_count: u64 = (2 * MAX_NUMBER_OF_RETURNED_MESSAGES).try_into().unwrap();
-            let test_client_key = test_utils::generate_random_public_key();
-            test_utils::add_messages_for_gateway(test_client_key.clone(), gateway_principal, messages_count);
+            let test_client_principal = test_utils::generate_random_principal();
+            test_utils::add_messages_for_gateway(test_client_principal.clone(), gateway_principal, messages_count);
 
             // Test
             // messages are now MAX_NUMBER_OF_RETURNED_MESSAGES
@@ -1524,8 +1328,8 @@ mod test {
             // Set up
             REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(gateway_principal.clone())));
 
-            let test_client_key = test_utils::generate_random_public_key();
-            test_utils::add_messages_for_gateway(test_client_key.clone(), gateway_principal, messages_count);
+            let test_client_principal = test_utils::generate_random_principal();
+            test_utils::add_messages_for_gateway(test_client_principal.clone(), gateway_principal, messages_count);
 
             // Test
             // add one to test the out of range index
@@ -1558,116 +1362,17 @@ mod test {
         }
 
         #[test]
-        fn test_check_content_signature(test_content in any::<Vec<u8>>(), test_key_pair in any::<u8>().prop_map(|_| test_utils::generate_random_key_pair())) {
-            let signature = test_key_pair.sign(&test_content);
-
-            // wrong content
-            let actual_result = check_content_signature(&test_key_pair.public_key().as_ref().to_vec(), &vec![0], &signature.as_ref().to_vec());
-            prop_assert_eq!(actual_result.err(), Some(String::from("Signature doesn't verify")));
-
-            // wrong public key
-            let other_key_pair = test_utils::generate_random_key_pair();
-            let actual_result = check_content_signature(&other_key_pair.public_key().as_ref().to_vec(), &test_content, &signature.as_ref().to_vec());
-            prop_assert_eq!(actual_result.err(), Some(String::from("Signature doesn't verify")));
-
-            // wrong signature
-            let other_signature = other_key_pair.sign(&test_content);
-            let actual_result = check_content_signature(&test_key_pair.public_key().as_ref().to_vec(), &test_content, &other_signature.as_ref().to_vec());
-            prop_assert_eq!(actual_result.err(), Some(String::from("Signature doesn't verify")));
-
-            // correct signature
-            let actual_result = check_content_signature(&test_key_pair.public_key().as_ref().to_vec(), &test_content, &signature.as_ref().to_vec());
-            prop_assert!(actual_result.is_ok());
-        }
-
-        #[test]
         fn test_serialize_websocket_message(test_msg_bytes in any::<Vec<u8>>(), test_sequence_num in any::<u64>(), test_timestamp in any::<u64>()) {
             // TODO: add more tests, in which we check the serialized message
             let websocket_message = WebsocketMessage {
-                client_key: test_utils::generate_random_public_key(),
+                client_principal: test_utils::generate_random_principal(),
                 sequence_num: test_sequence_num,
                 timestamp: test_timestamp,
-                message: test_msg_bytes,
+                content: test_msg_bytes,
             };
 
             let serialized_message = websocket_message.cbor_serialize();
             assert!(serialized_message.is_ok()); // not so useful as a test
-        }
-
-        #[test]
-        fn test_insert_in_tmp_clients(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
-            insert_in_tmp_clients(test_client_key.clone());
-
-            let actual_result = TMP_CLIENTS.with(|map| map.borrow().last_index_clients.get(&test_client_key).unwrap().clone());
-            prop_assert_eq!(actual_result, test_client_key);
-        }
-
-        #[test]
-        fn test_shift_tmp_clients(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
-            // Set up
-            TMP_CLIENTS.with(|map| {
-                map.borrow_mut().last_index_clients.insert(test_client_key.clone());
-            });
-
-            // Test
-            // shift and check if the client is still there
-            shift_tmp_clients();
-
-            let actual_result = TMP_CLIENTS.with(|map| map.borrow().last_index_clients.get(&test_client_key).is_none());
-            prop_assert!(actual_result);
-            let actual_result = TMP_CLIENTS.with(|map| map.borrow().second_last_index_clients.get(&test_client_key).unwrap().clone());
-            prop_assert_eq!(actual_result, test_client_key.clone());
-
-            // add a new client to the last index clients, and check if the old one is still there
-            let new_client = test_utils::generate_random_public_key();
-            TMP_CLIENTS.with(|map| {
-                map.borrow_mut().last_index_clients.insert(new_client.clone());
-            });
-
-            // shift again and check if the old one is removed
-            shift_tmp_clients();
-
-            let actual_result = TMP_CLIENTS.with(|map| map.borrow().second_last_index_clients.get(&new_client).unwrap().clone());
-            prop_assert_eq!(actual_result, new_client);
-            let actual_result = TMP_CLIENTS.with(|map| map.borrow().second_last_index_clients.get(&test_client_key).is_none());
-            prop_assert!(actual_result);
-
-            // shift again and check if everything is empty
-            shift_tmp_clients();
-
-            let actual_result = TMP_CLIENTS.with(|map| map.borrow().second_last_index_clients.is_empty());
-            prop_assert!(actual_result);
-            let actual_result = TMP_CLIENTS.with(|map| map.borrow().last_index_clients.is_empty());
-            prop_assert!(actual_result);
-        }
-
-        #[test]
-        fn test_is_client_in_tmp_clients(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
-            // Set up
-            TMP_CLIENTS.with(|map| {
-                map.borrow_mut().last_index_clients.insert(test_client_key.clone());
-            });
-
-            // Test
-            let actual_result = is_client_in_tmp_clients(&test_client_key);
-            prop_assert!(actual_result);
-
-            let actual_result = is_client_in_tmp_clients(&test_utils::generate_random_public_key());
-            prop_assert!(!actual_result);
-        }
-
-        #[test]
-        fn test_remove_client_from_tmp_clients(test_client_key in any::<u8>().prop_map(|_| test_utils::generate_random_public_key())) {
-            // Set up
-            TMP_CLIENTS.with(|map| {
-                map.borrow_mut().last_index_clients.insert(test_client_key.clone());
-            });
-
-            // Test
-            remove_client_from_tmp_clients(&test_client_key);
-
-            let actual_result = TMP_CLIENTS.with(|map| map.borrow().last_index_clients.get(&test_client_key).is_none());
-            prop_assert!(actual_result);
         }
     }
 }

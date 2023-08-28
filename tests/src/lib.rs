@@ -4,8 +4,8 @@ use canister::{on_close, on_message, on_open};
 use ic_websocket_cdk::{
     CanisterWsCloseArguments, CanisterWsCloseResult, CanisterWsGetMessagesArguments,
     CanisterWsGetMessagesResult, CanisterWsMessageArguments, CanisterWsMessageResult,
-    CanisterWsOpenArguments, CanisterWsOpenResult, CanisterWsRegisterArguments,
-    CanisterWsRegisterResult, CanisterWsSendResult, ClientPublicKey, WsHandlers,
+    CanisterWsOpenArguments, CanisterWsOpenResult, CanisterWsSendResult, CanisterWsStatusArguments,
+    CanisterWsStatusResult, ClientPrincipal, WsHandlers,
 };
 
 mod canister;
@@ -26,12 +26,6 @@ fn post_upgrade(gateway_principal: String) {
     init(gateway_principal);
 }
 
-// method called by the client SDK when instantiating a new IcWebSocket
-#[update]
-fn ws_register(args: CanisterWsRegisterArguments) -> CanisterWsRegisterResult {
-    ic_websocket_cdk::ws_register(args)
-}
-
 // method called by the WS Gateway after receiving FirstMessage from the client
 #[update]
 fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
@@ -50,6 +44,12 @@ fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
     ic_websocket_cdk::ws_message(args)
 }
 
+// method called by the WS Gateway to update its status in the canister
+#[update]
+fn ws_status(args: CanisterWsStatusArguments) -> CanisterWsStatusResult {
+    ic_websocket_cdk::ws_status(args)
+}
+
 // method called by the WS Gateway to get messages for all the clients it serves
 #[query]
 fn ws_get_messages(args: CanisterWsGetMessagesArguments) -> CanisterWsGetMessagesResult {
@@ -65,6 +65,6 @@ fn ws_wipe() {
 
 // send a message to the client, usually called by the canister itself
 #[update]
-fn ws_send(client_key: ClientPublicKey, msg_bytes: Vec<u8>) -> CanisterWsSendResult {
-    ic_websocket_cdk::ws_send(client_key, msg_bytes)
+fn ws_send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> CanisterWsSendResult {
+    ic_websocket_cdk::ws_send(client_principal, msg_bytes)
 }
