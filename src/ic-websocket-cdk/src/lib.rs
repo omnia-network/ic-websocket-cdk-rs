@@ -787,15 +787,15 @@ pub fn ws_send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> Caniste
     // increment the nonce for the next message
     increment_outgoing_message_nonce();
 
-    // increment the sequence number for the next message to the client
-    increment_outgoing_message_to_client_num(&client_principal)?;
-
     let websocket_message = WebsocketMessage {
         client_principal: client_principal.clone(),
         sequence_num: get_outgoing_message_to_client_num(&client_principal)?,
         timestamp: get_current_time(),
         content: msg_bytes,
     };
+
+    // increment the sequence number for the next message to the client
+    increment_outgoing_message_to_client_num(&client_principal)?;
 
     // CBOR serialize message of type WebsocketMessage
     let content = websocket_message.cbor_serialize()?;
