@@ -379,7 +379,7 @@ fn increment_outgoing_message_to_client_num(
 
 fn init_expected_incoming_message_from_client_num(client_principal: ClientPrincipal) {
     INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
-        map.borrow_mut().insert(client_principal, 0);
+        map.borrow_mut().insert(client_principal, 1);
     });
 }
 
@@ -786,6 +786,8 @@ pub fn ws_send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> Caniste
 
     // increment the nonce for the next message
     increment_outgoing_message_nonce();
+    // increment the sequence number for the next message to the client
+    increment_outgoing_message_to_client_num(&client_principal)?;
 
     let websocket_message = WebsocketMessage {
         client_principal: client_principal.clone(),
@@ -793,9 +795,6 @@ pub fn ws_send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> Caniste
         timestamp: get_current_time(),
         content: msg_bytes,
     };
-
-    // increment the sequence number for the next message to the client
-    increment_outgoing_message_to_client_num(&client_principal)?;
 
     // CBOR serialize message of type WebsocketMessage
     let content = websocket_message.cbor_serialize()?;
