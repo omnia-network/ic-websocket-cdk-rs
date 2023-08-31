@@ -709,8 +709,9 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
     let registered_client = match get_registered_client(&client_principal) {
         Some(v) => v,
         None => {
-            return Err(String::from(
+            return Err(format!(
                 "client with principal {:?} doesn't have an open connection",
+                client_principal
             ))
         },
     };
@@ -726,9 +727,11 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
 
     // check if the incoming message has the expected sequence number
     if sequence_num != expected_sequence_num {
-        return Err(String::from(
-                        "incoming client's message relayed from WS Gateway does not have the expected sequence number",
-                    ));
+        return Err(
+            format!(
+                "incoming client's message does not have the expected sequence number. Expected: {expected_sequence_num}, actual: {sequence_num}",
+            )
+        );
     }
     // increase the expected sequence number by 1
     increment_expected_incoming_message_from_client_num(&client_principal)?;
