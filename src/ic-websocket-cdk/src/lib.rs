@@ -665,6 +665,16 @@ pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
     };
     add_client(client_principal.clone(), new_client);
 
+    // returns the current nonce so that in case the WS Gateway has to open a new poller for this canister
+    // it knows which nonce to start polling from. This is needed in order to make sure that the WS Gateway
+    // does not poll messages it has already relayed when a new it starts polling a canister
+    // (which it might have already polled previously with another thread that was closed after the last client disconnected)
+    //
+    // it's important to get the message nonce BEFORE calling the on_open callback,
+    // otherwise if the developer calls the ws_send from the on_open callback, the nonce would be incremented
+    // and the WS Gateway would start polling from the next nonce, skipping the previous messages
+    let nonce = get_outgoing_message_nonce();
+
     // call the on_open handler initialized in init()
     HANDLERS.with(|h| {
         h.borrow().call_on_open(OnOpenCallbackArgs {
@@ -674,11 +684,7 @@ pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
 
     Ok(CanisterWsOpenResultValue {
         client_principal,
-        // returns the current nonce so that in case the WS Gateway has to open a new poller for this canister
-        // it knows which nonce to start polling from. This is needed in order to make sure that the WS Gateway
-        // does not poll messages it has already relayed when a new it starts polling a canister
-        // (which it might have already polled previously with another thread that was closed after the last client disconnected)
-        nonce: get_outgoing_message_nonce(),
+        nonce,
     })
 }
 
@@ -1185,7 +1191,7 @@ mod test {
             init_expected_incoming_message_from_client_num(test_client_principal.clone());
 
             let actual_result = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_principal).unwrap().clone());
-            prop_assert_eq!(actual_result, 0);
+            prop_assert_eq!(actual_result, 1);
         }
 
         #[test]
@@ -1225,7 +1231,7 @@ mod test {
             prop_assert_eq!(actual_result, registered_client);
 
             let actual_result = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_principal).unwrap().clone());
-            prop_assert_eq!(actual_result, 0);
+            prop_assert_eq!(actual_result, 1);
 
             let actual_result = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_principal).unwrap().clone());
             prop_assert_eq!(actual_result, 0);
