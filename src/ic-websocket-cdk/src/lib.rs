@@ -1191,7 +1191,7 @@ mod test {
             init_expected_incoming_message_from_client_num(test_client_principal.clone());
 
             let actual_result = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_principal).unwrap().clone());
-            prop_assert_eq!(actual_result, 0);
+            prop_assert_eq!(actual_result, 1);
         }
 
         #[test]
@@ -1231,7 +1231,7 @@ mod test {
             prop_assert_eq!(actual_result, registered_client);
 
             let actual_result = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_principal).unwrap().clone());
-            prop_assert_eq!(actual_result, 0);
+            prop_assert_eq!(actual_result, 1);
 
             let actual_result = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_principal).unwrap().clone());
             prop_assert_eq!(actual_result, 0);
