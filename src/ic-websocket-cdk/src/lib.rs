@@ -1,4 +1,4 @@
-use candid::{CandidType, Principal};
+use candid::{CandidType, Encode, Principal};
 #[cfg(not(test))]
 use ic_cdk::api::time;
 use ic_cdk::api::{caller, data_certificate, set_certified_data};
@@ -16,10 +16,10 @@ mod logger;
 const LABEL_WEBSOCKET: &[u8] = b"websocket";
 /// The maximum number of messages returned by [ws_get_messages] at each poll.
 const MAX_NUMBER_OF_RETURNED_MESSAGES: usize = 10;
-/// The delay between two consecutive checks if the registered gateway is still alive.
-const CHECK_REGISTERED_GATEWAY_DELAY_NS: u64 = 60_000_000_000; // 60 seconds
-/// (**Used for integration tests**) The delay between two consecutive checks if the registered gateway is still alive.
-const CHECK_REGISTERED_GATEWAY_DELAY_NS_TEST: u64 = 15_000_000_000; // 15 seconds
+/// The default delay between two consecutive checks if the registered gateway is still alive.
+const DEFAULT_CHECK_REGISTERED_GATEWAY_DELAY_MS: u64 = 60_000; // 60 seconds
+/// The default delay between two consecutive acknowledgements sent to the client.
+const DEFAULT_SEND_ACK_DELAY_MS: u64 = 60_000; // 60 seconds
 
 pub type ClientPrincipal = Principal;
 
@@ -166,24 +166,6 @@ fn get_current_time() -> u64 {
     #[cfg(not(test))]
     {
         time()
-    }
-}
-
-/// Returns true if the canister is running in an integration test.
-///
-/// To run the canister in an integration test,
-/// the `IC_WS_CDK_INTEGRATION_TEST` environment variable must be set to `1` at build time.
-fn is_integration_test() -> bool {
-    let integration_test = option_env!("IC_WS_CDK_INTEGRATION_TEST");
-    integration_test.is_some() && integration_test.unwrap() == "1"
-}
-
-/// Returns the delay in nanoseconds between two consecutive checks if the registered gateway is still alive.
-fn get_check_registered_gateway_delay_ns() -> u64 {
-    if is_integration_test() {
-        CHECK_REGISTERED_GATEWAY_DELAY_NS_TEST
-    } else {
-        CHECK_REGISTERED_GATEWAY_DELAY_NS
     }
 }
 
@@ -522,14 +504,11 @@ fn get_cert_for_range(first: &String, last: &String) -> (Vec<u8>, Vec<u8>) {
 
 /// Schedules a timer to check if the registered gateway has sent a heartbeat recently.
 ///
-/// The timer delay is given by the [get_check_registered_gateway_delay_ms] function.
-///
 /// The timer callback is [check_registered_gateway_timer_callback].
-fn schedule_registered_gateway_check() {
-    set_timer(
-        Duration::from_nanos(get_check_registered_gateway_delay_ns()),
-        check_registered_gateway_timer_callback,
-    );
+fn schedule_registered_gateway_check(interval_ms: u64) {
+    set_timer(Duration::from_millis(interval_ms), move || {
+        check_registered_gateway_timer_callback(interval_ms)
+    });
 }
 
 /// Checks if the registered gateway has sent a heartbeat recently.
@@ -537,13 +516,14 @@ fn schedule_registered_gateway_check() {
 /// In this case, the internal IC WebSocket CDK state is reset.
 ///
 /// At the end, a new timer is scheduled to check again if the registered gateway has sent a heartbeat recently.
-fn check_registered_gateway_timer_callback() {
+fn check_registered_gateway_timer_callback(interval_ms: u64) {
+    let interval_ns = interval_ms * 1_000_000;
     REGISTERED_GATEWAY.with(|state| {
         let mut registered_gateway = state.borrow_mut();
         if let Some(v) = registered_gateway.as_mut() {
             if let Some(last_heartbeat) = v.last_heartbeat {
-                if get_current_time() - last_heartbeat > get_check_registered_gateway_delay_ns() {
-                    custom_print!("[timer-cb]: Registered gateway has not sent a heartbeat for more than {} seconds, resetting all internal state", get_check_registered_gateway_delay_ns() / 1_000_000_000);
+                if get_current_time() - last_heartbeat > interval_ns {
+                    custom_print!("[timer-cb]: Registered gateway has not sent a heartbeat for more than {} seconds, resetting all internal state", interval_ns / 1_000_000_000);
 
                     reset_internal_state();
 
@@ -559,7 +539,53 @@ fn check_registered_gateway_timer_callback() {
         }
     });
 
-    schedule_registered_gateway_check();
+    schedule_registered_gateway_check(interval_ms);
+}
+
+#[derive(CandidType)]
+struct AckMessageForClientContent {
+    last_incoming_message_num: u64,
+}
+
+/// Schedules a timer to send an acknowledgement message to the client.
+///
+/// The timer callback is [send_ack_timer_callback].
+fn schedule_send_ack_to_clients(interval_ms: u64) {
+    set_timer(Duration::from_millis(interval_ms), move || {
+        send_ack_to_clients_timer_callback(interval_ms)
+    });
+}
+
+/// Sends an acknowledgement message to the client.
+/// The message contains the current incoming message sequence number for that client,
+/// so that the client knows that all the messages it sent have been received by the canister.
+///
+/// At the end, a new timer is scheduled to send another acknowledgement message to the client.
+fn send_ack_to_clients_timer_callback(interval_ms: u64) {
+    REGISTERED_CLIENTS.with(|state| {
+        let map = state.borrow();
+        for (client_principal, _) in map.iter() {
+            let last_incoming_message_num =
+                get_expected_incoming_message_from_client_num(client_principal).unwrap();
+            let ack_message = AckMessageForClientContent {
+                last_incoming_message_num,
+            };
+            let message_bytes = Encode!(&ack_message).unwrap();
+            if let Err(e) = ws_send(*client_principal, message_bytes) {
+                custom_print!(
+                    "[timer-cb]: Error sending ack message to client {:?}: {:?}",
+                    client_principal,
+                    e
+                );
+
+                break;
+            };
+        }
+
+        custom_print!("[timer-cb]: Sent ack messages to all clients");
+    });
+
+    schedule_send_ack_to_clients(interval_ms);
 }
 
 /// Arguments passed to the `on_open` handler.
@@ -590,7 +616,7 @@ pub struct OnCloseCallbackArgs {
 type OnCloseCallback = fn(OnCloseCallbackArgs);
 
 /// Handlers initialized by the canister and triggered by the CDK.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct WsHandlers {
     pub on_open: Option<OnOpenCallback>,
     pub on_message: Option<OnMessageCallback>,
@@ -624,20 +650,51 @@ fn initialize_handlers(handlers: WsHandlers) {
     });
 }
 
+/// Parameters for the IC WebSocket CDK initialization. For default parameters and simpler initialization, use [`WsInitParams::new`].
+#[derive(Clone)]
+pub struct WsInitParams {
+    /// The callback handlers for the WebSocket.
+    pub handlers: WsHandlers,
+    /// The principal of the WS Gateway that will be polling the canister.
+    pub gateway_principal: String,
+    /// The interval at which to check if the registered gateway is still alive (in milliseconds).
+    /// Defaults to `60_000` (60 seconds).
+    pub check_registered_gateway_interval_ms: u64,
+    /// The interval at which to send an acknowledgement message to the client,
+    /// so that the client knows that all the messages it sent have been received by the canister (in milliseconds).
+    /// Defaults to `60_000` (60 seconds).
+    pub send_ack_interval_ms: u64,
+}
+
+impl WsInitParams {
+    /// Creates a new instance of WsInitParams, with default interval values.
+    pub fn new(handlers: WsHandlers, gateway_principal: String) -> Self {
+        Self {
+            handlers,
+            gateway_principal,
+            check_registered_gateway_interval_ms: DEFAULT_CHECK_REGISTERED_GATEWAY_DELAY_MS,
+            send_ack_interval_ms: DEFAULT_SEND_ACK_DELAY_MS,
+        }
+    }
+}
+
 /// Initialize the CDK by setting the callback handlers and the **principal** of the WS Gateway that
 /// will be polling the canister.
 ///
 /// Under the hood, an interval (**60 seconds**) is started using [ic_cdk_timers::set_timer]
 /// to check if the WS Gateway is still alive.
-pub fn init(handlers: WsHandlers, gateway_principal: &str) {
+pub fn init(params: WsInitParams) {
     // set the handlers specified by the canister that the CDK uses to manage the IC WebSocket connection
-    initialize_handlers(handlers);
+    initialize_handlers(params.handlers);
 
     // set the principal of the (only) WS Gateway that will be polling the canister
-    initialize_registered_gateway(gateway_principal);
+    initialize_registered_gateway(&params.gateway_principal);
 
     // schedule a timer that will check if the registered gateway is still alive
-    schedule_registered_gateway_check();
+    schedule_registered_gateway_check(params.check_registered_gateway_interval_ms);
+
+    // schedule a timer that will send an acknowledgement message to clients
+    schedule_send_ack_to_clients(params.send_ack_interval_ms);
 }
 
 /// Handles the WS connection open event sent by the client and relayed by the Gateway.
@@ -1000,24 +1057,9 @@ mod test {
     }
 
     #[test]
-    fn test_is_integration_test() {
-        // test
-        assert_eq!(is_integration_test(), false);
-    }
-
-    #[test]
     fn test_current_time() {
         // test
         assert_eq!(get_current_time(), 0u64);
-    }
-
-    #[test]
-    fn test_get_check_registered_gateway_delay() {
-        // test
-        assert_eq!(
-            get_check_registered_gateway_delay_ns(),
-            CHECK_REGISTERED_GATEWAY_DELAY_NS
-        );
     }
 
     proptest! {

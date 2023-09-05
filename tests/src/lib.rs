@@ -5,7 +5,7 @@ use ic_websocket_cdk::{
     CanisterWsCloseArguments, CanisterWsCloseResult, CanisterWsGetMessagesArguments,
     CanisterWsGetMessagesResult, CanisterWsMessageArguments, CanisterWsMessageResult,
     CanisterWsOpenArguments, CanisterWsOpenResult, CanisterWsSendResult, CanisterWsStatusArguments,
-    CanisterWsStatusResult, ClientPrincipal, WsHandlers,
+    CanisterWsStatusResult, ClientPrincipal, WsHandlers, WsInitParams,
 };
 
 mod canister;
@@ -18,7 +18,14 @@ fn init(gateway_principal: String) {
         on_close: Some(on_close),
     };
 
-    ic_websocket_cdk::init(handlers, &gateway_principal)
+    let params = WsInitParams {
+        handlers,
+        gateway_principal,
+        check_registered_gateway_interval_ms: 15_000,
+        send_ack_interval_ms: 10_000,
+    };
+
+    ic_websocket_cdk::init(params)
 }
 
 #[post_upgrade]

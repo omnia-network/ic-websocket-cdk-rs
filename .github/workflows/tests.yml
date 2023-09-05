@@ -34,7 +34,7 @@ jobs:
           cd tests
           rustup target add wasm32-unknown-unknown
           dfx start --clean --background
-          IC_WS_CDK_INTEGRATION_TEST=1 npm run deploy:tests
+          npm run deploy:tests
           npm run generate
       - name: Run integration tests
         run: cd tests && npm run test:integration
