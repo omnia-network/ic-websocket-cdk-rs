@@ -24,7 +24,7 @@ const DEFAULT_SEND_ACK_DELAY_MS: u64 = 60_000; // 60 seconds
 pub type ClientPrincipal = Principal;
 
 /// The result of [ws_open].
-pub type CanisterWsOpenResult = Result<CanisterWsOpenResultValue, String>;
+pub type CanisterWsOpenResult = Result<(), String>;
 /// The result of [ws_close].
 pub type CanisterWsCloseResult = Result<(), String>;
 /// The result of [ws_message].
@@ -35,13 +35,6 @@ pub type CanisterWsStatusResult = Result<(), String>;
 pub type CanisterWsGetMessagesResult = Result<CanisterOutputCertifiedMessages, String>;
 /// The result of [ws_send].
 pub type CanisterWsSendResult = Result<(), String>;
-
-/// The Ok value of CanisterWsOpenResult returned by [ws_open].
-#[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
-pub struct CanisterWsOpenResultValue {
-    client_principal: ClientPrincipal,
-    nonce: u64,
-}
 
 /// The arguments for [ws_open].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
@@ -79,6 +72,7 @@ struct WebsocketMessage {
     client_principal: ClientPrincipal, // The client that the gateway will forward the message to or that sent the message.
     sequence_num: u64, // Both ways, messages should arrive with sequence numbers 0, 1, 2...
     timestamp: u64,    // Timestamp of when the message was made for the recipient to inspect.
+    is_service_message: bool, // Whether the message is a service message sent by the CDK to the client or vice versa.
     #[serde(with = "serde_bytes")]
     content: Vec<u8>, // Application message encoded in binary.
 }
@@ -523,19 +517,19 @@ fn check_registered_gateway_timer_callback(interval_ms: u64) {
         if let Some(v) = registered_gateway.as_mut() {
             if let Some(last_heartbeat) = v.last_heartbeat {
                 if get_current_time() - last_heartbeat > interval_ns {
-                    custom_print!("[timer-cb]: Registered gateway has not sent a heartbeat for more than {} seconds, resetting all internal state", interval_ns / 1_000_000_000);
+                    custom_print!("[registered-gateway-timer-cb]: Registered gateway has not sent a heartbeat for more than {} seconds, resetting all internal state", interval_ns / 1_000_000_000);
 
                     reset_internal_state();
 
                     v.reset();
                 } else {
-                    custom_print!("[timer-cb]: Registered gateway is still alive");
+                    custom_print!("[registered-gateway-timer-cb]: Registered gateway is still alive");
                 }
             } else {
-                custom_print!("[timer-cb]: Registered gateway has not sent a heartbeat yet");
+                custom_print!("[registered-gateway-timer-cb]: Registered gateway has not sent a heartbeat yet");
             }
         } else {
-            custom_print!("[timer-cb]: No registered gateway");
+            custom_print!("[registered-gateway-timer-cb]: No registered gateway");
         }
     });
 
@@ -543,13 +537,33 @@ fn check_registered_gateway_timer_callback(interval_ms: u64) {
 }
 
 #[derive(CandidType)]
-struct AckMessageForClientContent {
-    last_incoming_message_num: u64,
+struct CanisterOpenMessageContent {
+    client_principal: ClientPrincipal,
+}
+
+#[derive(CandidType)]
+struct CanisterAckMessageContent {
+    last_incoming_sequence_num: u64,
+}
+
+/// A service message sent by the CDK to the client.
+#[derive(CandidType)]
+enum CanisterServiceMessage {
+    OpenMessage(CanisterOpenMessageContent),
+    AckMessage(CanisterAckMessageContent),
+}
+
+fn send_service_message_to_client(
+    client_principal: ClientPrincipal,
+    message: CanisterServiceMessage,
+) -> Result<(), String> {
+    let message_bytes = Encode!(&message).unwrap();
+    _ws_send(client_principal, message_bytes, true)
 }
 
 /// Schedules a timer to send an acknowledgement message to the client.
 ///
-/// The timer callback is [send_ack_timer_callback].
+/// The timer callback is [send_ack_to_clients_timer_callback].
 fn schedule_send_ack_to_clients(interval_ms: u64) {
     set_timer(Duration::from_millis(interval_ms), move || {
         send_ack_to_clients_timer_callback(interval_ms)
@@ -565,27 +579,79 @@ fn send_ack_to_clients_timer_callback(interval_ms: u64) {
     REGISTERED_CLIENTS.with(|state| {
         let map = state.borrow();
         for (client_principal, _) in map.iter() {
-            let last_incoming_message_num =
-                get_expected_incoming_message_from_client_num(client_principal).unwrap();
-            let ack_message = AckMessageForClientContent {
-                last_incoming_message_num,
-            };
-            let message_bytes = Encode!(&ack_message).unwrap();
-            if let Err(e) = ws_send(*client_principal, message_bytes) {
-                custom_print!(
-                    "[timer-cb]: Error sending ack message to client {:?}: {:?}",
-                    client_principal,
-                    e
-                );
+            // ignore the error, which shouldn't happen since the client is registered and the sequence number is initialized
+            if let Ok(last_incoming_message_sequence_num) =
+                get_expected_incoming_message_from_client_num(client_principal)
+            {
+                let ack_message = CanisterAckMessageContent {
+                    last_incoming_sequence_num: last_incoming_message_sequence_num,
+                };
+                let message = CanisterServiceMessage::AckMessage(ack_message);
+                if let Err(e) = send_service_message_to_client(*client_principal, message) {
+                    custom_print!(
+                        "[ack-to-clients-timer-cb]: Error sending ack message to client {:?}: {:?}",
+                        client_principal,
+                        e
+                    );
 
-                break;
-            };
+                    break;
+                };
+            }
         }
 
-        custom_print!("[timer-cb]: Sent ack messages to all clients");
+        custom_print!("[ack-to-clients-timer-cb]: Sent ack messages to all clients");
     });
 
     schedule_send_ack_to_clients(interval_ms);
+}
+
+/// Internal function used to put the messages in the outgoing messages queue and certify them.
+fn _ws_send(
+    client_principal: ClientPrincipal,
+    msg_bytes: Vec<u8>,
+    is_service_message: bool,
+) -> CanisterWsSendResult {
+    // check if the client is registered
+    check_registered_client(&client_principal)?;
+
+    // get the principal of the gateway that is polling the canister
+    let gateway_principal = get_registered_gateway_principal();
+
+    // the nonce in key is used by the WS Gateway to determine the message to start in the polling iteration
+    // the key is also passed to the client in order to validate the body of the certified message
+    let outgoing_message_nonce = get_outgoing_message_nonce();
+    let key = get_message_for_gateway_key(gateway_principal, outgoing_message_nonce);
+
+    // increment the nonce for the next message
+    increment_outgoing_message_nonce();
+    // increment the sequence number for the next message to the client
+    increment_outgoing_message_to_client_num(&client_principal)?;
+
+    let websocket_message = WebsocketMessage {
+        client_principal: client_principal.clone(),
+        sequence_num: get_outgoing_message_to_client_num(&client_principal)?,
+        timestamp: get_current_time(),
+        is_service_message,
+        content: msg_bytes,
+    };
+
+    // CBOR serialize message of type WebsocketMessage
+    let content = websocket_message.cbor_serialize()?;
+
+    // certify data
+    put_cert_for_message(key.clone(), &content);
+
+    MESSAGES_FOR_GATEWAY.with(|m| {
+        // messages in the queue are inserted with contiguous and increasing nonces
+        // (from beginning to end of the queue) as ws_send is called sequentially, the nonce
+        // is incremented by one in each call, and the message is pushed at the end of the queue
+        m.borrow_mut().push_back(CanisterOutputMessage {
+            client_principal,
+            content,
+            key,
+        });
+    });
+    Ok(())
 }
 
 /// Arguments passed to the `on_open` handler.
@@ -722,15 +788,11 @@ pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
     };
     add_client(client_principal.clone(), new_client);
 
-    // returns the current nonce so that in case the WS Gateway has to open a new poller for this canister
-    // it knows which nonce to start polling from. This is needed in order to make sure that the WS Gateway
-    // does not poll messages it has already relayed when a new it starts polling a canister
-    // (which it might have already polled previously with another thread that was closed after the last client disconnected)
-    //
-    // it's important to get the message nonce BEFORE calling the on_open callback,
-    // otherwise if the developer calls the ws_send from the on_open callback, the nonce would be incremented
-    // and the WS Gateway would start polling from the next nonce, skipping the previous messages
-    let nonce = get_outgoing_message_nonce();
+    let open_message = CanisterOpenMessageContent {
+        client_principal: client_principal.clone(),
+    };
+    let message = CanisterServiceMessage::OpenMessage(open_message);
+    send_service_message_to_client(client_principal.clone(), message)?;
 
     // call the on_open handler initialized in init()
     HANDLERS.with(|h| {
@@ -739,10 +801,7 @@ pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
         });
     });
 
-    Ok(CanisterWsOpenResultValue {
-        client_principal,
-        nonce,
-    })
+    Ok(())
 }
 
 /// Handles the WS connection close event received from the WS Gateway.
@@ -783,6 +842,7 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
         client_principal: _,
         sequence_num,
         timestamp: _,
+        is_service_message: _, // TODO: handle service messages
         content,
     } = args.msg;
 
@@ -836,46 +896,7 @@ pub fn ws_get_messages(args: CanisterWsGetMessagesArguments) -> CanisterWsGetMes
 /// Under the hood, the message is serialized and certified, and then it is added to the queue of messages
 /// that the WS Gateway will poll in the next iteration.
 pub fn ws_send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> CanisterWsSendResult {
-    // check if the client is registered
-    check_registered_client(&client_principal)?;
-
-    // get the principal of the gateway that is polling the canister
-    let gateway_principal = get_registered_gateway_principal();
-
-    // the nonce in key is used by the WS Gateway to determine the message to start in the polling iteration
-    // the key is also passed to the client in order to validate the body of the certified message
-    let outgoing_message_nonce = get_outgoing_message_nonce();
-    let key = get_message_for_gateway_key(gateway_principal, outgoing_message_nonce);
-
-    // increment the nonce for the next message
-    increment_outgoing_message_nonce();
-    // increment the sequence number for the next message to the client
-    increment_outgoing_message_to_client_num(&client_principal)?;
-
-    let websocket_message = WebsocketMessage {
-        client_principal: client_principal.clone(),
-        sequence_num: get_outgoing_message_to_client_num(&client_principal)?,
-        timestamp: get_current_time(),
-        content: msg_bytes,
-    };
-
-    // CBOR serialize message of type WebsocketMessage
-    let content = websocket_message.cbor_serialize()?;
-
-    // certify data
-    put_cert_for_message(key.clone(), &content);
-
-    MESSAGES_FOR_GATEWAY.with(|m| {
-        // messages in the queue are inserted with contiguous and increasing nonces
-        // (from beginning to end of the queue) as ws_send is called sequentially, the nonce
-        // is incremented by one in each call, and the message is pushed at the end of the queue
-        m.borrow_mut().push_back(CanisterOutputMessage {
-            client_principal,
-            content,
-            key,
-        });
-    });
-    Ok(())
+    _ws_send(client_principal, msg_bytes, false)
 }
 
 #[cfg(test)]
@@ -1418,6 +1439,7 @@ mod test {
                 client_principal: test_utils::generate_random_principal(),
                 sequence_num: test_sequence_num,
                 timestamp: test_timestamp,
+                is_service_message: false,
                 content: test_msg_bytes,
             };
 

@@ -4,6 +4,7 @@ type WebsocketMessage = record {
   client_principal : ClientPrincipal;
   sequence_num : nat64;
   timestamp : nat64;
+  is_service_message : bool;
   content : blob;
 };
 
@@ -21,15 +22,11 @@ type CanisterOutputCertifiedMessages = record {
 
 type CanisterWsOpenArguments = record {
   is_anonymous : bool;
-};
-
-type CanisterWsOpenResultValue = record {
-  client_principal : ClientPrincipal;
-  nonce : nat64;
+  gateway_principal : principal;
 };
 
 type CanisterWsOpenResult = variant {
-  Ok : CanisterWsOpenResultValue;
+  Ok : null;
   Err : text;
 };
 
