@@ -767,6 +767,8 @@ pub fn init(params: WsInitParams) {
 pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
     let client_principal = caller();
 
+    // TODO: check if the principal is not the anonymous principal
+
     // check if client is not registered yet
     if is_client_registered(&client_principal) {
         return Err(format!(
