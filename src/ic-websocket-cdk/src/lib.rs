@@ -337,6 +337,7 @@ fn get_messages_for_gateway_range(gateway_principal: Principal, nonce: u64) -> (
     MESSAGES_FOR_GATEWAY.with(|m| {
         let queue_len = m.borrow().len();
 
+        // TODO: test
         if nonce == 0 && queue_len > 0 {
             // this is the case in which the poller on the gateway restarted
             // the range to return is end:last index and start: max(end - MAX_NUMBER_OF_RETURNED_MESSAGES, 0)
@@ -654,6 +655,7 @@ pub fn init(params: WsInitParams) {
     initialize_registered_gateway(&params.gateway_principal);
 
     // schedule a timer that will send an acknowledgement message to clients
+    // TODO: test
     schedule_send_ack_to_clients(params.send_ack_interval_ms);
 }
 
