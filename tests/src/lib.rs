@@ -4,8 +4,8 @@ use canister::{on_close, on_message, on_open};
 use ic_websocket_cdk::{
     CanisterWsCloseArguments, CanisterWsCloseResult, CanisterWsGetMessagesArguments,
     CanisterWsGetMessagesResult, CanisterWsMessageArguments, CanisterWsMessageResult,
-    CanisterWsOpenArguments, CanisterWsOpenResult, CanisterWsSendResult, CanisterWsStatusArguments,
-    CanisterWsStatusResult, ClientPrincipal, WsHandlers, WsInitParams,
+    CanisterWsOpenArguments, CanisterWsOpenResult, CanisterWsSendResult, ClientPrincipal,
+    WsHandlers, WsInitParams,
 };
 
 mod canister;
@@ -49,12 +49,6 @@ fn ws_close(args: CanisterWsCloseArguments) -> CanisterWsCloseResult {
 #[update]
 fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
     ic_websocket_cdk::ws_message(args)
-}
-
-// method called by the WS Gateway to update its status in the canister
-#[update]
-fn ws_status(args: CanisterWsStatusArguments) -> CanisterWsStatusResult {
-    ic_websocket_cdk::ws_status(args)
 }
 
 // method called by the WS Gateway to get messages for all the clients it serves

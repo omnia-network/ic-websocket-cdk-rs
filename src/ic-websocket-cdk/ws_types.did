@@ -48,15 +48,6 @@ type CanisterWsMessageResult = variant {
   Err : text;
 };
 
-type CanisterWsStatusArguments = record {
-  status_index : nat64;
-};
-
-type CanisterWsStatusResult = variant {
-  Ok : null;
-  Err : text;
-};
-
 type CanisterWsGetMessagesArguments = record {
   nonce : nat64;
 };

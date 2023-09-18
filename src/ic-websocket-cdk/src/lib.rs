@@ -16,8 +16,6 @@ mod logger;
 const LABEL_WEBSOCKET: &[u8] = b"websocket";
 /// The maximum number of messages returned by [ws_get_messages] at each poll.
 const MAX_NUMBER_OF_RETURNED_MESSAGES: usize = 10;
-/// The default delay between two consecutive checks if the registered gateway is still alive.
-const DEFAULT_CHECK_REGISTERED_GATEWAY_DELAY_MS: u64 = 60_000; // 60 seconds
 /// The default delay between two consecutive acknowledgements sent to the client.
 const DEFAULT_SEND_ACK_DELAY_MS: u64 = 60_000; // 60 seconds
 
@@ -29,8 +27,6 @@ pub type CanisterWsOpenResult = Result<(), String>;
 pub type CanisterWsCloseResult = Result<(), String>;
 /// The result of [ws_message].
 pub type CanisterWsMessageResult = Result<(), String>;
-/// The result of [ws_status].
-pub type CanisterWsStatusResult = Result<(), String>;
 /// The result of [ws_get_messages].
 pub type CanisterWsGetMessagesResult = Result<CanisterOutputCertifiedMessages, String>;
 /// The result of [ws_send].
@@ -52,12 +48,6 @@ pub struct CanisterWsCloseArguments {
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsMessageArguments {
     msg: WebsocketMessage,
-}
-
-/// The arguments for [ws_status].
-#[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
-pub struct CanisterWsStatusArguments {
-    status_index: u64,
 }
 
 /// The arguments for [ws_get_messages].
@@ -112,43 +102,12 @@ pub struct CanisterOutputCertifiedMessages {
 struct RegisteredGateway {
     /// The principal of the gateway.
     gateway_principal: Principal,
-    /// The last time the gateway sent a heartbeat message.
-    last_heartbeat: Option<u64>,
-    /// The last status index received from the gateway.
-    last_status_index: u64,
 }
 
 impl RegisteredGateway {
     /// Creates a new instance of RegisteredGateway.
     fn new(gateway_principal: Principal) -> Self {
-        Self {
-            gateway_principal,
-            last_heartbeat: None,
-            last_status_index: 0,
-        }
-    }
-
-    /// Updates the registered gateway's status index with the given one.
-    /// Sets the last heartbeat to the current time.
-    fn update_status_index(&mut self, status_index: u64) -> Result<(), String> {
-        if status_index <= self.last_status_index {
-            if status_index == 0 {
-                custom_print!("Gateway status index set to 0");
-            } else {
-                return Err("Gateway status index is equal to or behind the current one".to_owned());
-            }
-        }
-        self.last_status_index = status_index;
-        self.last_heartbeat = Some(get_current_time());
-        Ok(())
-    }
-
-    /// Resets the registered gateway to the initial state.
-    fn reset(&mut self) {
-        self.last_heartbeat = None;
-        self.last_status_index = 0;
-
-        custom_print!("Gateway has been reset");
+        Self { gateway_principal }
     }
 }
 
@@ -236,14 +195,6 @@ fn reset_internal_state() {
 pub fn wipe() {
     reset_internal_state();
 
-    // if there is a registered gateway, reset its state
-    REGISTERED_GATEWAY.with(|state| {
-        let mut registered_gateway = state.borrow_mut();
-        if let Some(v) = registered_gateway.as_mut() {
-            v.reset();
-        }
-    });
-
     // remove all clients from the map
     REGISTERED_CLIENTS.with(|map| {
         map.borrow_mut().clear();
@@ -299,30 +250,6 @@ fn get_registered_gateway_principal() -> Principal {
         g.borrow()
             .expect("gateway should be initialized")
             .gateway_principal
-    })
-}
-
-/// Updates the registered gateway with the new status index.
-/// If the status index is not greater than the current one, the function returns an error.
-fn update_registered_gateway_status_index(status_index: u64) -> Result<(), String> {
-    REGISTERED_GATEWAY.with(|state| {
-        let mut registered_gateway = state.borrow_mut();
-
-        if let Some(v) = registered_gateway.as_mut() {
-            // if the current status index is > 0 and the new status index is 0, it means that the gateway has been restarted
-            // in this case, we reset the internal state because all clients are not connected to the gateway anymore
-            if v.last_status_index > 0 && status_index == 0 {
-                reset_internal_state();
-
-                v.reset();
-
-                Ok(())
-            } else {
-                v.update_status_index(status_index)
-            }
-        } else {
-            Err("no gateway registered".to_owned())
-        }
     })
 }
 
@@ -508,46 +435,6 @@ fn get_cert_for_range(first: &String, last: &String) -> (Vec<u8>, Vec<u8>) {
         tree.serialize(&mut serializer).unwrap();
         (data_certificate().unwrap(), data)
     })
-}
-
-/// Schedules a timer to check if the registered gateway has sent a heartbeat recently.
-///
-/// The timer callback is [check_registered_gateway_timer_callback].
-fn schedule_registered_gateway_check(interval_ms: u64) {
-    set_timer(Duration::from_millis(interval_ms), move || {
-        check_registered_gateway_timer_callback(interval_ms)
-    });
-}
-
-/// Checks if the registered gateway has sent a heartbeat recently.
-/// If not, this means that the gateway has been restarted and all clients registered have been disconnected.
-/// In this case, the internal IC WebSocket CDK state is reset.
-///
-/// At the end, a new timer is scheduled to check again if the registered gateway has sent a heartbeat recently.
-fn check_registered_gateway_timer_callback(interval_ms: u64) {
-    let interval_ns = interval_ms * 1_000_000;
-    REGISTERED_GATEWAY.with(|state| {
-        let mut registered_gateway = state.borrow_mut();
-        if let Some(v) = registered_gateway.as_mut() {
-            if let Some(last_heartbeat) = v.last_heartbeat {
-                if get_current_time() - last_heartbeat > interval_ns {
-                    custom_print!("[registered-gateway-timer-cb]: Registered gateway has not sent a heartbeat for more than {} seconds, resetting all internal state", interval_ns / 1_000_000_000);
-
-                    reset_internal_state();
-
-                    v.reset();
-                } else {
-                    custom_print!("[registered-gateway-timer-cb]: Registered gateway is still alive");
-                }
-            } else {
-                custom_print!("[registered-gateway-timer-cb]: Registered gateway has not sent a heartbeat yet");
-            }
-        } else {
-            custom_print!("[registered-gateway-timer-cb]: No registered gateway");
-        }
-    });
-
-    schedule_registered_gateway_check(interval_ms);
 }
 
 #[derive(CandidType)]
@@ -737,9 +624,6 @@ pub struct WsInitParams {
     pub handlers: WsHandlers,
     /// The principal of the WS Gateway that will be polling the canister.
     pub gateway_principal: String,
-    /// The interval at which to check if the registered gateway is still alive (in milliseconds).
-    /// Defaults to `60_000` (60 seconds).
-    pub check_registered_gateway_interval_ms: u64,
     /// The interval at which to send an acknowledgement message to the client,
     /// so that the client knows that all the messages it sent have been received by the canister (in milliseconds).
     /// Defaults to `60_000` (60 seconds).
@@ -752,7 +636,6 @@ impl WsInitParams {
         Self {
             handlers,
             gateway_principal,
-            check_registered_gateway_interval_ms: DEFAULT_CHECK_REGISTERED_GATEWAY_DELAY_MS,
             send_ack_interval_ms: DEFAULT_SEND_ACK_DELAY_MS,
         }
     }
@@ -769,9 +652,6 @@ pub fn init(params: WsInitParams) {
 
     // set the principal of the (only) WS Gateway that will be polling the canister
     initialize_registered_gateway(&params.gateway_principal);
-
-    // schedule a timer that will check if the registered gateway is still alive
-    schedule_registered_gateway_check(params.check_registered_gateway_interval_ms);
 
     // schedule a timer that will send an acknowledgement message to clients
     schedule_send_ack_to_clients(params.send_ack_interval_ms);
@@ -886,16 +766,6 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
         });
     });
     Ok(())
-}
-
-/// Used by the WS Gateway to update its status on the canister.
-/// This way, the canister can check if the WS Gateway is still alive.
-pub fn ws_status(args: CanisterWsStatusArguments) -> CanisterWsStatusResult {
-    // check if the caller of this method is the WS Gateway that has been set during the initialization of the SDK
-    let gateway_principal = caller();
-    check_is_registered_gateway(gateway_principal)?;
-
-    update_registered_gateway_status_index(args.status_index)
 }
 
 /// Returns messages to the WS Gateway in response of a polling iteration.
@@ -1164,51 +1034,6 @@ mod test {
 
             let actual_gateway_principal = get_registered_gateway_principal();
             prop_assert_eq!(actual_gateway_principal, test_gateway_principal);
-        }
-
-        #[test]
-        fn test_update_registered_gateway_status_index(test_gateway_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal()), test_client_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
-            // Set up
-            REGISTERED_CLIENTS.with(|map| {
-                map.borrow_mut().insert(test_client_principal.clone(), test_utils::generate_random_registered_client());
-            });
-            REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(test_gateway_principal.clone())));
-
-            // test with a valid status index
-            let _ = update_registered_gateway_status_index(2);
-            let actual_status_index = REGISTERED_GATEWAY.with(|p| p.borrow().as_ref().unwrap().last_status_index.clone());
-            prop_assert_eq!(actual_status_index, 2);
-
-            // test with an invalid status index (behind the current one)
-            let actual_result = update_registered_gateway_status_index(1);
-            let actual_status_index = REGISTERED_GATEWAY.with(|p| p.borrow().as_ref().unwrap().last_status_index.clone());
-            prop_assert_eq!(actual_status_index, 2);
-            prop_assert_eq!(actual_result.err(), Some(String::from("Gateway status index is equal to or behind the current one")));
-
-            // test with an invalid status index (equal to the current one)
-            let actual_result = update_registered_gateway_status_index(2);
-            let actual_status_index = REGISTERED_GATEWAY.with(|p| p.borrow().as_ref().unwrap().last_status_index.clone());
-            prop_assert_eq!(actual_status_index, 2);
-            prop_assert_eq!(actual_result.err(), Some(String::from("Gateway status index is equal to or behind the current one")));
-
-            // test with a valid status index (greater one)
-            let _ = update_registered_gateway_status_index(10);
-            let actual_status_index = REGISTERED_GATEWAY.with(|p| p.borrow().as_ref().unwrap().last_status_index.clone());
-            prop_assert_eq!(actual_status_index, 10);
-
-            // reset the registered gateway
-            let new_client_principal = test_utils::generate_random_principal();
-            REGISTERED_CLIENTS.with(|map| {
-                map.borrow_mut().insert(new_client_principal.clone(), test_utils::generate_random_registered_client());
-            });
-            let _ = update_registered_gateway_status_index(0);
-            let actual_status_index = REGISTERED_GATEWAY.with(|p| p.borrow().as_ref().unwrap().last_status_index.clone());
-            prop_assert_eq!(actual_status_index, 0);
-            let actual_result = REGISTERED_CLIENTS.with(|map| {
-                let map = map.borrow();
-                map.get(&test_client_principal).is_none() && map.get(&new_client_principal).is_none()
-            });
-            prop_assert!(actual_result);
         }
 
         #[test]
