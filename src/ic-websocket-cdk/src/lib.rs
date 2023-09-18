@@ -122,14 +122,14 @@ fn get_current_time() -> u64 {
     }
 }
 
-/// The data about a registered client.
+/// The metadata about a registered client.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RegisteredClient {
     // future versions may need more fields
 }
 
 thread_local! {
-    /// Maps the client's public key to the client's identity (anonymous if not authenticated).
+    /// Maps the client's principal to the client metadata
     /* flexible */ static REGISTERED_CLIENTS: RefCell<HashMap<ClientPrincipal, RegisteredClient>> = RefCell::new(HashMap::new());
     /// Maps the client's public key to the sequence number to use for the next outgoing message (to that client).
     /* flexible */ static OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP: RefCell<HashMap<ClientPrincipal, u64>> = RefCell::new(HashMap::new());
