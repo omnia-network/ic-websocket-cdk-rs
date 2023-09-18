@@ -35,7 +35,7 @@ pub type CanisterWsSendResult = Result<(), String>;
 /// The arguments for [ws_open].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsOpenArguments {
-    is_anonymous: bool,
+    // future versions may need more fields
 }
 
 /// The arguments for [ws_close].
@@ -122,15 +122,10 @@ fn get_current_time() -> u64 {
     }
 }
 
+/// The data about a registered client.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RegisteredClient {
-    is_anonymous: bool,
-}
-
-impl RegisteredClient {
-    fn is_anonymous(&self) -> bool {
-        self.is_anonymous
-    }
+    // future versions may need more fields
 }
 
 thread_local! {
@@ -216,10 +211,6 @@ fn insert_client(client_principal: ClientPrincipal, new_client: RegisteredClient
         map.borrow_mut()
             .insert(client_principal.clone(), new_client);
     });
-}
-
-fn get_registered_client(client_principal: &ClientPrincipal) -> Option<RegisteredClient> {
-    REGISTERED_CLIENTS.with(|map| map.borrow().get(client_principal).cloned())
 }
 
 fn is_client_registered(client_principal: &ClientPrincipal) -> bool {
@@ -567,7 +558,6 @@ type OnOpenCallback = fn(OnOpenCallbackArgs);
 /// Arguments passed to the `on_message` handler.
 pub struct OnMessageCallbackArgs {
     pub client_principal: ClientPrincipal,
-    pub is_anonymous: bool,
     pub message: Vec<u8>,
 }
 /// Handler initialized by the canister
@@ -660,7 +650,7 @@ pub fn init(params: WsInitParams) {
 }
 
 /// Handles the WS connection open event sent by the client and relayed by the Gateway.
-pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
+pub fn ws_open(_args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
     let client_principal = caller();
 
     // TODO: test
@@ -684,10 +674,7 @@ pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
     }
 
     // initialize client maps
-    let new_client = RegisteredClient {
-        is_anonymous: args.is_anonymous,
-    };
-    add_client(client_principal.clone(), new_client);
+    add_client(client_principal.clone(), RegisteredClient {});
 
     let open_message = CanisterOpenMessageContent {
         client_principal: client_principal.clone(),
@@ -729,15 +716,6 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
     let client_principal = caller();
     // check if client registered its principal by calling ws_open
     check_registered_client(&client_principal)?;
-    let registered_client = match get_registered_client(&client_principal) {
-        Some(v) => v,
-        None => {
-            return Err(format!(
-                "client with principal {:?} doesn't have an open connection",
-                client_principal
-            ))
-        },
-    };
 
     let WebsocketMessage {
         client_principal: _,
@@ -766,7 +744,6 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
         // create message to send to client
         h.borrow().call_on_message(OnMessageCallbackArgs {
             client_principal,
-            is_anonymous: registered_client.is_anonymous(),
             message: content,
         });
     });
@@ -821,9 +798,7 @@ mod test {
         }
 
         pub fn generate_random_registered_client() -> RegisteredClient {
-            RegisteredClient {
-                is_anonymous: false,
-            }
+            RegisteredClient {}
         }
 
         pub fn get_static_principal() -> Principal {
@@ -901,7 +876,6 @@ mod test {
             });
             h.call_on_message(OnMessageCallbackArgs {
                 client_principal: test_utils::generate_random_principal(),
-                is_anonymous: false, // doesn't matter
                 message: vec![],
             });
             h.call_on_close(OnCloseCallbackArgs {
@@ -954,7 +928,6 @@ mod test {
             });
             h.call_on_message(OnMessageCallbackArgs {
                 client_principal: test_utils::generate_random_principal(),
-                is_anonymous: false, // doesn't matter
                 message: vec![],
             });
             h.call_on_close(OnCloseCallbackArgs {
@@ -1005,20 +978,6 @@ mod test {
 
             increment_outgoing_message_nonce();
             prop_assert_eq!(get_outgoing_message_nonce(), test_nonce + 1);
-        }
-
-        #[test]
-        fn test_get_registered_client(test_client_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
-            // Set up
-            let registered_client = test_utils::generate_random_registered_client();
-            REGISTERED_CLIENTS.with(|map| {
-                map.borrow_mut().insert(test_client_principal.clone(), registered_client.clone());
-            });
-
-            let actual_client = get_registered_client(&test_client_principal);
-            prop_assert_eq!(actual_client, Some(registered_client));
-            let actual_client = get_registered_client(&test_utils::generate_random_principal());
-            prop_assert_eq!(actual_client, None);
         }
 
         #[test]
