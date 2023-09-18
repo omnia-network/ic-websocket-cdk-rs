@@ -20,10 +20,7 @@ type CanisterOutputCertifiedMessages = record {
   tree : blob;
 };
 
-type CanisterWsOpenArguments = record {
-  is_anonymous : bool;
-  gateway_principal : principal;
-};
+type CanisterWsOpenArguments = record {};
 
 type CanisterWsOpenResult = variant {
   Ok : null;

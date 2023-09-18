@@ -455,7 +455,7 @@ struct CanisterAckMessageContent {
 }
 
 #[derive(CandidType, Deserialize)]
-struct ClientKeepAliveMessage {
+struct ClientKeepAliveMessageContent {
     last_received_sequence_num: u64,
 }
 
@@ -467,7 +467,7 @@ enum WebsocketServiceMessageContent {
     /// Message sent _periodically_ by the **canister** to the client to acknowledge the messages received.
     AckMessage(CanisterAckMessageContent),
     /// Message sent by the **client** in response to an acknowledgement message from the canister.
-    KeepAliveMessage(ClientKeepAliveMessage),
+    KeepAliveMessage(ClientKeepAliveMessageContent),
 }
 
 fn send_service_message_to_client(
