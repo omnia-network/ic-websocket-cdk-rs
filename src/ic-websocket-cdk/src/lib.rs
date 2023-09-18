@@ -190,11 +190,6 @@ fn reset_internal_state() {
 pub fn wipe() {
     reset_internal_state();
 
-    // remove all clients from the map
-    REGISTERED_CLIENTS.with(|map| {
-        map.borrow_mut().clear();
-    });
-
     custom_print!("Internal state has been wiped!");
 }
 
