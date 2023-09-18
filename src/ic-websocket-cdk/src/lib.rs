@@ -661,7 +661,10 @@ pub fn init(params: WsInitParams) {
 pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
     let client_principal = caller();
 
-    // TODO: check if the principal is not the anonymous principal
+    // TODO: test
+    if client_principal == Principal::anonymous() {
+        return Err(String::from("anonymous principal cannot open a connection"));
+    }
 
     // check if client is not registered yet
     if is_client_registered(&client_principal) {
