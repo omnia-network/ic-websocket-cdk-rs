@@ -1,4 +1,4 @@
-use candid::{CandidType, Encode, Principal};
+use candid::{decode_one, encode_one, CandidType, Principal};
 #[cfg(not(test))]
 use ic_cdk::api::time;
 use ic_cdk::api::{caller, data_certificate, set_certified_data};
@@ -18,6 +18,8 @@ const LABEL_WEBSOCKET: &[u8] = b"websocket";
 const MAX_NUMBER_OF_RETURNED_MESSAGES: usize = 10;
 /// The default delay between two consecutive acknowledgements sent to the client.
 const DEFAULT_SEND_ACK_DELAY_MS: u64 = 60_000; // 60 seconds
+/// The default delay to wait for the client to send a keep alive after receiving an acknowledgement.
+const DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS: u64 = 10_000; // 10 seconds
 
 pub type ClientPrincipal = Principal;
 
@@ -125,7 +127,26 @@ fn get_current_time() -> u64 {
 /// The metadata about a registered client.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RegisteredClient {
-    // future versions may need more fields
+    last_keep_alive_timestamp: u64,
+}
+
+impl RegisteredClient {
+    /// Creates a new instance of RegisteredClient.
+    fn new() -> Self {
+        Self {
+            last_keep_alive_timestamp: get_current_time(),
+        }
+    }
+
+    /// Gets the last keep alive timestamp.
+    fn get_last_keep_alive_timestamp(&self) -> u64 {
+        self.last_keep_alive_timestamp
+    }
+
+    /// Set the last keep alive timestamp to the current time.
+    fn update_last_keep_alive_timestamp(&mut self) {
+        self.last_keep_alive_timestamp = get_current_time();
+    }
 }
 
 thread_local! {
@@ -156,18 +177,11 @@ thread_local! {
 /// Resets all RefCells to their initial state.
 /// If there is a registered gateway, resets its state as well.
 fn reset_internal_state() {
-    // get the handlers to call the on_close handler for each client
-    let handlers = HANDLERS.with(|state| state.borrow().clone());
-
     REGISTERED_CLIENTS.with(|state| {
-        let mut map = state.borrow_mut();
+        let map = state.borrow();
         // for each client, call the on_close handler before clearing the map
         for (client_principal, _) in map.clone().iter() {
-            handlers.call_on_close(OnCloseCallbackArgs {
-                client_principal: client_principal.clone(),
-            });
-
-            map.remove(client_principal);
+            remove_client(client_principal);
         }
     });
 
@@ -303,15 +317,21 @@ fn add_client(client_principal: ClientPrincipal, new_client: RegisteredClient) {
     init_outgoing_message_to_client_num(client_principal);
 }
 
-fn remove_client(client_principal: ClientPrincipal) {
+fn remove_client(client_principal: &ClientPrincipal) {
+    let handlers = HANDLERS.with(|state| state.borrow().clone());
+
+    handlers.call_on_close(OnCloseCallbackArgs {
+        client_principal: client_principal.clone(),
+    });
+
     REGISTERED_CLIENTS.with(|map| {
-        map.borrow_mut().remove(&client_principal);
+        map.borrow_mut().remove(client_principal);
     });
     OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
-        map.borrow_mut().remove(&client_principal);
+        map.borrow_mut().remove(client_principal);
     });
     INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
-        map.borrow_mut().remove(&client_principal);
+        map.borrow_mut().remove(client_principal);
     });
 }
 
@@ -424,46 +444,69 @@ fn get_cert_for_range(first: &String, last: &String) -> (Vec<u8>, Vec<u8>) {
     })
 }
 
-#[derive(CandidType)]
+#[derive(CandidType, Deserialize)]
 struct CanisterOpenMessageContent {
     client_principal: ClientPrincipal,
 }
 
-#[derive(CandidType)]
+#[derive(CandidType, Deserialize)]
 struct CanisterAckMessageContent {
     last_incoming_sequence_num: u64,
 }
 
+#[derive(CandidType, Deserialize)]
+struct ClientKeepAliveMessage {
+    last_received_sequence_num: u64,
+}
+
 /// A service message sent by the CDK to the client.
-#[derive(CandidType)]
-enum CanisterServiceMessage {
+#[derive(CandidType, Deserialize)]
+enum WebsocketServiceMessageContent {
+    /// Message sent by the **canister** when a client opens a connection.
     OpenMessage(CanisterOpenMessageContent),
+    /// Message sent _periodically_ by the **canister** to the client to acknowledge the messages received.
     AckMessage(CanisterAckMessageContent),
+    /// Message sent by the **client** in response to an acknowledgement message from the canister.
+    KeepAliveMessage(ClientKeepAliveMessage),
 }
 
 fn send_service_message_to_client(
     client_principal: ClientPrincipal,
-    message: CanisterServiceMessage,
+    message: WebsocketServiceMessageContent,
 ) -> Result<(), String> {
-    let message_bytes = Encode!(&message).unwrap();
+    let message_bytes = encode_one(&message).unwrap();
     _ws_send(client_principal, message_bytes, true)
 }
 
 /// Schedules a timer to send an acknowledgement message to the client.
 ///
-/// The timer callback is [send_ack_to_clients_timer_callback].
-fn schedule_send_ack_to_clients(interval_ms: u64) {
-    set_timer(Duration::from_millis(interval_ms), move || {
-        send_ack_to_clients_timer_callback(interval_ms)
+/// The timer callback is [send_ack_to_clients_timer_callback]. After the callback is executed,
+/// a timer is scheduled to check if the registered clients have sent a keep alive message.
+fn schedule_send_ack_to_clients(ack_interval_ms: u64, check_interval_ms: u64) {
+    set_timer(Duration::from_millis(ack_interval_ms), move || {
+        send_ack_to_clients_timer_callback();
+
+        schedule_check_keep_alive(ack_interval_ms, check_interval_ms);
+    });
+}
+
+/// Schedules a timer to check if the registered clients have sent a keep alive message
+/// after receiving an acknowledgement message.
+///
+/// The timer callback is [check_keep_alive_timer_callback]. After the callback is executed,
+/// a timer is scheduled again to send an acknowledgement message to the registered clients.
+fn schedule_check_keep_alive(ack_interval_ms: u64, check_interval_ms: u64) {
+    set_timer(Duration::from_millis(check_interval_ms), move || {
+        check_keep_alive_timer_callback();
+
+        schedule_send_ack_to_clients(ack_interval_ms, check_interval_ms);
     });
 }
 
 /// Sends an acknowledgement message to the client.
 /// The message contains the current incoming message sequence number for that client,
 /// so that the client knows that all the messages it sent have been received by the canister.
-///
-/// At the end, a new timer is scheduled to send another acknowledgement message to the client.
-fn send_ack_to_clients_timer_callback(interval_ms: u64) {
+fn send_ack_to_clients_timer_callback() {
     REGISTERED_CLIENTS.with(|state| {
         let map = state.borrow();
         for (client_principal, _) in map.iter() {
@@ -474,8 +517,9 @@ fn send_ack_to_clients_timer_callback(interval_ms: u64) {
                 let ack_message = CanisterAckMessageContent {
                     last_incoming_sequence_num: last_incoming_message_sequence_num,
                 };
-                let message = CanisterServiceMessage::AckMessage(ack_message);
+                let message = WebsocketServiceMessageContent::AckMessage(ack_message);
                 if let Err(e) = send_service_message_to_client(*client_principal, message) {
+                    // TODO: decide what to do when sending the message fails
                     custom_print!(
                         "[ack-to-clients-timer-cb]: Error sending ack message to client {:?}: {:?}",
                         client_principal,
@@ -486,11 +530,78 @@ fn send_ack_to_clients_timer_callback(interval_ms: u64) {
                 };
             }
         }
-
-        custom_print!("[ack-to-clients-timer-cb]: Sent ack messages to all clients");
     });
 
-    schedule_send_ack_to_clients(interval_ms);
+    custom_print!("[ack-to-clients-timer-cb]: Sent ack messages to all clients");
+}
+
+/// Checks if the registered clients have sent a keep alive message.
+/// If a client has not sent a keep alive message, it is removed from the registered clients.
+fn check_keep_alive_timer_callback() {
+    REGISTERED_CLIENTS.with(|state| {
+        let map = state.borrow();
+        for (client_principal, client_metadata) in map.iter() {
+            let current_time = get_current_time();
+            if current_time - client_metadata.get_last_keep_alive_timestamp()
+                > DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS
+            {
+                remove_client(client_principal);
+
+                custom_print!(
+                    "[check-keep-alive-timer-cb]: Client {:?} has not sent a keep alive message in the last {:?} ms and has been removed",
+                    client_principal,
+                    DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS
+                );
+            }
+        }
+    });
+
+    custom_print!("[check-keep-alive-timer-cb]: Checked keep alive messages for all clients");
+}
+
+fn handle_keep_alive_client_message(
+    client_principal: &ClientPrincipal,
+    content: &[u8],
+) -> Result<(), String> {
+    match decode_one::<WebsocketServiceMessageContent>(content) {
+        Ok(message_content) => {
+            match message_content {
+                WebsocketServiceMessageContent::KeepAliveMessage(keep_alive_message) => {
+                    // first, we check if the client received the last message sent by the canister
+                    let last_outgoing_message_sequence_num =
+                        get_outgoing_message_to_client_num(client_principal)?;
+
+                    // if the client has not received the last message sent by the canister, we remove it
+                    if last_outgoing_message_sequence_num
+                        != keep_alive_message.last_received_sequence_num
+                    {
+                        custom_print!(
+                            "client {:?} has not received the last message sent by the canister, removing it",
+                            client_principal
+                        );
+
+                        remove_client(client_principal);
+
+                        return Ok(());
+                    }
+
+                    // update the last keep alive timestamp for the client
+                    REGISTERED_CLIENTS.with(|map| {
+                        let mut map = map.borrow_mut();
+                        let client_metadata = map.get_mut(client_principal).unwrap();
+                        client_metadata.update_last_keep_alive_timestamp();
+                    });
+
+                    Ok(())
+                },
+                _ => Err(String::from("invalid keep alive message content")),
+            }
+        },
+        Err(e) => Err(format!(
+            "Error decoding service message from client: {:?}",
+            e
+        )),
+    }
 }
 
 /// Internal function used to put the messages in the outgoing messages queue and certify them.
@@ -614,6 +725,9 @@ pub struct WsInitParams {
     /// so that the client knows that all the messages it sent have been received by the canister (in milliseconds).
     /// Defaults to `60_000` (60 seconds).
     pub send_ack_interval_ms: u64,
+    /// The delay to wait for the client to send a keep alive after receiving an acknowledgement (in milliseconds).
+    /// Defaults to `10_000` (10 seconds).
+    pub keep_alive_delay_ms: u64,
 }
 
 impl WsInitParams {
@@ -623,6 +737,7 @@ impl WsInitParams {
             handlers,
             gateway_principal,
             send_ack_interval_ms: DEFAULT_SEND_ACK_DELAY_MS,
+            keep_alive_delay_ms: DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS,
         }
     }
 }
@@ -641,7 +756,7 @@ pub fn init(params: WsInitParams) {
 
     // schedule a timer that will send an acknowledgement message to clients
     // TODO: test
-    schedule_send_ack_to_clients(params.send_ack_interval_ms);
+    schedule_send_ack_to_clients(params.send_ack_interval_ms, params.keep_alive_delay_ms);
 }
 
 /// Handles the WS connection open event sent by the client and relayed by the Gateway.
@@ -649,7 +764,7 @@ pub fn ws_open(_args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
     let client_principal = caller();
 
     // TODO: test
-    if client_principal == Principal::anonymous() {
+    if client_principal == ClientPrincipal::anonymous() {
         return Err(String::from("anonymous principal cannot open a connection"));
     }
 
@@ -669,12 +784,13 @@ pub fn ws_open(_args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
     }
 
     // initialize client maps
-    add_client(client_principal.clone(), RegisteredClient {});
+    let new_client = RegisteredClient::new();
+    add_client(client_principal.clone(), new_client);
 
     let open_message = CanisterOpenMessageContent {
         client_principal: client_principal.clone(),
     };
-    let message = CanisterServiceMessage::OpenMessage(open_message);
+    let message = WebsocketServiceMessageContent::OpenMessage(open_message);
     send_service_message_to_client(client_principal.clone(), message)?;
 
     // call the on_open handler initialized in init()
@@ -695,7 +811,7 @@ pub fn ws_close(args: CanisterWsCloseArguments) -> CanisterWsCloseResult {
     // check if client registered its principal by calling ws_open
     check_registered_client(&args.client_principal)?;
 
-    remove_client(args.client_principal.clone());
+    remove_client(&args.client_principal);
 
     HANDLERS.with(|h| {
         h.borrow().call_on_close(OnCloseCallbackArgs {
@@ -716,7 +832,7 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
         client_principal: _,
         sequence_num,
         timestamp: _,
-        is_service_message: _, // TODO: handle service messages
+        is_service_message,
         content,
     } = args.msg;
 
@@ -724,14 +840,19 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
 
     // check if the incoming message has the expected sequence number
     if sequence_num != expected_sequence_num {
-        return Err(
-            format!(
-                "incoming client's message does not have the expected sequence number. Expected: {expected_sequence_num}, actual: {sequence_num}",
-            )
+        custom_print!(
+            "incoming client's message does not have the expected sequence number. Expected: {expected_sequence_num}, actual: {sequence_num}. Removing client..."
         );
+        remove_client(&client_principal);
+        return Ok(());
     }
     // increase the expected sequence number by 1
     increment_expected_incoming_message_from_client_num(&client_principal)?;
+
+    // TODO: test
+    if is_service_message {
+        return handle_keep_alive_client_message(&client_principal, &content);
+    }
 
     // call the on_message handler initialized in init()
     HANDLERS.with(|h| {
@@ -793,7 +914,7 @@ mod test {
         }
 
         pub fn generate_random_registered_client() -> RegisteredClient {
-            RegisteredClient {}
+            RegisteredClient::new()
         }
 
         pub fn get_static_principal() -> Principal {
@@ -1113,7 +1234,7 @@ mod test {
                 map.borrow_mut().insert(test_client_principal.clone(), 0);
             });
 
-            remove_client(test_client_principal.clone());
+            remove_client(&test_client_principal);
 
             let is_none = REGISTERED_CLIENTS.with(|map| map.borrow().get(&test_client_principal).is_none());
             prop_assert!(is_none);
