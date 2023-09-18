@@ -21,8 +21,8 @@ fn init(gateway_principal: String) {
     let params = WsInitParams {
         handlers,
         gateway_principal,
-        check_registered_gateway_interval_ms: 15_000,
         send_ack_interval_ms: 10_000,
+        keep_alive_delay_ms: 5_000,
     };
 
     ic_websocket_cdk::init(params)

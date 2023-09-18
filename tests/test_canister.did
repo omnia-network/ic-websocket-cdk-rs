@@ -9,7 +9,6 @@ service : (text) -> {
   "ws_open" : (CanisterWsOpenArguments) -> (CanisterWsOpenResult);
   "ws_close" : (CanisterWsCloseArguments) -> (CanisterWsCloseResult);
   "ws_message" : (CanisterWsMessageArguments) -> (CanisterWsMessageResult);
-  "ws_status" : (CanisterWsStatusArguments) -> (CanisterWsStatusResult);
   "ws_get_messages" : (CanisterWsGetMessagesArguments) -> (CanisterWsGetMessagesResult) query;
 
   // methods used just for debugging/testing
