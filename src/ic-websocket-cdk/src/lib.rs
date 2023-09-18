@@ -7,6 +7,7 @@ use ic_certified_map::{labeled, labeled_hash, AsHashTree, Hash as ICHash, RbTree
 use serde::{Deserialize, Serialize};
 use serde_cbor::Serializer;
 use sha2::{Digest, Sha256};
+use std::panic;
 use std::time::Duration;
 use std::{cell::RefCell, collections::HashMap, collections::VecDeque, convert::AsRef};
 
@@ -318,12 +319,6 @@ fn add_client(client_principal: ClientPrincipal, new_client: RegisteredClient) {
 }
 
 fn remove_client(client_principal: &ClientPrincipal) {
-    let handlers = HANDLERS.with(|state| state.borrow().clone());
-
-    handlers.call_on_close(OnCloseCallbackArgs {
-        client_principal: client_principal.clone(),
-    });
-
     REGISTERED_CLIENTS.with(|map| {
         map.borrow_mut().remove(client_principal);
     });
@@ -332,6 +327,11 @@ fn remove_client(client_principal: &ClientPrincipal) {
     });
     INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
         map.borrow_mut().remove(client_principal);
+    });
+
+    let handlers = HANDLERS.with(|state| state.borrow().clone());
+    handlers.call_on_close(OnCloseCallbackArgs {
+        client_principal: client_principal.clone(),
     });
 }
 
@@ -690,19 +690,40 @@ pub struct WsHandlers {
 impl WsHandlers {
     fn call_on_open(&self, args: OnOpenCallbackArgs) {
         if let Some(on_open) = self.on_open {
-            on_open(args);
+            // TODO: test the panic handling
+            let res = panic::catch_unwind(|| {
+                on_open(args);
+            });
+
+            if let Err(e) = res {
+                custom_print!("Error calling on_open handler: {:?}", e);
+            }
         }
     }
 
     fn call_on_message(&self, args: OnMessageCallbackArgs) {
         if let Some(on_message) = self.on_message {
-            on_message(args);
+            // TODO: test the panic handling
+            let res = panic::catch_unwind(|| {
+                on_message(args);
+            });
+
+            if let Err(e) = res {
+                custom_print!("Error calling on_message handler: {:?}", e);
+            }
         }
     }
 
     fn call_on_close(&self, args: OnCloseCallbackArgs) {
         if let Some(on_close) = self.on_close {
-            on_close(args);
+            // TODO: test the panic handling
+            let res = panic::catch_unwind(|| {
+                on_close(args);
+            });
+
+            if let Err(e) = res {
+                custom_print!("Error calling on_close handler: {:?}", e);
+            }
         }
     }
 }
