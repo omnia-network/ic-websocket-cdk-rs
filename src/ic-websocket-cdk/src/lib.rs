@@ -408,12 +408,26 @@ fn get_message_for_gateway_key(gateway_principal: Principal, nonce: u64) -> Stri
 
 fn get_messages_for_gateway_range(gateway_principal: Principal, nonce: u64) -> (usize, usize) {
     MESSAGES_FOR_GATEWAY.with(|m| {
+        let queue_len = m.borrow().len();
+
+        if nonce == 0 && queue_len > 0 {
+            // this is the case in which the poller on the gateway restarted
+            // the range to return is end:last index and start: max(end - MAX_NUMBER_OF_RETURNED_MESSAGES, 0)
+            let start_index = if queue_len > MAX_NUMBER_OF_RETURNED_MESSAGES {
+                queue_len - MAX_NUMBER_OF_RETURNED_MESSAGES
+            } else {
+                0
+            };
+
+            return (start_index, queue_len);
+        }
+
         // smallest key used to determine the first message from the queue which has to be returned to the WS Gateway
         let smallest_key = get_message_for_gateway_key(gateway_principal, nonce);
         // partition the queue at the message which has the key with the nonce specified as argument to get_cert_messages
         let start_index = m.borrow().partition_point(|x| x.key < smallest_key);
         // message at index corresponding to end index is excluded
-        let mut end_index = m.borrow().len();
+        let mut end_index = queue_len;
         if end_index - start_index > MAX_NUMBER_OF_RETURNED_MESSAGES {
             end_index = start_index + MAX_NUMBER_OF_RETURNED_MESSAGES;
         }
@@ -1380,8 +1394,9 @@ mod test {
             test_utils::add_messages_for_gateway(test_client_principal.clone(), gateway_principal, messages_count);
 
             // Test
-            // messages are now MAX_NUMBER_OF_RETURNED_MESSAGES
-            for i in 0..messages_count + 1 {
+            // messages are now 2 * MAX_NUMBER_OF_RETURNED_MESSAGES
+            // the case in which the start index is 0 is tested in test_get_messages_for_gateway_range_initial_nonce
+            for i in 1..messages_count + 1 {
                 let (start_index, end_index) = get_messages_for_gateway_range(gateway_principal, i);
                 let expected_end_index = if (i as usize) + MAX_NUMBER_OF_RETURNED_MESSAGES > messages_count as usize {
                     messages_count as usize
@@ -1391,6 +1406,28 @@ mod test {
                 prop_assert_eq!(start_index, i as usize);
                 prop_assert_eq!(end_index, expected_end_index);
             }
+
+            // Clean up
+            test_utils::clean_messages_for_gateway();
+        }
+
+        #[test]
+        fn test_get_messages_for_gateway_initial_nonce(gateway_principal in any::<u8>().prop_map(|_| test_utils::get_static_principal()), messages_count in any::<u64>().prop_map(|c| c % 100)) {
+            // Set up
+            REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(gateway_principal.clone())));
+
+            let test_client_principal = test_utils::generate_random_principal();
+            test_utils::add_messages_for_gateway(test_client_principal.clone(), gateway_principal, messages_count);
+
+            // Test
+            let (start_index, end_index) = get_messages_for_gateway_range(gateway_principal, 0);
+            let expected_start_index = if (messages_count as usize) > MAX_NUMBER_OF_RETURNED_MESSAGES {
+                (messages_count as usize) - MAX_NUMBER_OF_RETURNED_MESSAGES
+            } else {
+                0
+            };
+            prop_assert_eq!(start_index, expected_start_index);
+            prop_assert_eq!(end_index, messages_count as usize);
 
             // Clean up
             test_utils::clean_messages_for_gateway();
