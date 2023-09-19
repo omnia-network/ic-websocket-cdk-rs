@@ -36,10 +36,7 @@ pub type CanisterWsGetMessagesResult = Result<CanisterOutputCertifiedMessages, S
 pub type CanisterWsSendResult = Result<(), String>;
 
 /// The arguments for [ws_open].
-#[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
-pub struct CanisterWsOpenArguments {
-    // future versions may need more fields
-}
+pub type CanisterWsOpenArguments = ();
 
 /// The arguments for [ws_close].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
@@ -456,7 +453,7 @@ struct CanisterAckMessageContent {
 
 #[derive(CandidType, Deserialize)]
 struct ClientKeepAliveMessageContent {
-    last_received_sequence_num: u64,
+    last_incoming_sequence_num: u64,
 }
 
 /// A service message sent by the CDK to the client.
@@ -573,7 +570,7 @@ fn handle_keep_alive_client_message(
 
                     // if the client has not received the last message sent by the canister, we remove it
                     if last_outgoing_message_sequence_num
-                        != keep_alive_message.last_received_sequence_num
+                        != keep_alive_message.last_incoming_sequence_num
                     {
                         custom_print!(
                             "client {:?} has not received the last message sent by the canister, removing it",

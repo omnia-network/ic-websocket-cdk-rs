@@ -20,7 +20,7 @@ type CanisterOutputCertifiedMessages = record {
   tree : blob;
 };
 
-type CanisterWsOpenArguments = record {};
+type CanisterWsOpenArguments = null;
 
 type CanisterWsOpenResult = variant {
   Ok : null;
