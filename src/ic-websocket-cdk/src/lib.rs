@@ -202,13 +202,15 @@ thread_local! {
 /// Resets all RefCells to their initial state.
 /// If there is a registered gateway, resets its state as well.
 fn reset_internal_state() {
-    REGISTERED_CLIENTS.with(|state| {
+    let client_keys_to_remove = REGISTERED_CLIENTS.with(|state| {
         let map = state.borrow();
-        // for each client, call the on_close handler before clearing the map
-        for (client_key, _) in map.clone().iter() {
-            remove_client(client_key);
-        }
+        map.keys().cloned().collect::<Vec<ClientKey>>()
     });
+
+    // for each client, call the on_close handler before clearing the map
+    for client_key in client_keys_to_remove {
+        remove_client(&client_key);
+    }
 
     CURRENT_CLIENT_KEY_MAP.with(|map| {
         map.borrow_mut().clear();
@@ -580,23 +582,30 @@ fn send_ack_to_clients_timer_callback() {
 /// Checks if the registered clients have sent a keep alive message.
 /// If a client has not sent a keep alive message, it is removed from the registered clients.
 fn check_keep_alive_timer_callback() {
-    REGISTERED_CLIENTS.with(|state| {
+    let client_keys_to_remove: Vec<ClientKey> = REGISTERED_CLIENTS.with(|state| {
         let map = state.borrow();
-        for (client_key, client_metadata) in map.iter() {
-            let current_time = get_current_time();
-            if current_time - client_metadata.get_last_keep_alive_timestamp()
-                > DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS
-            {
-                remove_client(client_key);
-
-                custom_print!(
-                    "[check-keep-alive-timer-cb]: Client {} has not sent a keep alive message in the last {} ms and has been removed",
-                    client_key,
-                    DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS
-                );
-            }
-        }
+        map.iter()
+            .filter_map(|(client_key, client_metadata)| {
+                let current_time = get_current_time();
+                let last_keep_alive = client_metadata.get_last_keep_alive_timestamp();
+                if current_time - last_keep_alive > DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS {
+                    Some(client_key.to_owned())
+                } else {
+                    None
+                }
+            })
+            .collect()
     });
+
+    for client_key in client_keys_to_remove {
+        remove_client(&client_key);
+
+        custom_print!(
+            "[check-keep-alive-timer-cb]: Client {} has not sent a keep alive message in the last {} ms and has been removed",
+            client_key,
+            DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS
+        );
+    }
 
     custom_print!("[check-keep-alive-timer-cb]: Checked keep alive messages for all clients");
 }
