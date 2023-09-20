@@ -614,24 +614,8 @@ fn handle_keep_alive_client_message(client_key: &ClientKey, content: &[u8]) -> R
     match decode_one::<WebsocketServiceMessageContent>(content) {
         Ok(message_content) => {
             match message_content {
-                WebsocketServiceMessageContent::KeepAliveMessage(keep_alive_message) => {
-                    // first, we check if the client received the last message sent by the canister
-                    let last_outgoing_message_sequence_num =
-                        get_outgoing_message_to_client_num(client_key)?;
-
-                    // if the client has not received the last message sent by the canister, we remove it
-                    if last_outgoing_message_sequence_num
-                        != keep_alive_message.last_incoming_sequence_num
-                    {
-                        custom_print!(
-                            "client {} has not received the last message sent by the canister, removing the client",
-                            client_key
-                        );
-
-                        remove_client(client_key);
-
-                        return Ok(());
-                    }
+                WebsocketServiceMessageContent::KeepAliveMessage(_keep_alive_message) => {
+                    // TODO: delete messages from the queue that have been acknowledged by the client
 
                     // update the last keep alive timestamp for the client
                     REGISTERED_CLIENTS.with(|map| {
