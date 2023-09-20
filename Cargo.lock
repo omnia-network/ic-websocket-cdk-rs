@@ -842,6 +842,7 @@ dependencies = [
  "ic-cdk-timers",
  "ic-certified-map",
  "proptest",
+ "rand",
  "ring",
  "serde",
  "serde_bytes",

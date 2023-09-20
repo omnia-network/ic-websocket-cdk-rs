@@ -20,6 +20,7 @@ serde_bytes = "0.11.12"
 [dev-dependencies]
 ic-agent = "0.25.0"
 proptest = "1.2.0"
+rand = "0.8.5"
 ring = "0.16.20"
 
 [package.metadata.docs.rs]
