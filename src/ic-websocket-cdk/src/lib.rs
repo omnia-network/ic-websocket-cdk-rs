@@ -9,6 +9,7 @@ use serde_cbor::Serializer;
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::panic;
+use std::rc::Rc;
 use std::time::Duration;
 use std::{cell::RefCell, collections::HashMap, collections::VecDeque, convert::AsRef};
 
@@ -174,57 +175,55 @@ impl RegisteredClient {
 
 thread_local! {
     /// Maps the client's key to the client metadata
-    /* flexible */ static REGISTERED_CLIENTS: RefCell<HashMap<ClientKey, RegisteredClient>> = RefCell::new(HashMap::new());
+    /* flexible */ static REGISTERED_CLIENTS: Rc<RefCell<HashMap<ClientKey, RegisteredClient>>> = Rc::new(RefCell::new(HashMap::new()));
     /// Maps the client's principal to the current client key
-    /* flexible */ static CURRENT_CLIENT_KEY_MAP: RefCell<HashMap<ClientPrincipal, ClientKey>> = RefCell::new(HashMap::new());
+    /* flexible */ static CURRENT_CLIENT_KEY_MAP: Rc<RefCell<HashMap<ClientPrincipal, ClientKey>>> = Rc::new(RefCell::new(HashMap::new()));
     /// Maps the client's key to the sequence number to use for the next outgoing message (to that client).
-    /* flexible */ static OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP: RefCell<HashMap<ClientKey, u64>> = RefCell::new(HashMap::new());
+    /* flexible */ static OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP: Rc<RefCell<HashMap<ClientKey, u64>>> = Rc::new(RefCell::new(HashMap::new()));
     /// Maps the client's key to the expected sequence number of the next incoming message (from that client).
-    /* flexible */ static INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP: RefCell<HashMap<ClientKey, u64>> = RefCell::new(HashMap::new());
+    /* flexible */ static INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP: Rc<RefCell<HashMap<ClientKey, u64>>> = Rc::new(RefCell::new(HashMap::new()));
     /// Keeps track of the Merkle tree used for certified queries
-    /* flexible */ static CERT_TREE: RefCell<RbTree<String, ICHash>> = RefCell::new(RbTree::new());
+    /* flexible */ static CERT_TREE: Rc<RefCell<RbTree<String, ICHash>>> = Rc::new(RefCell::new(RbTree::new()));
     /// Keeps track of the principal of the WS Gateway which polls the canister
-    /* flexible */ static REGISTERED_GATEWAY: RefCell<Option<RegisteredGateway>> = RefCell::new(None);
+    /* flexible */ static REGISTERED_GATEWAY: Rc<RefCell<Option<RegisteredGateway>>> = Rc::new(RefCell::new(None));
     /// Keeps track of the messages that have to be sent to the WS Gateway
-    /* flexible */ static MESSAGES_FOR_GATEWAY: RefCell<VecDeque<CanisterOutputMessage>> = RefCell::new(VecDeque::new());
+    /* flexible */ static MESSAGES_FOR_GATEWAY: Rc<RefCell<VecDeque<CanisterOutputMessage>>> = Rc::new(RefCell::new(VecDeque::new()));
     /// Keeps track of the nonce which:
     /// - the WS Gateway uses to specify the first index of the certified messages to be returned when polling
     /// - the client uses as part of the path in the Merkle tree in order to verify the certificate of the messages relayed by the WS Gateway
-    /* flexible */ static OUTGOING_MESSAGE_NONCE: RefCell<u64> = RefCell::new(0u64);
+    /* flexible */ static OUTGOING_MESSAGE_NONCE: Rc<RefCell<u64>> = Rc::new(RefCell::new(0u64));
     /// The callback handlers for the WebSocket.
-    /* flexible */ static HANDLERS: RefCell<WsHandlers> = RefCell::new(WsHandlers {
+    /* flexible */ static HANDLERS: Rc<RefCell<WsHandlers>> = Rc::new(RefCell::new(WsHandlers {
         on_open: None,
         on_message: None,
         on_close: None,
-    });
+    }));
 }
 
 /// Resets all RefCells to their initial state.
 /// If there is a registered gateway, resets its state as well.
 fn reset_internal_state() {
-    let client_keys_to_remove = REGISTERED_CLIENTS.with(|state| {
-        let map = state.borrow();
-        map.keys().cloned().collect::<Vec<ClientKey>>()
-    });
-
+    let map = REGISTERED_CLIENTS.with(Rc::clone);
     // for each client, call the on_close handler before clearing the map
-    for client_key in client_keys_to_remove {
+    for (client_key, _) in map.borrow().clone() {
         remove_client(&client_key);
     }
 
-    CURRENT_CLIENT_KEY_MAP.with(|map| {
-        map.borrow_mut().clear();
-    });
+    CURRENT_CLIENT_KEY_MAP.with(Rc::clone).borrow_mut().clear();
 
-    OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
-        map.borrow_mut().clear();
-    });
-    INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
-        map.borrow_mut().clear();
-    });
-    CERT_TREE.with(|t| {
-        t.replace(RbTree::new());
-    });
+    OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP
+        .with(Rc::clone)
+        .borrow_mut()
+        .clear();
+
+    INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP
+        .with(Rc::clone)
+        .borrow_mut()
+        .clear();
+
+    let t = CERT_TREE.with(Rc::clone);
+    t.replace(RbTree::new());
+
     MESSAGES_FOR_GATEWAY.with(|m| *m.borrow_mut() = VecDeque::new());
     OUTGOING_MESSAGE_NONCE.with(|next_id| next_id.replace(0u64));
 }
@@ -247,13 +246,12 @@ fn increment_outgoing_message_nonce() {
 }
 
 fn insert_client(client_key: ClientKey, new_client: RegisteredClient) {
-    CURRENT_CLIENT_KEY_MAP.with(|map| {
-        map.borrow_mut()
-            .insert(client_key.client_principal.clone(), client_key.clone());
-    });
-    REGISTERED_CLIENTS.with(|map| {
-        map.borrow_mut().insert(client_key, new_client);
-    });
+    let map = CURRENT_CLIENT_KEY_MAP.with(Rc::clone);
+    map.borrow_mut()
+        .insert(client_key.client_principal.clone(), client_key.clone());
+
+    let map = REGISTERED_CLIENTS.with(Rc::clone);
+    map.borrow_mut().insert(client_key, new_client);
 }
 
 fn is_client_registered(client_key: &ClientKey) -> bool {
@@ -261,15 +259,14 @@ fn is_client_registered(client_key: &ClientKey) -> bool {
 }
 
 fn get_client_key_from_principal(client_principal: &ClientPrincipal) -> Result<ClientKey, String> {
-    CURRENT_CLIENT_KEY_MAP.with(|map| {
-        map.borrow()
-            .get(client_principal)
-            .cloned()
-            .ok_or(String::from(format!(
-                "client with principal {} doesn't have an open connection",
-                client_principal
-            )))
-    })
+    let map = CURRENT_CLIENT_KEY_MAP.with(Rc::clone);
+    let map = map.borrow();
+    map.get(client_principal)
+        .cloned()
+        .ok_or(String::from(format!(
+            "client with principal {} doesn't have an open connection",
+            client_principal
+        )))
 }
 
 fn check_registered_client(client_key: &ClientKey) -> Result<(), String> {
@@ -300,54 +297,48 @@ fn get_registered_gateway_principal() -> Principal {
 }
 
 fn init_outgoing_message_to_client_num(client_key: ClientKey) {
-    OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
-        map.borrow_mut().insert(client_key, 0);
-    });
+    let map = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(Rc::clone);
+    map.borrow_mut().insert(client_key, 0);
 }
 
 fn get_outgoing_message_to_client_num(client_key: &ClientKey) -> Result<u64, String> {
-    OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
-        let map = map.borrow();
-        let num = *map.get(client_key).ok_or(String::from(
-            "outgoing message to client num not initialized for client",
-        ))?;
-        Ok(num)
-    })
+    let map = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(Rc::clone);
+    let map = map.borrow();
+    let num = *map.get(client_key).ok_or(String::from(
+        "outgoing message to client num not initialized for client",
+    ))?;
+    Ok(num)
 }
 
 fn increment_outgoing_message_to_client_num(client_key: &ClientKey) -> Result<(), String> {
     let num = get_outgoing_message_to_client_num(client_key)?;
-    OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
-        let mut map = map.borrow_mut();
-        map.insert(client_key.clone(), num + 1);
-        Ok(())
-    })
+    let map = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(Rc::clone);
+    let mut map = map.borrow_mut();
+    map.insert(client_key.clone(), num + 1);
+    Ok(())
 }
 
 fn init_expected_incoming_message_from_client_num(client_key: ClientKey) {
-    INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
-        map.borrow_mut().insert(client_key, 1);
-    });
+    let map = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(Rc::clone);
+    map.borrow_mut().insert(client_key, 1);
 }
 
 fn get_expected_incoming_message_from_client_num(client_key: &ClientKey) -> Result<u64, String> {
-    INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
-        let num = *map.borrow().get(client_key).ok_or(String::from(
-            "expected incoming message num not initialized for client",
-        ))?;
-        Ok(num)
-    })
+    let map = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(Rc::clone);
+    let num = *map.borrow().get(client_key).ok_or(String::from(
+        "expected incoming message num not initialized for client",
+    ))?;
+    Ok(num)
 }
 
 fn increment_expected_incoming_message_from_client_num(
     client_key: &ClientKey,
 ) -> Result<(), String> {
     let num = get_expected_incoming_message_from_client_num(client_key)?;
-    INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
-        let mut map = map.borrow_mut();
-        map.insert(client_key.clone(), num + 1);
-        Ok(())
-    })
+    let map = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(Rc::clone);
+    let mut map = map.borrow_mut();
+    map.insert(client_key.clone(), num + 1);
+    Ok(())
 }
 
 fn add_client(client_key: ClientKey, new_client: RegisteredClient) {
@@ -360,18 +351,17 @@ fn add_client(client_key: ClientKey, new_client: RegisteredClient) {
 }
 
 fn remove_client(client_key: &ClientKey) {
-    CURRENT_CLIENT_KEY_MAP.with(|map| {
-        map.borrow_mut().remove(&client_key.client_principal);
-    });
-    REGISTERED_CLIENTS.with(|map| {
-        map.borrow_mut().remove(client_key);
-    });
-    OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
-        map.borrow_mut().remove(client_key);
-    });
-    INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
-        map.borrow_mut().remove(client_key);
-    });
+    let map = CURRENT_CLIENT_KEY_MAP.with(Rc::clone);
+    map.borrow_mut().remove(&client_key.client_principal);
+
+    let map = REGISTERED_CLIENTS.with(Rc::clone);
+    map.borrow_mut().remove(client_key);
+
+    let map = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(Rc::clone);
+    map.borrow_mut().remove(client_key);
+
+    let map = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(Rc::clone);
+    map.borrow_mut().remove(client_key);
 
     let handlers = HANDLERS.with(|state| state.borrow().clone());
     handlers.call_on_close(OnCloseCallbackArgs {
@@ -465,27 +455,25 @@ fn check_is_registered_gateway(input_principal: Principal) -> Result<(), String>
 }
 
 fn put_cert_for_message(key: String, value: &Vec<u8>) {
-    let root_hash = CERT_TREE.with(|tree| {
-        let mut tree = tree.borrow_mut();
-        tree.insert(key.clone(), Sha256::digest(value).into());
-        labeled_hash(LABEL_WEBSOCKET, &tree.root_hash())
-    });
+    let tree = CERT_TREE.with(Rc::clone);
+    let mut tree = tree.borrow_mut();
+    tree.insert(key.clone(), Sha256::digest(value).into());
+    let root_hash = labeled_hash(LABEL_WEBSOCKET, &tree.root_hash());
 
     set_certified_data(&root_hash);
 }
 
 fn get_cert_for_range(first: &String, last: &String) -> (Vec<u8>, Vec<u8>) {
-    CERT_TREE.with(|tree| {
-        let tree = tree.borrow();
-        let witness = tree.value_range(first.as_ref(), last.as_ref());
-        let tree = labeled(LABEL_WEBSOCKET, witness);
+    let tree = CERT_TREE.with(Rc::clone);
+    let tree = tree.borrow();
+    let witness = tree.value_range(first.as_ref(), last.as_ref());
+    let tree = labeled(LABEL_WEBSOCKET, witness);
 
-        let mut data = vec![];
-        let mut serializer = Serializer::new(&mut data);
-        serializer.self_describe().unwrap();
-        tree.serialize(&mut serializer).unwrap();
-        (data_certificate().unwrap(), data)
-    })
+    let mut data = vec![];
+    let mut serializer = Serializer::new(&mut data);
+    serializer.self_describe().unwrap();
+    tree.serialize(&mut serializer).unwrap();
+    (data_certificate().unwrap(), data)
 }
 
 #[derive(CandidType, Deserialize)]
@@ -551,30 +539,28 @@ fn schedule_check_keep_alive(ack_interval_ms: u64, check_interval_ms: u64) {
 /// The message contains the current incoming message sequence number for that client,
 /// so that the client knows that all the messages it sent have been received by the canister.
 fn send_ack_to_clients_timer_callback() {
-    REGISTERED_CLIENTS.with(|state| {
-        let map = state.borrow();
-        for (client_key, _) in map.iter() {
-            // ignore the error, which shouldn't happen since the client is registered and the sequence number is initialized
-            if let Ok(last_incoming_message_sequence_num) =
-                get_expected_incoming_message_from_client_num(client_key)
-            {
-                let ack_message = CanisterAckMessageContent {
-                    last_incoming_sequence_num: last_incoming_message_sequence_num,
-                };
-                let message = WebsocketServiceMessageContent::AckMessage(ack_message);
-                if let Err(e) = send_service_message_to_client(client_key, message) {
-                    // TODO: decide what to do when sending the message fails
-                    custom_print!(
-                        "[ack-to-clients-timer-cb]: Error sending ack message to client {}: {:?}",
-                        client_key,
-                        e
-                    );
+    let map = REGISTERED_CLIENTS.with(Rc::clone);
+    for (client_key, _) in map.borrow().iter() {
+        // ignore the error, which shouldn't happen since the client is registered and the sequence number is initialized
+        if let Ok(last_incoming_message_sequence_num) =
+            get_expected_incoming_message_from_client_num(client_key)
+        {
+            let ack_message = CanisterAckMessageContent {
+                last_incoming_sequence_num: last_incoming_message_sequence_num,
+            };
+            let message = WebsocketServiceMessageContent::AckMessage(ack_message);
+            if let Err(e) = send_service_message_to_client(client_key, message) {
+                // TODO: decide what to do when sending the message fails
+                custom_print!(
+                    "[ack-to-clients-timer-cb]: Error sending ack message to client {}: {:?}",
+                    client_key,
+                    e
+                );
 
-                    break;
-                };
-            }
+                break;
+            };
         }
-    });
+    }
 
     custom_print!("[ack-to-clients-timer-cb]: Sent ack messages to all clients");
 }
@@ -582,29 +568,20 @@ fn send_ack_to_clients_timer_callback() {
 /// Checks if the registered clients have sent a keep alive message.
 /// If a client has not sent a keep alive message, it is removed from the registered clients.
 fn check_keep_alive_timer_callback() {
-    let client_keys_to_remove: Vec<ClientKey> = REGISTERED_CLIENTS.with(|state| {
-        let map = state.borrow();
-        map.iter()
-            .filter_map(|(client_key, client_metadata)| {
-                let current_time = get_current_time();
-                let last_keep_alive = client_metadata.get_last_keep_alive_timestamp();
-                if current_time - last_keep_alive > DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS {
-                    Some(client_key.to_owned())
-                } else {
-                    None
-                }
-            })
-            .collect()
-    });
+    let map = REGISTERED_CLIENTS.with(Rc::clone);
+    for (client_key, client_metadata) in map.borrow().iter() {
+        let current_time = get_current_time();
+        if current_time - client_metadata.get_last_keep_alive_timestamp()
+            > DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS
+        {
+            remove_client(client_key);
 
-    for client_key in client_keys_to_remove {
-        remove_client(&client_key);
-
-        custom_print!(
-            "[check-keep-alive-timer-cb]: Client {} has not sent a keep alive message in the last {} ms and has been removed",
-            client_key,
-            DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS
-        );
+            custom_print!(
+                    "[check-keep-alive-timer-cb]: Client {} has not sent a keep alive message in the last {} ms and has been removed",
+                    client_key,
+                    DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS
+                );
+        }
     }
 
     custom_print!("[check-keep-alive-timer-cb]: Checked keep alive messages for all clients");
@@ -634,11 +611,10 @@ fn handle_keep_alive_client_message(client_key: &ClientKey, content: &[u8]) -> R
                     }
 
                     // update the last keep alive timestamp for the client
-                    REGISTERED_CLIENTS.with(|map| {
-                        let mut map = map.borrow_mut();
-                        let client_metadata = map.get_mut(client_key).unwrap();
-                        client_metadata.update_last_keep_alive_timestamp();
-                    });
+                    let map = REGISTERED_CLIENTS.with(Rc::clone);
+                    let mut map = map.borrow_mut();
+                    let client_metadata = map.get_mut(client_key).unwrap();
+                    client_metadata.update_last_keep_alive_timestamp();
 
                     Ok(())
                 },
