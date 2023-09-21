@@ -202,9 +202,9 @@ thread_local! {
 /// Resets all RefCells to their initial state.
 /// If there is a registered gateway, resets its state as well.
 fn reset_internal_state() {
-    let client_keys_to_remove = REGISTERED_CLIENTS.with(|state| {
+    let client_keys_to_remove: Vec<ClientKey> = REGISTERED_CLIENTS.with(|state| {
         let map = state.borrow();
-        map.keys().cloned().collect::<Vec<ClientKey>>()
+        map.keys().cloned().collect()
     });
 
     // for each client, call the on_close handler before clearing the map
@@ -586,9 +586,8 @@ fn check_keep_alive_timer_callback() {
         let map = state.borrow();
         map.iter()
             .filter_map(|(client_key, client_metadata)| {
-                let current_time = get_current_time();
                 let last_keep_alive = client_metadata.get_last_keep_alive_timestamp();
-                if current_time - last_keep_alive > DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS {
+                if get_current_time() - last_keep_alive > DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS {
                     Some(client_key.to_owned())
                 } else {
                     None
