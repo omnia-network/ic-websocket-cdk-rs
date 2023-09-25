@@ -11,7 +11,7 @@ use ic_websocket_cdk::{
 mod canister;
 
 #[init]
-fn init(gateway_principal: String) {
+fn init(gateway_principal: String, send_ack_interval_ms: u64, keep_alive_delay_ms: u64) {
     let handlers = WsHandlers {
         on_open: Some(on_open),
         on_message: Some(on_message),
@@ -21,16 +21,16 @@ fn init(gateway_principal: String) {
     let params = WsInitParams {
         handlers,
         gateway_principal,
-        send_ack_interval_ms: 10_000,
-        keep_alive_delay_ms: 5_000,
+        send_ack_interval_ms,
+        keep_alive_delay_ms,
     };
 
     ic_websocket_cdk::init(params)
 }
 
 #[post_upgrade]
-fn post_upgrade(gateway_principal: String) {
-    init(gateway_principal);
+fn post_upgrade(gateway_principal: String, send_ack_interval_ms: u64, keep_alive_delay_ms: u64) {
+    init(gateway_principal, send_ack_interval_ms, keep_alive_delay_ms);
 }
 
 // method called by the WS Gateway after receiving FirstMessage from the client
@@ -68,4 +68,11 @@ fn ws_wipe() {
 #[update]
 fn ws_send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> CanisterWsSendResult {
     ic_websocket_cdk::ws_send(client_principal, msg_bytes)
+}
+
+// reinitialize the canister
+#[update]
+fn reinitialize(gateway_principal: String, send_ack_interval_ms: u64, keep_alive_delay_ms: u64) {
+    ic_websocket_cdk::wipe();
+    init(gateway_principal, send_ack_interval_ms, keep_alive_delay_ms);
 }

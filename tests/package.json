@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "generate": "dfx generate test_canister",
-    "deploy:tests": "dfx deploy test_canister --no-wallet --argument '(\"i3gux-m3hwt-5mh2w-t7wwm-fwx5j-6z6ht-hxguo-t4rfw-qp24z-g5ivt-2qe\")'",
+    "deploy:tests": "dfx deploy test_canister --no-wallet --argument '(\"i3gux-m3hwt-5mh2w-t7wwm-fwx5j-6z6ht-hxguo-t4rfw-qp24z-g5ivt-2qe\", 300_000 : nat64, 300_000 : nat64)'",
     "test:integration": "jest integration"
   },
   "devDependencies": {

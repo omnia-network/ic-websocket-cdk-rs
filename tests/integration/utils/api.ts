@@ -4,124 +4,120 @@ import { ActorSubclass, Cbor, Certificate, HashTree, HttpAgent, compare, lookup_
 import { Secp256k1KeyIdentity } from "@dfinity/identity-secp256k1";
 import { Principal } from "@dfinity/principal";
 import { IDL } from "@dfinity/candid";
-import { getMessageSignature } from "./crypto";
-import type { CanisterIncomingMessage, ClientPublicKey, _SERVICE } from "../../src/declarations/test_canister/test_canister.did";
+import { anonymousClient, gateway1Data } from "./actors";
+import type { CanisterOutputCertifiedMessages, ClientKey, ClientPrincipal, WebsocketMessage, _SERVICE } from "../../src/declarations/test_canister/test_canister.did";
 
-type WsRegisterArgs = {
-  clientActor: ActorSubclass<_SERVICE>,
-  clientKey: Uint8Array,
+type GenericResult<T> = {
+  Ok: T,
+} | {
+  Err: string,
 };
 
-export const wsRegister = async (args: WsRegisterArgs, throwIfError = false) => {
-  const res = await args.clientActor.ws_register({
-    client_key: args.clientKey,
-  });
-
-  if (throwIfError) {
-    if ('Err' in res) {
-      throw new Error(res.Err);
-    }
+const resolveResult = <T>(result: GenericResult<T>, throwIfError: boolean) => {
+  if (throwIfError && 'Err' in result) {
+    throw new Error(result.Err);
   }
 
-  return res;
+  return result;
 };
 
 type WsOpenArgs = {
-  clientPublicKey: Uint8Array,
-  clientSecretKey: Uint8Array | string,
+  clientNonce: bigint,
   canisterId: string,
-  gatewayActor: ActorSubclass<_SERVICE>,
+  clientActor: ActorSubclass<_SERVICE>,
 };
 
-export type CanisterOpenMessageContent = {
-  client_key: ClientPublicKey,
-  canister_id: Principal,
-};
-
+/**
+ * Sends an update call to the canister to the **ws_open** method, using the provided actor.
+ * @param args {@link WsOpenArgs}
+ * @param throwIfError whether to throw if the result is an error (defaults to `false`)
+ * @returns the result of the **ws_open** method
+ */
 export const wsOpen = async (args: WsOpenArgs, throwIfError = false) => {
-  const firstMessage: CanisterOpenMessageContent = {
-    client_key: args.clientPublicKey,
-    canister_id: Principal.fromText(args.canisterId),
-  };
-  const contentBuf = new Uint8Array(Cbor.encode(firstMessage));
-  const sig = await getMessageSignature(contentBuf, args.clientSecretKey);
-
-  const res = await args.gatewayActor.ws_open({
-    content: contentBuf,
-    sig,
+  const res = await args.clientActor.ws_open({
+    client_nonce: args.clientNonce,
   });
 
-  if (throwIfError) {
-    if ('Err' in res) {
-      throw new Error(res.Err);
-    }
-  }
-
-  return res;
+  return resolveResult(res, throwIfError);
 };
 
 type WsMessageArgs = {
-  message: CanisterIncomingMessage,
+  message: WebsocketMessage,
   actor: ActorSubclass<_SERVICE>,
 };
 
+/**
+ * Sends an update call to the canister to the **ws_message** method, using the provided actor.
+ * @param args {@link WsMessageArgs}
+ * @param throwIfError whether to throw if the result is an error (defaults to `false`)
+ * @returns the result of the **ws_message** method
+ */
 export const wsMessage = async (args: WsMessageArgs, throwIfError = false) => {
   const res = await args.actor.ws_message({
     msg: args.message,
   });
 
-  if (throwIfError) {
-    if ('Err' in res) {
-      throw new Error(res.Err);
-    }
-  }
-
-  return res;
-};
-
-export type WebsocketMessage = {
-  client_key: ClientPublicKey,
-  sequence_num: number,
-  timestamp: number,
-  message: ArrayBuffer | Uint8Array,
-};
-
-export const getWebsocketMessage = (clientPublicKey: ClientPublicKey, sequenceNumber: number, content?: ArrayBuffer | Uint8Array): Uint8Array => {
-  const websocketMessage: WebsocketMessage = {
-    client_key: clientPublicKey,
-    sequence_num: sequenceNumber,
-    timestamp: Date.now(),
-    message: new Uint8Array(content || []),
-  };
-
-  return new Uint8Array(Cbor.encode(websocketMessage));
+  return resolveResult(res, throwIfError);
 };
 
 type WsCloseArgs = {
-  clientPublicKey: Uint8Array,
+  clientKey: ClientKey,
   gatewayActor: ActorSubclass<_SERVICE>,
 };
 
+/**
+ * Sends an update call to the canister to the **ws_close** method, using the provided gateway actor.
+ * @param args {@link WsCloseArgs}
+ * @param throwIfError whether to throw if the result is an error (defaults to `false`)
+ * @returns the result of the **ws_close** method
+ */
 export const wsClose = async (args: WsCloseArgs, throwIfError = false) => {
   const res = await args.gatewayActor.ws_close({
-    client_key: args.clientPublicKey,
+    client_key: args.clientKey,
   });
 
-  if (throwIfError) {
-    if ('Err' in res) {
-      throw new Error(res.Err);
-    }
-  }
-
-  return res;
+  return resolveResult(res, throwIfError);
 };
 
-export const wsWipe = async (gatewayActor: ActorSubclass<_SERVICE>) => {
-  await gatewayActor.ws_wipe();
+type WsGetMessagesArgs = {
+  fromNonce: number,
+  gatewayActor: ActorSubclass<_SERVICE>,
+};
+
+/**
+ * Sends a query call to the canister to the **ws_get_messages** method, using the provided gateway actor.
+ * @param args {@link WsGetMessagesArgs}
+ */
+export const wsGetMessages = async (args: WsGetMessagesArgs): Promise<CanisterOutputCertifiedMessages> => {
+  const res = await args.gatewayActor.ws_get_messages({
+    nonce: BigInt(args.fromNonce),
+  });
+
+  const messages = resolveResult(res, true);
+
+  return (messages as { Ok: CanisterOutputCertifiedMessages }).Ok;
+};
+
+export const wsWipe = async () => {
+  await anonymousClient.ws_wipe();
+};
+
+type ReinitializeArgs = {
+  sendAckIntervalMs: number,
+  keepAliveDelayMs: number,
+};
+
+/**
+ * Used to reinitialize the canister with the provided intervals.
+ * @param args {@link ReinitializeArgs}
+ */
+export const reinitialize = async (args: ReinitializeArgs) => {
+  const gatewayPrincipal = (await gateway1Data.identity).getPrincipal().toText();
+  await anonymousClient.reinitialize(gatewayPrincipal, BigInt(args.sendAckIntervalMs), BigInt(args.keepAliveDelayMs));
 };
 
 type WsSendArgs = {
-  clientPublicKey: Uint8Array,
+  clientPrincipal: ClientPrincipal,
   actor: ActorSubclass<_SERVICE>,
   message: {
     text: string,
@@ -130,22 +126,15 @@ type WsSendArgs = {
 
 export const wsSend = async (args: WsSendArgs, throwIfError = false) => {
   const msgBytes = IDL.encode([IDL.Record({ 'text': IDL.Text })], [args.message]);
-  const res = await args.actor.ws_send(args.clientPublicKey, new Uint8Array(msgBytes));
+  const res = await args.actor.ws_send(args.clientPrincipal, new Uint8Array(msgBytes));
 
-  if (throwIfError) {
-    if ('Err' in res) {
-      throw new Error(res.Err);
-    }
-  }
-
-  return res;
+  return resolveResult(res, throwIfError);
 };
 
 export const getCertifiedMessageKey = async (gatewayIdentity: Promise<Secp256k1KeyIdentity>, nonce: number) => {
   const gatewayPrincipal = (await gatewayIdentity).getPrincipal().toText();
   return `${gatewayPrincipal}_${String(nonce).padStart(20, '0')}`;
 };
-
 
 export const isValidCertificate = async (canisterId: string, certificate: Uint8Array, tree: Uint8Array, agent: HttpAgent) => {
   const canisterPrincipal = Principal.fromText(canisterId);
