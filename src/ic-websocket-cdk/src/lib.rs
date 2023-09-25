@@ -2,7 +2,8 @@ use candid::{decode_one, encode_one, CandidType, Principal};
 #[cfg(not(test))]
 use ic_cdk::api::time;
 use ic_cdk::api::{caller, data_certificate, set_certified_data};
-use ic_cdk_timers::set_timer;
+use ic_cdk_timers::clear_timer;
+use ic_cdk_timers::{set_timer, TimerId};
 use ic_certified_map::{labeled, labeled_hash, AsHashTree, Hash as ICHash, RbTree};
 use serde::{Deserialize, Serialize};
 use serde_cbor::Serializer;
@@ -197,6 +198,10 @@ thread_local! {
         on_message: None,
         on_close: None,
     });
+    /// The acknowledgement active timer.
+    /* flexible */ static ACK_TIMER: RefCell<Option<TimerId>> = RefCell::new(None);
+    /// The keep alive active timer.
+    /* flexible */ static KEEP_ALIVE_TIMER: RefCell<Option<TimerId>> = RefCell::new(None);
 }
 
 /// Resets all RefCells to their initial state.
@@ -487,6 +492,35 @@ fn get_cert_for_range(first: &String, last: &String) -> (Vec<u8>, Vec<u8>) {
     })
 }
 
+fn put_ack_timer_id(timer_id: TimerId) {
+    ACK_TIMER.with(|timer| timer.borrow_mut().replace(timer_id));
+}
+
+fn reset_ack_timer() {
+    let timer_id = ACK_TIMER.with(|timer| timer.borrow_mut().take());
+
+    if let Some(t_id) = timer_id {
+        clear_timer(t_id);
+    }
+}
+
+fn put_keep_alive_timer_id(timer_id: TimerId) {
+    KEEP_ALIVE_TIMER.with(|timer| timer.borrow_mut().replace(timer_id));
+}
+
+fn reset_keep_alive_timer() {
+    let timer_id = KEEP_ALIVE_TIMER.with(|timer| timer.borrow_mut().take());
+
+    if let Some(t_id) = timer_id {
+        clear_timer(t_id);
+    }
+}
+
+fn reset_timers() {
+    reset_ack_timer();
+    reset_keep_alive_timer();
+}
+
 #[derive(CandidType, Deserialize)]
 struct CanisterOpenMessageContent {
     client_key: ClientKey,
@@ -526,11 +560,13 @@ fn send_service_message_to_client(
 /// The timer callback is [send_ack_to_clients_timer_callback]. After the callback is executed,
 /// a timer is scheduled to check if the registered clients have sent a keep alive message.
 fn schedule_send_ack_to_clients(ack_interval_ms: u64, check_interval_ms: u64) {
-    set_timer(Duration::from_millis(ack_interval_ms), move || {
+    let timer_id = set_timer(Duration::from_millis(ack_interval_ms), move || {
         send_ack_to_clients_timer_callback();
 
         schedule_check_keep_alive(ack_interval_ms, check_interval_ms);
     });
+
+    put_ack_timer_id(timer_id);
 }
 
 /// Schedules a timer to check if the registered clients have sent a keep alive message
@@ -539,11 +575,13 @@ fn schedule_send_ack_to_clients(ack_interval_ms: u64, check_interval_ms: u64) {
 /// The timer callback is [check_keep_alive_timer_callback]. After the callback is executed,
 /// a timer is scheduled again to send an acknowledgement message to the registered clients.
 fn schedule_check_keep_alive(ack_interval_ms: u64, check_interval_ms: u64) {
-    set_timer(Duration::from_millis(check_interval_ms), move || {
+    let timer_id = set_timer(Duration::from_millis(check_interval_ms), move || {
         check_keep_alive_timer_callback();
 
         schedule_send_ack_to_clients(ack_interval_ms, check_interval_ms);
     });
+
+    put_keep_alive_timer_id(timer_id);
 }
 
 /// Sends an acknowledgement message to the client.
@@ -796,14 +834,16 @@ impl WsInitParams {
 /// Initialize the CDK by setting the callback handlers and the **principal** of the WS Gateway that
 /// will be polling the canister.
 ///
-/// Under the hood, an interval (**60 seconds**) is started using [ic_cdk_timers::set_timer]
-/// to check if the WS Gateway is still alive.
+/// **Note**: Resets the timers under the hood.
 pub fn init(params: WsInitParams) {
     // set the handlers specified by the canister that the CDK uses to manage the IC WebSocket connection
     initialize_handlers(params.handlers);
 
     // set the principal of the (only) WS Gateway that will be polling the canister
     initialize_registered_gateway(&params.gateway_principal);
+
+    // reset initial timers
+    reset_timers();
 
     // schedule a timer that will send an acknowledgement message to clients
     // TODO: test
