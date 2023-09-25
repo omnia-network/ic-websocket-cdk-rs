@@ -200,7 +200,6 @@ thread_local! {
 }
 
 /// Resets all RefCells to their initial state.
-/// If there is a registered gateway, resets its state as well.
 fn reset_internal_state() {
     let client_keys_to_remove: Vec<ClientKey> = REGISTERED_CLIENTS.with(|state| {
         let map = state.borrow();
@@ -353,7 +352,7 @@ fn increment_expected_incoming_message_from_client_num(
 fn add_client(client_key: ClientKey, new_client: RegisteredClient) {
     // insert the client in the map
     insert_client(client_key.clone(), new_client);
-    // initialize incoming client's message sequence number to 0
+    // initialize incoming client's message sequence number to 1
     init_expected_incoming_message_from_client_num(client_key.clone());
     // initialize outgoing message sequence number to 0
     init_outgoing_message_to_client_num(client_key);
@@ -423,7 +422,7 @@ fn get_messages_for_gateway(start_index: usize, end_index: usize) -> Vec<Caniste
     })
 }
 
-/// Gets the messages in GATEWAY_MESSAGES starting from the one with the specified nonce
+/// Gets the messages in MESSAGES_FOR_GATEWAY starting from the one with the specified nonce
 fn get_cert_messages(gateway_principal: Principal, nonce: u64) -> CanisterWsGetMessagesResult {
     let (start_index, end_index) = get_messages_for_gateway_range(gateway_principal, nonce);
     let messages = get_messages_for_gateway(start_index, end_index);
@@ -814,9 +813,16 @@ pub fn init(params: WsInitParams) {
 /// Handles the WS connection open event sent by the client and relayed by the Gateway.
 pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
     let client_principal = caller();
-    // TODO: test
+    // anonymous clients cannot open a connection
     if client_principal == ClientPrincipal::anonymous() {
         return Err(String::from("anonymous principal cannot open a connection"));
+    }
+
+    // avoid gateway opening a connection for its own principal
+    if is_registered_gateway(client_principal) {
+        return Err(String::from(
+            "caller is the registered gateway which can't open a connection for itself",
+        ));
     }
 
     let client_key = ClientKey::new(client_principal, args.client_nonce);
@@ -825,13 +831,6 @@ pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
         return Err(format!(
             "client with key {} already has an open connection",
             client_key,
-        ));
-    }
-
-    // avoid gateway opening a connection for its own principal
-    if is_registered_gateway(client_principal) {
-        return Err(String::from(
-            "caller is the registered gateway, cannot open a connection",
         ));
     }
 
@@ -864,12 +863,6 @@ pub fn ws_close(args: CanisterWsCloseArguments) -> CanisterWsCloseResult {
 
     remove_client(&args.client_key);
 
-    HANDLERS.with(|h| {
-        h.borrow().call_on_close(OnCloseCallbackArgs {
-            client_principal: args.client_key.client_principal,
-        });
-    });
-
     Ok(())
 }
 
@@ -887,10 +880,10 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
         content,
     } = args.msg;
 
-    // check if the client is registered with the same nonce as the one used in the message
-    if registered_client_key.client_nonce != client_key.client_nonce {
+    // check if the client key is correct
+    if registered_client_key != client_key {
         return Err(String::from(format!(
-            "client with principal {} has a different nonce than the one used in the message",
+            "client with principal {} has a different key than the one used in the message",
             client_principal
         )));
     }
@@ -899,11 +892,12 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
 
     // check if the incoming message has the expected sequence number
     if sequence_num != expected_sequence_num {
-        custom_print!(
-            "incoming client's message does not have the expected sequence number. Expected: {expected_sequence_num}, actual: {sequence_num}. Removing client..."
-        );
         remove_client(&client_key);
-        return Ok(());
+        return Err(String::from(
+            format!(
+                "incoming client's message does not have the expected sequence number. Expected: {expected_sequence_num}, actual: {sequence_num}. Client removed.",
+            ),
+        ));
     }
     // increase the expected sequence number by 1
     increment_expected_incoming_message_from_client_num(&client_key)?;
