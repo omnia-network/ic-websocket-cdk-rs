@@ -1,15 +1,13 @@
-use candid::{decode_one, encode_one, CandidType, Principal};
+use candid::{encode_one, CandidType, Principal};
 #[cfg(not(test))]
 use ic_cdk::api::time;
 use ic_cdk::api::{caller, data_certificate, set_certified_data};
-use ic_cdk_timers::set_timer;
 use ic_certified_map::{labeled, labeled_hash, AsHashTree, Hash as ICHash, RbTree};
 use serde::{Deserialize, Serialize};
 use serde_cbor::Serializer;
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::panic;
-use std::time::Duration;
 use std::{cell::RefCell, collections::HashMap, collections::VecDeque, convert::AsRef};
 
 mod logger;
@@ -159,16 +157,6 @@ impl RegisteredClient {
         Self {
             last_keep_alive_timestamp: get_current_time(),
         }
-    }
-
-    /// Gets the last keep alive timestamp.
-    fn get_last_keep_alive_timestamp(&self) -> u64 {
-        self.last_keep_alive_timestamp
-    }
-
-    /// Set the last keep alive timestamp to the current time.
-    fn update_last_keep_alive_timestamp(&mut self) {
-        self.last_keep_alive_timestamp = get_current_time();
     }
 }
 
@@ -521,119 +509,6 @@ fn send_service_message_to_client(
     _ws_send(client_key, message_bytes, true)
 }
 
-/// Schedules a timer to send an acknowledgement message to the client.
-///
-/// The timer callback is [send_ack_to_clients_timer_callback]. After the callback is executed,
-/// a timer is scheduled to check if the registered clients have sent a keep alive message.
-fn schedule_send_ack_to_clients(ack_interval_ms: u64, check_interval_ms: u64) {
-    set_timer(Duration::from_millis(ack_interval_ms), move || {
-        send_ack_to_clients_timer_callback();
-
-        schedule_check_keep_alive(ack_interval_ms, check_interval_ms);
-    });
-}
-
-/// Schedules a timer to check if the registered clients have sent a keep alive message
-/// after receiving an acknowledgement message.
-///
-/// The timer callback is [check_keep_alive_timer_callback]. After the callback is executed,
-/// a timer is scheduled again to send an acknowledgement message to the registered clients.
-fn schedule_check_keep_alive(ack_interval_ms: u64, check_interval_ms: u64) {
-    set_timer(Duration::from_millis(check_interval_ms), move || {
-        check_keep_alive_timer_callback();
-
-        schedule_send_ack_to_clients(ack_interval_ms, check_interval_ms);
-    });
-}
-
-/// Sends an acknowledgement message to the client.
-/// The message contains the current incoming message sequence number for that client,
-/// so that the client knows that all the messages it sent have been received by the canister.
-fn send_ack_to_clients_timer_callback() {
-    REGISTERED_CLIENTS.with(|state| {
-        let map = state.borrow();
-        for (client_key, _) in map.iter() {
-            // ignore the error, which shouldn't happen since the client is registered and the sequence number is initialized
-            if let Ok(last_incoming_message_sequence_num) =
-                get_expected_incoming_message_from_client_num(client_key)
-            {
-                let ack_message = CanisterAckMessageContent {
-                    last_incoming_sequence_num: last_incoming_message_sequence_num,
-                };
-                let message = WebsocketServiceMessageContent::AckMessage(ack_message);
-                if let Err(e) = send_service_message_to_client(client_key, message) {
-                    // TODO: decide what to do when sending the message fails
-                    custom_print!(
-                        "[ack-to-clients-timer-cb]: Error sending ack message to client {}: {:?}",
-                        client_key,
-                        e
-                    );
-
-                    break;
-                };
-            }
-        }
-    });
-
-    custom_print!("[ack-to-clients-timer-cb]: Sent ack messages to all clients");
-}
-
-/// Checks if the registered clients have sent a keep alive message.
-/// If a client has not sent a keep alive message, it is removed from the registered clients.
-fn check_keep_alive_timer_callback() {
-    let client_keys_to_remove: Vec<ClientKey> = REGISTERED_CLIENTS.with(|state| {
-        let map = state.borrow();
-        map.iter()
-            .filter_map(|(client_key, client_metadata)| {
-                let last_keep_alive = client_metadata.get_last_keep_alive_timestamp();
-                if get_current_time() - last_keep_alive > DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS {
-                    Some(client_key.to_owned())
-                } else {
-                    None
-                }
-            })
-            .collect()
-    });
-
-    for client_key in client_keys_to_remove {
-        remove_client(&client_key);
-
-        custom_print!(
-            "[check-keep-alive-timer-cb]: Client {} has not sent a keep alive message in the last {} ms and has been removed",
-            client_key,
-            DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS
-        );
-    }
-
-    custom_print!("[check-keep-alive-timer-cb]: Checked keep alive messages for all clients");
-}
-
-fn handle_keep_alive_client_message(client_key: &ClientKey, content: &[u8]) -> Result<(), String> {
-    match decode_one::<WebsocketServiceMessageContent>(content) {
-        Ok(message_content) => {
-            match message_content {
-                WebsocketServiceMessageContent::KeepAliveMessage(_keep_alive_message) => {
-                    // TODO: delete messages from the queue that have been acknowledged by the client
-
-                    // update the last keep alive timestamp for the client
-                    REGISTERED_CLIENTS.with(|map| {
-                        let mut map = map.borrow_mut();
-                        let client_metadata = map.get_mut(client_key).unwrap();
-                        client_metadata.update_last_keep_alive_timestamp();
-                    });
-
-                    Ok(())
-                },
-                _ => Err(String::from("invalid keep alive message content")),
-            }
-        },
-        Err(e) => Err(format!(
-            "Error decoding service message from client: {:?}",
-            e
-        )),
-    }
-}
-
 /// Internal function used to put the messages in the outgoing messages queue and certify them.
 fn _ws_send(
     client_key: &ClientKey,
@@ -804,10 +679,6 @@ pub fn init(params: WsInitParams) {
 
     // set the principal of the (only) WS Gateway that will be polling the canister
     initialize_registered_gateway(&params.gateway_principal);
-
-    // schedule a timer that will send an acknowledgement message to clients
-    // TODO: test
-    schedule_send_ack_to_clients(params.send_ack_interval_ms, params.keep_alive_delay_ms);
 }
 
 /// Handles the WS connection open event sent by the client and relayed by the Gateway.
@@ -904,7 +775,7 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
 
     // TODO: test
     if is_service_message {
-        return handle_keep_alive_client_message(&client_key, &content);
+        custom_print!("Service message handling not implemented yet");
     }
 
     // call the on_message handler initialized in init()
