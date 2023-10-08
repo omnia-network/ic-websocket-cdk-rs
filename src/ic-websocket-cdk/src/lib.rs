@@ -101,6 +101,21 @@ impl WebsocketMessage {
     }
 }
 
+#[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
+pub enum CanisterOutput {
+    WebSocketMessage(CanisterOutputMessage),
+    HttpRequest(CanisterOutputRequest),
+}
+
+impl CanisterOutput {
+    fn key(&self) -> &String {
+        match self {
+            Self::WebSocketMessage(m) => &m.key,
+            Self::HttpRequest(r) => &r.key,
+        }
+    }
+}
+
 /// Element of the list of messages returned to the WS Gateway after polling.
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
 pub struct CanisterOutputMessage {
@@ -110,10 +125,16 @@ pub struct CanisterOutputMessage {
     content: Vec<u8>, // The message to be relayed, that contains the application message.
 }
 
+#[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
+pub struct CanisterOutputRequest {
+    key: String,
+    content: Vec<u8>,
+}
+
 /// List of messages returned to the WS Gateway after polling.
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
 pub struct CanisterOutputCertifiedMessages {
-    messages: Vec<CanisterOutputMessage>, // List of messages.
+    messages: Vec<CanisterOutput>, // List of messages.
     #[serde(with = "serde_bytes")]
     cert: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
     #[serde(with = "serde_bytes")]
@@ -174,7 +195,7 @@ thread_local! {
     /// Keeps track of the principal of the WS Gateway which polls the canister
     /* flexible */ static REGISTERED_GATEWAY: RefCell<Option<RegisteredGateway>> = RefCell::new(None);
     /// Keeps track of the messages that have to be sent to the WS Gateway
-    /* flexible */ static MESSAGES_FOR_GATEWAY: RefCell<VecDeque<CanisterOutputMessage>> = RefCell::new(VecDeque::new());
+    /* flexible */ static MESSAGES_FOR_GATEWAY: RefCell<VecDeque<CanisterOutput>> = RefCell::new(VecDeque::new());
     /// Keeps track of the nonce which:
     /// - the WS Gateway uses to specify the first index of the certified messages to be returned when polling
     /// - the client uses as part of the path in the Merkle tree in order to verify the certificate of the messages relayed by the WS Gateway
@@ -390,7 +411,9 @@ fn get_messages_for_gateway_range(gateway_principal: Principal, nonce: u64) -> (
         // smallest key used to determine the first message from the queue which has to be returned to the WS Gateway
         let smallest_key = get_message_for_gateway_key(gateway_principal, nonce);
         // partition the queue at the message which has the key with the nonce specified as argument to get_cert_messages
-        let start_index = m.borrow().partition_point(|x| x.key < smallest_key);
+        let start_index = m
+            .borrow()
+            .partition_point(|x| x.key().to_owned() < smallest_key);
         // message at index corresponding to end index is excluded
         let mut end_index = queue_len;
         if end_index - start_index > MAX_NUMBER_OF_RETURNED_MESSAGES {
@@ -400,9 +423,9 @@ fn get_messages_for_gateway_range(gateway_principal: Principal, nonce: u64) -> (
     })
 }
 
-fn get_messages_for_gateway(start_index: usize, end_index: usize) -> Vec<CanisterOutputMessage> {
+fn get_messages_for_gateway(start_index: usize, end_index: usize) -> Vec<CanisterOutput> {
     MESSAGES_FOR_GATEWAY.with(|m| {
-        let mut messages: Vec<CanisterOutputMessage> = Vec::with_capacity(end_index - start_index);
+        let mut messages: Vec<CanisterOutput> = Vec::with_capacity(end_index - start_index);
         for index in start_index..end_index {
             messages.push(m.borrow().get(index).unwrap().clone());
         }
@@ -423,9 +446,9 @@ fn get_cert_messages(gateway_principal: Principal, nonce: u64) -> CanisterWsGetM
         });
     }
 
-    let first_key = messages.first().unwrap().key.clone();
-    let last_key = messages.last().unwrap().key.clone();
-    let (cert, tree) = get_cert_for_range(&first_key, &last_key);
+    let first_key = messages.first().unwrap().key();
+    let last_key = messages.last().unwrap().key();
+    let (cert, tree) = get_cert_for_range(first_key, last_key);
 
     Ok(CanisterOutputCertifiedMessages {
         messages,
@@ -549,11 +572,12 @@ fn _ws_send(
         // messages in the queue are inserted with contiguous and increasing nonces
         // (from beginning to end of the queue) as ws_send is called sequentially, the nonce
         // is incremented by one in each call, and the message is pushed at the end of the queue
-        m.borrow_mut().push_back(CanisterOutputMessage {
-            client_key: client_key.clone(),
-            content,
-            key,
-        });
+        m.borrow_mut()
+            .push_back(CanisterOutput::WebSocketMessage(CanisterOutputMessage {
+                client_key: client_key.clone(),
+                content,
+                key,
+            }));
     });
     Ok(())
 }
@@ -808,6 +832,18 @@ pub fn ws_send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> Caniste
     _ws_send(&client_key, msg_bytes, false)
 }
 
+pub fn http_fire_and_forget_request(msg_bytes: Vec<u8>) {
+    // get the principal of the gateway that is polling the canister
+    let gateway_principal = get_registered_gateway_principal();
+
+    // the nonce in key is used by the WS Gateway to determine the message to start in the polling iteration
+    let outgoing_message_nonce = get_outgoing_message_nonce();
+    let key = get_message_for_gateway_key(gateway_principal, outgoing_message_nonce);
+
+    // increment the nonce for the next message
+    increment_outgoing_message_nonce();
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -817,6 +853,8 @@ mod test {
         use candid::Principal;
         use ic_agent::{identity::BasicIdentity, Identity};
         use ring::signature::Ed25519KeyPair;
+
+        use crate::CanisterOutput;
 
         use super::{
             get_message_for_gateway_key, CanisterOutputMessage, ClientKey, RegisteredClient,
@@ -862,11 +900,13 @@ mod test {
         ) {
             MESSAGES_FOR_GATEWAY.with(|m| {
                 for i in 0..count {
-                    m.borrow_mut().push_back(CanisterOutputMessage {
-                        client_key: client_key.clone(),
-                        key: get_message_for_gateway_key(gateway_principal.clone(), i),
-                        content: vec![],
-                    });
+                    m.borrow_mut().push_back(CanisterOutput::WebSocketMessage(
+                        CanisterOutputMessage {
+                            client_key: client_key.clone(),
+                            key: get_message_for_gateway_key(gateway_principal.clone(), i),
+                            content: vec![],
+                        },
+                    ));
                 }
             });
         }
@@ -1337,7 +1377,7 @@ mod test {
                 // check if the messages returned are the ones we expect
                 for (j, message) in messages.iter().enumerate() {
                     let expected_key = get_message_for_gateway_key(gateway_principal.clone(), (start_index + j) as u64);
-                    prop_assert_eq!(&message.key, &expected_key);
+                    prop_assert_eq!(message.key(), &expected_key);
                 }
             }
 
