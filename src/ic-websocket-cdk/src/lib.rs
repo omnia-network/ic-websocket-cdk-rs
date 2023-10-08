@@ -1,4 +1,6 @@
 use candid::{encode_one, CandidType, Principal};
+use ic_cdk::api::management_canister::http_request::HttpHeader;
+use ic_cdk::api::management_canister::http_request::HttpMethod;
 #[cfg(not(test))]
 use ic_cdk::api::time;
 use ic_cdk::api::{caller, data_certificate, set_certified_data};
@@ -102,6 +104,14 @@ impl WebsocketMessage {
 }
 
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
+pub struct CanisterHttpFireAndForgetRequestArgument {
+    url: String,
+    method: HttpMethod,
+    headers: Vec<HttpHeader>,
+    body: Option<Vec<u8>>,
+}
+
+#[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
 pub enum CanisterOutput {
     WebSocketMessage(CanisterOutputMessage),
     HttpRequest(CanisterOutputRequest),
@@ -128,7 +138,7 @@ pub struct CanisterOutputMessage {
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
 pub struct CanisterOutputRequest {
     key: String,
-    content: Vec<u8>,
+    canister_http_request: CanisterHttpFireAndForgetRequestArgument,
 }
 
 /// List of messages returned to the WS Gateway after polling.
@@ -832,7 +842,9 @@ pub fn ws_send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> Caniste
     _ws_send(&client_key, msg_bytes, false)
 }
 
-pub fn http_fire_and_forget_request(msg_bytes: Vec<u8>) {
+pub fn http_fire_and_forget_request(
+    canister_http_request: CanisterHttpFireAndForgetRequestArgument,
+) {
     // get the principal of the gateway that is polling the canister
     let gateway_principal = get_registered_gateway_principal();
 
@@ -842,6 +854,17 @@ pub fn http_fire_and_forget_request(msg_bytes: Vec<u8>) {
 
     // increment the nonce for the next message
     increment_outgoing_message_nonce();
+
+    MESSAGES_FOR_GATEWAY.with(|m: &RefCell<VecDeque<CanisterOutput>>| {
+        // messages in the queue are inserted with contiguous and increasing nonces
+        // (from beginning to end of the queue) as http_fire_and_forget_request is called sequentially,
+        // the nonce is incremented by one in each call, and the message is pushed at the end of the queue
+        m.borrow_mut()
+            .push_back(CanisterOutput::HttpRequest(CanisterOutputRequest {
+                key,
+                canister_http_request,
+            }));
+    });
 }
 
 #[cfg(test)]
