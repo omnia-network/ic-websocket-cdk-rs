@@ -111,7 +111,7 @@ pub struct CanisterHttpFireAndForgetRequestArgument {
 }
 
 impl CanisterHttpFireAndForgetRequestArgument {
-    fn new(
+    pub fn new(
         url: String,
         method: HttpMethod,
         headers: Vec<HttpHeader>,
