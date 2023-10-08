@@ -1,6 +1,5 @@
 use candid::{encode_one, CandidType, Principal};
-use ic_cdk::api::management_canister::http_request::HttpHeader;
-use ic_cdk::api::management_canister::http_request::HttpMethod;
+use ic_cdk::api::management_canister::http_request::{HttpHeader, HttpMethod};
 #[cfg(not(test))]
 use ic_cdk::api::time;
 use ic_cdk::api::{caller, data_certificate, set_certified_data};
@@ -109,6 +108,22 @@ pub struct CanisterHttpFireAndForgetRequestArgument {
     method: HttpMethod,
     headers: Vec<HttpHeader>,
     body: Option<Vec<u8>>,
+}
+
+impl CanisterHttpFireAndForgetRequestArgument {
+    fn new(
+        url: String,
+        method: HttpMethod,
+        headers: Vec<HttpHeader>,
+        body: Option<Vec<u8>>,
+    ) -> Self {
+        Self {
+            url,
+            method,
+            headers,
+            body,
+        }
+    }
 }
 
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
