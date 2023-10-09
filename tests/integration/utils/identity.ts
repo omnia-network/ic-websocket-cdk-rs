@@ -9,3 +9,8 @@ export const identityFromSeed = async (phrase: string) => {
 
   return Secp256k1KeyIdentity.generate(addrnode.privateKey);
 };
+
+export const generateRandomIdentity = async () => {
+  const mnemonic = bip39.generateMnemonic();
+  return identityFromSeed(mnemonic);
+};

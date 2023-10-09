@@ -5,7 +5,7 @@ type CanisterWsSendResult = variant {
   Err : text;
 };
 
-service : (text) -> {
+service : (text, nat64, nat64) -> {
   "ws_open" : (CanisterWsOpenArguments) -> (CanisterWsOpenResult);
   "ws_close" : (CanisterWsCloseArguments) -> (CanisterWsCloseResult);
   "ws_message" : (CanisterWsMessageArguments) -> (CanisterWsMessageResult);
@@ -13,5 +13,6 @@ service : (text) -> {
 
   // methods used just for debugging/testing
   "ws_wipe" : () -> ();
-  "ws_send" : (ClientPrincipal, blob) -> (CanisterWsSendResult);
+  "ws_send" : (ClientPrincipal, vec blob) -> (CanisterWsSendResult);
+  "reinitialize" : (text, nat64, nat64) -> ();
 };
