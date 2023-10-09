@@ -106,12 +106,12 @@ type ReinitializeArgs = {
 };
 
 /**
- * Used to reinitialize the canister with the provided intervals.
+ * Used to initialize the CDK again with the provided parameters.
  * @param args {@link ReinitializeArgs}
  */
-export const reinitialize = async (args: ReinitializeArgs) => {
+export const initializeCdk = async (args: ReinitializeArgs) => {
   const gatewayPrincipal = (await gateway1Data.identity).getPrincipal().toText();
-  await anonymousClient.reinitialize(gatewayPrincipal, BigInt(args.sendAckIntervalMs), BigInt(args.keepAliveDelayMs));
+  await anonymousClient.initialize(gatewayPrincipal, BigInt(args.sendAckIntervalMs), BigInt(args.keepAliveDelayMs));
 };
 
 type WsSendArgs = {

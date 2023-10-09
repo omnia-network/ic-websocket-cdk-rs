@@ -18,10 +18,10 @@ mod logger;
 const LABEL_WEBSOCKET: &[u8] = b"websocket";
 /// The maximum number of messages returned by [ws_get_messages] at each poll.
 const MAX_NUMBER_OF_RETURNED_MESSAGES: usize = 10;
-/// The default delay between two consecutive acknowledgements sent to the client.
-const DEFAULT_SEND_ACK_DELAY_MS: u64 = 60_000; // 60 seconds
-/// The default delay to wait for the client to send a keep alive after receiving an acknowledgement.
-const DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS: u64 = 10_000; // 10 seconds
+/// The default interval at which to send acknowledgements to the client.
+const DEFAULT_SEND_ACK_INTERVAL_MS: u64 = 60_000; // 60 seconds
+/// The default timeout to wait for the client to send a keep alive after receiving an acknowledgement.
+const DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS: u64 = 10_000; // 10 seconds
 
 pub type ClientPrincipal = Principal;
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug, Hash)]
@@ -191,12 +191,8 @@ thread_local! {
     /// - the WS Gateway uses to specify the first index of the certified messages to be returned when polling
     /// - the client uses as part of the path in the Merkle tree in order to verify the certificate of the messages relayed by the WS Gateway
     /* flexible */ static OUTGOING_MESSAGE_NONCE: RefCell<u64> = RefCell::new(0u64);
-    /// The callback handlers for the WebSocket.
-    /* flexible */ static HANDLERS: RefCell<WsHandlers> = RefCell::new(WsHandlers {
-        on_open: None,
-        on_message: None,
-        on_close: None,
-    });
+    /// The parameters passed in the CDK initialization
+    /* flexible */ static PARAMS: RefCell<WsInitParams> = RefCell::new(WsInitParams::default());
     /// The acknowledgement active timer.
     /* flexible */ static ACK_TIMER: RefCell<Option<TimerId>> = RefCell::new(None);
     /// The keep alive active timer.
@@ -376,7 +372,7 @@ fn remove_client(client_key: &ClientKey) {
         map.borrow_mut().remove(client_key);
     });
 
-    let handlers = HANDLERS.with(|state| state.borrow().clone());
+    let handlers = get_handlers_from_params();
     handlers.call_on_close(OnCloseCallbackArgs {
         client_principal: client_key.client_principal,
     });
@@ -519,6 +515,18 @@ fn reset_timers() {
     reset_keep_alive_timer();
 }
 
+fn set_params(params: WsInitParams) {
+    PARAMS.with(|state| *state.borrow_mut() = params);
+}
+
+fn get_params() -> WsInitParams {
+    PARAMS.with(|state| state.borrow().clone())
+}
+
+fn get_handlers_from_params() -> WsHandlers {
+    get_params().get_handlers()
+}
+
 #[derive(CandidType, Deserialize)]
 struct CanisterOpenMessageContent {
     client_key: ClientKey,
@@ -567,11 +575,12 @@ fn send_service_message_to_client(
 ///
 /// The timer callback is [send_ack_to_clients_timer_callback]. After the callback is executed,
 /// a timer is scheduled to check if the registered clients have sent a keep alive message.
-fn schedule_send_ack_to_clients(ack_interval_ms: u64, check_interval_ms: u64) {
+fn schedule_send_ack_to_clients() {
+    let ack_interval_ms = get_params().send_ack_interval_ms;
     let timer_id = set_timer(Duration::from_millis(ack_interval_ms), move || {
         send_ack_to_clients_timer_callback();
 
-        schedule_check_keep_alive(ack_interval_ms, check_interval_ms);
+        schedule_check_keep_alive();
     });
 
     put_ack_timer_id(timer_id);
@@ -582,11 +591,12 @@ fn schedule_send_ack_to_clients(ack_interval_ms: u64, check_interval_ms: u64) {
 ///
 /// The timer callback is [check_keep_alive_timer_callback]. After the callback is executed,
 /// a timer is scheduled again to send an acknowledgement message to the registered clients.
-fn schedule_check_keep_alive(ack_interval_ms: u64, check_interval_ms: u64) {
-    let timer_id = set_timer(Duration::from_millis(check_interval_ms), move || {
-        check_keep_alive_timer_callback();
+fn schedule_check_keep_alive() {
+    let keep_alive_timeout_ms = get_params().keep_alive_timeout_ms;
+    let timer_id = set_timer(Duration::from_millis(keep_alive_timeout_ms), move || {
+        check_keep_alive_timer_callback(keep_alive_timeout_ms);
 
-        schedule_send_ack_to_clients(ack_interval_ms, check_interval_ms);
+        schedule_send_ack_to_clients();
     });
 
     put_keep_alive_timer_id(timer_id);
@@ -598,7 +608,7 @@ fn schedule_check_keep_alive(ack_interval_ms: u64, check_interval_ms: u64) {
 fn send_ack_to_clients_timer_callback() {
     REGISTERED_CLIENTS.with(|state| {
         let map = state.borrow();
-        for (client_key, _) in map.iter() {
+        for client_key in map.keys() {
             // ignore the error, which shouldn't happen since the client is registered and the sequence number is initialized
             if let Ok(last_incoming_message_sequence_num) =
                 get_expected_incoming_message_from_client_num(client_key)
@@ -608,13 +618,13 @@ fn send_ack_to_clients_timer_callback() {
                 };
                 let message = WebsocketServiceMessageContent::AckMessage(ack_message);
                 if let Err(e) = send_service_message_to_client(client_key, message) {
-                    // TODO: decide what to do when sending the message fails
                     custom_print!(
                         "[ack-to-clients-timer-cb]: Error sending ack message to client {}: {:?}",
                         client_key,
                         e
                     );
 
+                    // TODO: decide what to do when sending the message fails
                     break;
                 };
             }
@@ -626,13 +636,13 @@ fn send_ack_to_clients_timer_callback() {
 
 /// Checks if the registered clients have sent a keep alive message.
 /// If a client has not sent a keep alive message, it is removed from the registered clients.
-fn check_keep_alive_timer_callback() {
+fn check_keep_alive_timer_callback(keep_alive_timeout_ms: u64) {
     let client_keys_to_remove: Vec<ClientKey> = REGISTERED_CLIENTS.with(|state| {
         let map = state.borrow();
         map.iter()
             .filter_map(|(client_key, client_metadata)| {
                 let last_keep_alive = client_metadata.get_last_keep_alive_timestamp();
-                if get_current_time() - last_keep_alive > DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS {
+                if get_current_time() - last_keep_alive > keep_alive_timeout_ms {
                     Some(client_key.to_owned())
                 } else {
                     None
@@ -647,7 +657,7 @@ fn check_keep_alive_timer_callback() {
         custom_print!(
             "[check-keep-alive-timer-cb]: Client {} has not sent a keep alive message in the last {} ms and has been removed",
             client_key,
-            DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS
+            keep_alive_timeout_ms
         );
     }
 
@@ -656,7 +666,7 @@ fn check_keep_alive_timer_callback() {
 
 fn handle_keep_alive_client_message(
     client_key: &ClientKey,
-    keep_alive_message: ClientKeepAliveMessageContent,
+    _keep_alive_message: ClientKeepAliveMessageContent,
 ) -> Result<(), String> {
     // TODO: delete messages from the queue that have been acknowledged by the client
 
@@ -807,13 +817,6 @@ impl WsHandlers {
     }
 }
 
-fn initialize_handlers(handlers: WsHandlers) {
-    HANDLERS.with(|h| {
-        let mut h = h.borrow_mut();
-        *h = handlers;
-    });
-}
-
 /// Parameters for the IC WebSocket CDK initialization. For default parameters and simpler initialization, use [`WsInitParams::new`].
 #[derive(Clone)]
 pub struct WsInitParams {
@@ -827,7 +830,7 @@ pub struct WsInitParams {
     pub send_ack_interval_ms: u64,
     /// The delay to wait for the client to send a keep alive after receiving an acknowledgement (in milliseconds).
     /// Defaults to `10_000` (10 seconds).
-    pub keep_alive_delay_ms: u64,
+    pub keep_alive_timeout_ms: u64,
 }
 
 impl WsInitParams {
@@ -836,8 +839,22 @@ impl WsInitParams {
         Self {
             handlers,
             gateway_principal,
-            send_ack_interval_ms: DEFAULT_SEND_ACK_DELAY_MS,
-            keep_alive_delay_ms: DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS,
+            ..Default::default()
+        }
+    }
+
+    fn get_handlers(&self) -> WsHandlers {
+        self.handlers.clone()
+    }
+}
+
+impl Default for WsInitParams {
+    fn default() -> Self {
+        Self {
+            handlers: WsHandlers::default(),
+            gateway_principal: String::new(),
+            send_ack_interval_ms: DEFAULT_SEND_ACK_INTERVAL_MS,
+            keep_alive_timeout_ms: DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS,
         }
     }
 }
@@ -848,7 +865,7 @@ impl WsInitParams {
 /// **Note**: Resets the timers under the hood.
 pub fn init(params: WsInitParams) {
     // set the handlers specified by the canister that the CDK uses to manage the IC WebSocket connection
-    initialize_handlers(params.handlers);
+    set_params(params.clone());
 
     // set the principal of the (only) WS Gateway that will be polling the canister
     initialize_registered_gateway(&params.gateway_principal);
@@ -858,7 +875,7 @@ pub fn init(params: WsInitParams) {
 
     // schedule a timer that will send an acknowledgement message to clients
     // TODO: test
-    schedule_send_ack_to_clients(params.send_ack_interval_ms, params.keep_alive_delay_ms);
+    schedule_send_ack_to_clients();
 }
 
 /// Handles the WS connection open event sent by the client and relayed by the Gateway.
@@ -896,10 +913,7 @@ pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
     send_service_message_to_client(&client_key, message)?;
 
     // call the on_open handler initialized in init()
-    HANDLERS.with(|h| {
-        h.borrow()
-            .call_on_open(OnOpenCallbackArgs { client_principal });
-    });
+    get_handlers_from_params().call_on_open(OnOpenCallbackArgs { client_principal });
 
     Ok(())
 }
@@ -958,13 +972,9 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
     }
 
     // call the on_message handler initialized in init()
-    HANDLERS.with(|h| {
-        // trigger the on_message handler initialized by canister
-        // create message to send to client
-        h.borrow().call_on_message(OnMessageCallbackArgs {
-            client_principal,
-            message: content,
-        });
+    get_handlers_from_params().call_on_message(OnMessageCallbackArgs {
+        client_principal,
+        message: content,
     });
     Ok(())
 }
@@ -1084,31 +1094,32 @@ mod test {
             static CUSTOM_STATE : RefCell<CustomState> = RefCell::new(CustomState::new());
         }
 
-        let mut handlers = WsHandlers {
+        let mut h = WsHandlers {
             on_open: None,
             on_message: None,
             on_close: None,
         };
 
-        initialize_handlers(handlers);
+        set_params(WsInitParams {
+            handlers: h.clone(),
+            ..Default::default()
+        });
 
-        HANDLERS.with(|h| {
-            let h = h.borrow();
+        let handlers = get_handlers_from_params();
 
-            assert!(h.on_open.is_none());
-            assert!(h.on_message.is_none());
-            assert!(h.on_close.is_none());
+        assert!(handlers.on_open.is_none());
+        assert!(handlers.on_message.is_none());
+        assert!(handlers.on_close.is_none());
 
-            h.call_on_open(OnOpenCallbackArgs {
-                client_principal: test_utils::generate_random_principal(),
-            });
-            h.call_on_message(OnMessageCallbackArgs {
-                client_principal: test_utils::generate_random_principal(),
-                message: vec![],
-            });
-            h.call_on_close(OnCloseCallbackArgs {
-                client_principal: test_utils::generate_random_principal(),
-            });
+        handlers.call_on_open(OnOpenCallbackArgs {
+            client_principal: test_utils::generate_random_principal(),
+        });
+        handlers.call_on_message(OnMessageCallbackArgs {
+            client_principal: test_utils::generate_random_principal(),
+            message: vec![],
+        });
+        handlers.call_on_close(OnCloseCallbackArgs {
+            client_principal: test_utils::generate_random_principal(),
         });
 
         // test that the handlers are not called if they are not initialized
@@ -1136,31 +1147,32 @@ mod test {
             });
         };
 
-        handlers = WsHandlers {
+        h = WsHandlers {
             on_open: Some(on_open),
             on_message: Some(on_message),
             on_close: Some(on_close),
         };
 
-        initialize_handlers(handlers);
+        set_params(WsInitParams {
+            handlers: h.clone(),
+            ..Default::default()
+        });
 
-        HANDLERS.with(|h| {
-            let h = h.borrow();
+        let handlers = get_handlers_from_params();
 
-            assert!(h.on_open.is_some());
-            assert!(h.on_message.is_some());
-            assert!(h.on_close.is_some());
+        assert!(handlers.on_open.is_some());
+        assert!(handlers.on_message.is_some());
+        assert!(handlers.on_close.is_some());
 
-            h.call_on_open(OnOpenCallbackArgs {
-                client_principal: test_utils::generate_random_principal(),
-            });
-            h.call_on_message(OnMessageCallbackArgs {
-                client_principal: test_utils::generate_random_principal(),
-                message: vec![],
-            });
-            h.call_on_close(OnCloseCallbackArgs {
-                client_principal: test_utils::generate_random_principal(),
-            });
+        handlers.call_on_open(OnOpenCallbackArgs {
+            client_principal: test_utils::generate_random_principal(),
+        });
+        handlers.call_on_message(OnMessageCallbackArgs {
+            client_principal: test_utils::generate_random_principal(),
+            message: vec![],
+        });
+        handlers.call_on_close(OnCloseCallbackArgs {
+            client_principal: test_utils::generate_random_principal(),
         });
 
         // test that the handlers are called if they are initialized
@@ -1171,7 +1183,7 @@ mod test {
 
     #[test]
     fn test_ws_handlers_panic_is_handled() {
-        let handlers = WsHandlers {
+        let h = WsHandlers {
             on_open: Some(|_| {
                 panic!("on_open_panic");
             }),
@@ -1183,9 +1195,12 @@ mod test {
             }),
         };
 
-        initialize_handlers(handlers);
+        set_params(WsInitParams {
+            handlers: h.clone(),
+            ..Default::default()
+        });
 
-        let handlers = HANDLERS.with(|h| h.borrow().clone());
+        let handlers = get_handlers_from_params();
 
         let res = panic::catch_unwind(|| {
             handlers.call_on_open(OnOpenCallbackArgs {

@@ -11,7 +11,7 @@ import {
   gateway2,
 } from "./utils/actors";
 import {
-  reinitialize,
+  initializeCdk,
   wsClose,
   wsGetMessages,
   wsMessage,
@@ -59,8 +59,8 @@ const MAX_NUMBER_OF_RETURNED_MESSAGES = 10;
  * Value: `12`
  */
 const SEND_MESSAGES_COUNT = MAX_NUMBER_OF_RETURNED_MESSAGES + 2; // test with more messages to check the indexes and limits
-// const DEFAULT_TEST_SEND_ACK_INTERVAL_MS = 300_000; // 5 minutes to make sure the canister doesn't reset the client
-// const DEFAULT_TEST_KEEP_ALIVE_DELAY_MS = 300_000; // 5 minutes to make sure the canister doesn't reset the client
+const DEFAULT_TEST_SEND_ACK_INTERVAL_MS = 300_000; // 5 minutes to make sure the canister doesn't reset the client
+const DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS = 300_000; // 5 minutes to make sure the canister doesn't reset the client
 
 let client1Key: ClientKey;
 let client2Key: ClientKey;
@@ -184,6 +184,11 @@ describe("Canister - ws_open", () => {
 describe("Canister - ws_message", () => {
   beforeAll(async () => {
     await assignKeysToClients();
+
+    await initializeCdk({
+      sendAckIntervalMs: DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
+      keepAliveDelayMs: DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
+    });
 
     await wsOpen({
       clientNonce: client1Key.client_nonce,
@@ -356,11 +361,10 @@ describe("Canister - ws_get_messages (receive)", () => {
   beforeAll(async () => {
     await assignKeysToClients();
 
-    // reset the internal timers
-    // await reinitialize({
-    //   sendAckIntervalMs: DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
-    //   keepAliveDelayMs: DEFAULT_TEST_KEEP_ALIVE_DELAY_MS,
-    // });
+    await initializeCdk({
+      sendAckIntervalMs: DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
+      keepAliveDelayMs: DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
+    });
 
     await wsOpen({
       clientNonce: client1Key.client_nonce,
@@ -565,6 +569,11 @@ describe("Canister - ws_close", () => {
   beforeAll(async () => {
     await assignKeysToClients();
 
+    await initializeCdk({
+      sendAckIntervalMs: DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
+      keepAliveDelayMs: DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
+    });
+
     await wsOpen({
       clientNonce: client1Key.client_nonce,
       canisterId,
@@ -613,6 +622,11 @@ describe("Canister - ws_close", () => {
 describe("Canister - ws_send", () => {
   beforeAll(async () => {
     await assignKeysToClients();
+
+    await initializeCdk({
+      sendAckIntervalMs: DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
+      keepAliveDelayMs: DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
+    });
 
     await wsOpen({
       clientNonce: client1Key.client_nonce,
