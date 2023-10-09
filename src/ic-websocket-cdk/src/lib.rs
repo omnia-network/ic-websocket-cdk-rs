@@ -2,15 +2,13 @@ use candid::{decode_one, encode_one, CandidType, Principal};
 #[cfg(not(test))]
 use ic_cdk::api::time;
 use ic_cdk::api::{caller, data_certificate, set_certified_data};
-use ic_cdk_timers::clear_timer;
-use ic_cdk_timers::{set_timer, TimerId};
+use ic_cdk_timers::{clear_timer, set_timer, TimerId};
 use ic_certified_map::{labeled, labeled_hash, AsHashTree, Hash as ICHash, RbTree};
 use serde::{Deserialize, Serialize};
 use serde_cbor::Serializer;
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::panic;
-use std::time::Duration;
 use std::{cell::RefCell, collections::HashMap, collections::VecDeque, convert::AsRef};
 
 mod logger;
@@ -160,16 +158,6 @@ impl RegisteredClient {
         Self {
             last_keep_alive_timestamp: get_current_time(),
         }
-    }
-
-    /// Gets the last keep alive timestamp.
-    fn get_last_keep_alive_timestamp(&self) -> u64 {
-        self.last_keep_alive_timestamp
-    }
-
-    /// Set the last keep alive timestamp to the current time.
-    fn update_last_keep_alive_timestamp(&mut self) {
-        self.last_keep_alive_timestamp = get_current_time();
     }
 }
 
@@ -391,7 +379,6 @@ fn get_messages_for_gateway_range(gateway_principal: Principal, nonce: u64) -> (
     MESSAGES_FOR_GATEWAY.with(|m| {
         let queue_len = m.borrow().len();
 
-        // TODO: test
         if nonce == 0 && queue_len > 0 {
             // this is the case in which the poller on the gateway restarted
             // the range to return is end:last index and start: max(end - MAX_NUMBER_OF_RETURNED_MESSAGES, 0)
@@ -536,7 +523,7 @@ struct ClientKeepAliveMessageContent {
     last_incoming_sequence_num: u64,
 }
 
-/// A service message sent by the CDK to the client.
+/// A service message sent by the CDK to the client or vice versa.
 #[derive(CandidType, Deserialize)]
 enum WebsocketServiceMessageContent {
     /// Message sent by the **canister** when a client opens a connection.
@@ -545,6 +532,16 @@ enum WebsocketServiceMessageContent {
     AckMessage(CanisterAckMessageContent),
     /// Message sent by the **client** in response to an acknowledgement message from the canister.
     KeepAliveMessage(ClientKeepAliveMessageContent),
+}
+
+impl WebsocketServiceMessageContent {
+    fn from_candid_bytes(bytes: Vec<u8>) -> Result<Self, String> {
+        decode_one(&bytes).map_err(|e| {
+            let mut err = String::from("Error decoding service message content: ");
+            err.push_str(&e.to_string());
+            err
+        })
+    }
 }
 
 fn send_service_message_to_client(
@@ -721,6 +718,20 @@ fn _ws_send(
     Ok(())
 }
 
+fn handle_received_service_message(content: Vec<u8>) -> CanisterWsMessageResult {
+    let decoded = WebsocketServiceMessageContent::from_candid_bytes(content)?;
+    match decoded {
+        WebsocketServiceMessageContent::OpenMessage(_)
+        | WebsocketServiceMessageContent::AckMessage(_) => {
+            Err(String::from("Invalid received service message"))
+        },
+        WebsocketServiceMessageContent::KeepAliveMessage(_) => {
+            custom_print!("Service message handling not implemented yet");
+            Ok(())
+        },
+    }
+}
+
 /// Arguments passed to the `on_open` handler.
 pub struct OnOpenCallbackArgs {
     pub client_principal: ClientPrincipal,
@@ -758,7 +769,6 @@ pub struct WsHandlers {
 impl WsHandlers {
     fn call_on_open(&self, args: OnOpenCallbackArgs) {
         if let Some(on_open) = self.on_open {
-            // TODO: test the panic handling
             let res = panic::catch_unwind(|| {
                 on_open(args);
             });
@@ -771,7 +781,6 @@ impl WsHandlers {
 
     fn call_on_message(&self, args: OnMessageCallbackArgs) {
         if let Some(on_message) = self.on_message {
-            // TODO: test the panic handling
             let res = panic::catch_unwind(|| {
                 on_message(args);
             });
@@ -784,7 +793,6 @@ impl WsHandlers {
 
     fn call_on_close(&self, args: OnCloseCallbackArgs) {
         if let Some(on_close) = self.on_close {
-            // TODO: test the panic handling
             let res = panic::catch_unwind(|| {
                 on_close(args);
             });
@@ -942,9 +950,8 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
     // increase the expected sequence number by 1
     increment_expected_incoming_message_from_client_num(&client_key)?;
 
-    // TODO: test
     if is_service_message {
-        return handle_keep_alive_client_message(&client_key, &content);
+        return handle_received_service_message(content);
     }
 
     // call the on_message handler initialized in init()
@@ -1157,6 +1164,45 @@ mod test {
         assert!(CUSTOM_STATE.with(|h| h.borrow().is_on_open_called));
         assert!(CUSTOM_STATE.with(|h| h.borrow().is_on_message_called));
         assert!(CUSTOM_STATE.with(|h| h.borrow().is_on_close_called));
+    }
+
+    #[test]
+    fn test_ws_handlers_panic_is_handled() {
+        let handlers = WsHandlers {
+            on_open: Some(|_| {
+                panic!("on_open_panic");
+            }),
+            on_message: Some(|_| {
+                panic!("on_close_panic");
+            }),
+            on_close: Some(|_| {
+                panic!("on_close_panic");
+            }),
+        };
+
+        initialize_handlers(handlers);
+
+        let handlers = HANDLERS.with(|h| h.borrow().clone());
+
+        let res = panic::catch_unwind(|| {
+            handlers.call_on_open(OnOpenCallbackArgs {
+                client_principal: test_utils::generate_random_principal(),
+            });
+        });
+        assert!(res.is_ok());
+        let res = panic::catch_unwind(|| {
+            handlers.call_on_message(OnMessageCallbackArgs {
+                client_principal: test_utils::generate_random_principal(),
+                message: vec![],
+            });
+        });
+        assert!(res.is_ok());
+        let res = panic::catch_unwind(|| {
+            handlers.call_on_close(OnCloseCallbackArgs {
+                client_principal: test_utils::generate_random_principal(),
+            });
+        });
+        assert!(res.is_ok());
     }
 
     #[test]
