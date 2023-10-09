@@ -33,8 +33,10 @@ import { generateClientKey, getRandomClientNonce } from "./utils/random";
 import {
   CanisterOpenMessageContent,
   WebsocketServiceMessageContent,
+  decodeWebsocketServiceMessageContent,
   encodeWebsocketServiceMessageContent,
-  getServiceMessageFromCanisterMessage,
+  getServiceMessageContentFromCanisterMessage,
+  getWebsocketMessageFromCanisterMessage,
   isClientKeyEq,
 } from "./utils/idl";
 import {
@@ -46,6 +48,7 @@ import {
   getNextPollingNonceFromMessages,
 } from "./utils/messages";
 import { formatClientKey } from "./utils/client";
+import { sleep } from "./utils/helpers";
 
 /**
  * The maximum number of messages returned by the **ws_get_messages** method. Set in the CDK.
@@ -54,13 +57,26 @@ import { formatClientKey } from "./utils/client";
  */
 const MAX_NUMBER_OF_RETURNED_MESSAGES = 10;
 /**
+ * Add more messages than the max to check the indexes and limits.
  * @{@link MAX_NUMBER_OF_RETURNED_MESSAGES} + 2
  * 
  * Value: `12`
  */
-const SEND_MESSAGES_COUNT = MAX_NUMBER_OF_RETURNED_MESSAGES + 2; // test with more messages to check the indexes and limits
-const DEFAULT_TEST_SEND_ACK_INTERVAL_MS = 300_000; // 5 minutes to make sure the canister doesn't reset the client
-const DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS = 300_000; // 5 minutes to make sure the canister doesn't reset the client
+const SEND_MESSAGES_COUNT = MAX_NUMBER_OF_RETURNED_MESSAGES + 2;
+/**
+ * The interval between sending acks from the canister.
+ * Set to a high value to make sure the canister doesn't reset the client while testing other functions.
+ * 
+ * Value: `300_000` (5 minutes)
+ */
+const DEFAULT_TEST_SEND_ACK_INTERVAL_MS = 300_000;
+/**
+ * The interval between keep alive checks in the canister.
+ * Set to a high value to make sure the canister doesn't reset the client while testing other functions.
+ * 
+ * Value: `300_000` (5 minutes)
+ */
+const DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS = 300_000;
 
 let client1Key: ClientKey;
 let client2Key: ClientKey;
@@ -128,13 +144,13 @@ describe("Canister - ws_open", () => {
 
     const serviceMessages = filterServiceMessagesFromCanisterMessages(msgs.messages);
 
-    expect(isClientKeyEq(serviceMessages[0].client_key, client1Key)).toBe(true);
-    const openMessage = getServiceMessageFromCanisterMessage(serviceMessages[0]);
+    expect(isClientKeyEq(serviceMessages[0].client_key, client1Key)).toEqual(true);
+    const openMessage = getServiceMessageContentFromCanisterMessage(serviceMessages[0]);
     expect(openMessage).toMatchObject<WebsocketServiceMessageContent>({
       OpenMessage: expect.any(Object),
     });
     const openMessageContent = (openMessage as { OpenMessage: CanisterOpenMessageContent }).OpenMessage;
-    expect(isClientKeyEq(openMessageContent.client_key, client1Key)).toBe(true);
+    expect(isClientKeyEq(openMessageContent.client_key, client1Key)).toEqual(true);
   });
 
   it("fails for a client with the same nonce", async () => {
@@ -172,12 +188,12 @@ describe("Canister - ws_open", () => {
     const serviceMessages = filterServiceMessagesFromCanisterMessages(msgs.messages);
     const serviceMessagesForClient = serviceMessages.filter((msg) => isClientKeyEq(msg.client_key, clientKey));
 
-    const openMessage = getServiceMessageFromCanisterMessage(serviceMessagesForClient[0]);
+    const openMessage = getServiceMessageContentFromCanisterMessage(serviceMessagesForClient[0]);
     expect(openMessage).toMatchObject<WebsocketServiceMessageContent>({
       OpenMessage: expect.any(Object),
     });
     const openMessageContent = (openMessage as { OpenMessage: CanisterOpenMessageContent }).OpenMessage;
-    expect(isClientKeyEq(openMessageContent.client_key, clientKey)).toBe(true);
+    expect(isClientKeyEq(openMessageContent.client_key, clientKey)).toEqual(true);
   });
 });
 
@@ -278,7 +294,7 @@ describe("Canister - ws_message", () => {
 
     // wrong content encoding
     const res = await wsMessage({
-      message: createWebsocketMessage(client1Key, 1, true, new Uint8Array([1, 2, 3])),
+      message: createWebsocketMessage(client1Key, 1, new Uint8Array([1, 2, 3]), true),
       actor: client1,
     });
 
@@ -293,7 +309,7 @@ describe("Canister - ws_message", () => {
       }
     };
     const res2 = await wsMessage({
-      message: createWebsocketMessage(client1Key, 2, true, encodeWebsocketServiceMessageContent(wrongServiceMessage)),
+      message: createWebsocketMessage(client1Key, 2, encodeWebsocketServiceMessageContent(wrongServiceMessage), true),
       actor: client1,
     });
 
@@ -309,7 +325,7 @@ describe("Canister - ws_message", () => {
       },
     };
     const res = await wsMessage({
-      message: createWebsocketMessage(client1Key, 3, true, encodeWebsocketServiceMessageContent(clientServiceMessage)),
+      message: createWebsocketMessage(client1Key, 3, encodeWebsocketServiceMessageContent(clientServiceMessage), true),
       actor: client1,
     });
 
@@ -382,8 +398,6 @@ describe("Canister - ws_get_messages (receive)", () => {
       actor: client1,
       messages,
     }, true);
-
-    await commonAgent.fetchRootKey();
   });
 
   afterAll(async () => {
@@ -407,7 +421,7 @@ describe("Canister - ws_get_messages (receive)", () => {
       });
 
       const messagesResult = (res as { Ok: CanisterOutputCertifiedMessages }).Ok;
-      expect(messagesResult.messages.length).toBe(
+      expect(messagesResult.messages.length).toEqual(
         messagesCount - i > MAX_NUMBER_OF_RETURNED_MESSAGES
           ? MAX_NUMBER_OF_RETURNED_MESSAGES
           : messagesCount - i
@@ -435,7 +449,7 @@ describe("Canister - ws_get_messages (receive)", () => {
     });
 
     const firstBatchMessagesResult = (firstBatchRes as { Ok: CanisterOutputCertifiedMessages }).Ok;
-    expect(firstBatchMessagesResult.messages.length).toBe(MAX_NUMBER_OF_RETURNED_MESSAGES);
+    expect(firstBatchMessagesResult.messages.length).toEqual(MAX_NUMBER_OF_RETURNED_MESSAGES);
 
     let expectedSequenceNumber = 2; // first is the service open message and the number is incremented before sending
     let i = 0;
@@ -460,14 +474,14 @@ describe("Canister - ws_get_messages (receive)", () => {
           firstBatchMessagesResult.tree as Uint8Array,
           commonAgent
         )
-      ).resolves.toBe(true);
+      ).resolves.toEqual(true);
       await expect(
         isMessageBodyValid(
           message.key,
           message.content as Uint8Array,
           firstBatchMessagesResult.tree as Uint8Array,
         )
-      ).resolves.toBe(true);
+      ).resolves.toEqual(true);
 
       expectedSequenceNumber++;
       i++;
@@ -481,7 +495,7 @@ describe("Canister - ws_get_messages (receive)", () => {
     });
 
     const secondBatchMessagesResult = (secondBatchRes as { Ok: CanisterOutputCertifiedMessages }).Ok;
-    expect(secondBatchMessagesResult.messages.length).toBe(SEND_MESSAGES_COUNT - MAX_NUMBER_OF_RETURNED_MESSAGES); // remaining from SEND_MESSAGES_COUNT
+    expect(secondBatchMessagesResult.messages.length).toEqual(SEND_MESSAGES_COUNT - MAX_NUMBER_OF_RETURNED_MESSAGES); // remaining from SEND_MESSAGES_COUNT
 
     for (const message of secondBatchMessagesResult.messages) {
       expect(isClientKeyEq(message.client_key, client1Key)).toEqual(true);
@@ -504,14 +518,14 @@ describe("Canister - ws_get_messages (receive)", () => {
           secondBatchMessagesResult.tree as Uint8Array,
           commonAgent
         )
-      ).resolves.toBe(true);
+      ).resolves.toEqual(true);
       await expect(
         isMessageBodyValid(
           message.key,
           message.content as Uint8Array,
           secondBatchMessagesResult.tree as Uint8Array,
         )
-      ).resolves.toBe(true);
+      ).resolves.toEqual(true);
 
       expectedSequenceNumber++;
       i++;
@@ -525,7 +539,7 @@ describe("Canister - ws_get_messages (receive)", () => {
 
     // we expect that the messages returned are the last MAX_NUMBER_OF_RETURNED_MESSAGES
     const messagesResult = (batchRes as { Ok: CanisterOutputCertifiedMessages }).Ok;
-    expect(messagesResult.messages.length).toBe(MAX_NUMBER_OF_RETURNED_MESSAGES);
+    expect(messagesResult.messages.length).toEqual(MAX_NUMBER_OF_RETURNED_MESSAGES);
 
     let expectedSequenceNumber = SEND_MESSAGES_COUNT - MAX_NUMBER_OF_RETURNED_MESSAGES + 1 + 1; // +1 for the service open message +1 because the seq num is incremented before sending
     let i = SEND_MESSAGES_COUNT - MAX_NUMBER_OF_RETURNED_MESSAGES;
@@ -550,14 +564,14 @@ describe("Canister - ws_get_messages (receive)", () => {
           messagesResult.tree as Uint8Array,
           commonAgent
         )
-      ).resolves.toBe(true);
+      ).resolves.toEqual(true);
       await expect(
         isMessageBodyValid(
           message.key,
           message.content as Uint8Array,
           messagesResult.tree as Uint8Array,
         )
-      ).resolves.toBe(true);
+      ).resolves.toEqual(true);
 
       expectedSequenceNumber++;
       i++;
@@ -661,5 +675,196 @@ describe("Canister - ws_send", () => {
     expect(res).toMatchObject<CanisterWsSendResult>({
       Ok: null,
     });
+  });
+});
+
+describe("Messages acknowledgement", () => {
+  beforeAll(async () => {
+    await assignKeysToClients();
+  });
+
+  afterEach(async () => {
+    await wsWipe();
+  });
+
+  it("client should receive ack messages", async () => {
+    const sendAckIntervalMs = 5_000; // 5 seconds
+    await initializeCdk({
+      sendAckIntervalMs,
+      keepAliveDelayMs: DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS, // keep alive timeout still high to avoid removing connected client
+    });
+
+    await wsOpen({
+      clientNonce: client1Key.client_nonce,
+      canisterId,
+      clientActor: client1,
+    });
+
+    const res = await gateway1.ws_get_messages({
+      nonce: BigInt(1), // skip the service open message
+    });
+
+    expect(res).toMatchObject<CanisterWsGetMessagesResult>({
+      Ok: {
+        messages: [],
+        cert: new Uint8Array(),
+        tree: new Uint8Array(),
+      },
+    });
+
+    // sleep for 5 seconds, which is more than the sendAckIntervalMs due to the previous calls
+    // so we are sure that the CDK has sent an ack
+    await sleep(sendAckIntervalMs);
+
+    const res2 = await gateway1.ws_get_messages({
+      nonce: BigInt(1),
+    });
+
+    expect(res2).toMatchObject<CanisterWsGetMessagesResult>({
+      Ok: {
+        messages: expect.any(Array),
+        cert: expect.any(Uint8Array),
+        tree: expect.any(Uint8Array),
+      },
+    });
+    const messagesResult = (res2 as { Ok: CanisterOutputCertifiedMessages }).Ok;
+    expect(messagesResult.messages.length).toEqual(1);
+
+    const ackMessage = messagesResult.messages[0];
+    expect(isClientKeyEq(ackMessage.client_key, client1Key)).toEqual(true);
+    expect(getServiceMessageContentFromCanisterMessage(ackMessage)).toMatchObject<WebsocketServiceMessageContent>({
+      AckMessage: {
+        last_incoming_sequence_num: BigInt(0),
+      }
+    });
+
+    // check if the certification is correct
+    await expect(
+      isValidCertificate(
+        canisterId,
+        messagesResult.cert as Uint8Array,
+        messagesResult.tree as Uint8Array,
+        commonAgent
+      )
+    ).resolves.toEqual(true);
+    await expect(
+      isMessageBodyValid(
+        ackMessage.key,
+        ackMessage.content as Uint8Array,
+        messagesResult.tree as Uint8Array,
+      )
+    ).resolves.toEqual(true);
+  });
+
+  it("client is removed if keep alive timeout is reached", async () => {
+    const sendAckIntervalMs = 2_000; // 2 seconds
+    const keepAliveDelayMs = 5_000; // 5 seconds
+    await initializeCdk({
+      sendAckIntervalMs,
+      keepAliveDelayMs,
+    });
+
+    await wsOpen({
+      clientNonce: client1Key.client_nonce,
+      canisterId,
+      clientActor: client1,
+    });
+
+    await sleep(sendAckIntervalMs);
+
+    const res = await gateway1.ws_get_messages({
+      nonce: BigInt(1), // skip the service open message
+    });
+
+    const messagesResult = (res as { Ok: CanisterOutputCertifiedMessages }).Ok;
+    expect(messagesResult.messages.length).toEqual(1);
+    // just check if the received message is a service message and belongs to the client
+    expect(isClientKeyEq(messagesResult.messages[0].client_key, client1Key)).toEqual(true);
+    const websocketMessage = getWebsocketMessageFromCanisterMessage(messagesResult.messages[0]);
+    expect(websocketMessage.is_service_message).toEqual(true);
+
+    await sleep(keepAliveDelayMs);
+
+    // to check if the client is not registered anymore, we try to send a message
+    const res2 = await wsSend({
+      clientPrincipal: client1Key.client_principal,
+      actor: client1,
+      messages: [{ text: "test" }],
+    });
+
+    expect(res2).toMatchObject<CanisterWsSendResult>({
+      Err: `client with principal ${client1Key.client_principal.toText()} doesn't have an open connection`,
+    });
+  });
+
+  it("client is not removed if it sends a keep alive before timeout", async () => {
+    const sendAckIntervalMs = 3_000; // 3 seconds
+    const keepAliveDelayMs = 5_000; // 5 seconds
+    await initializeCdk({
+      sendAckIntervalMs,
+      keepAliveDelayMs,
+    });
+
+    await wsOpen({
+      clientNonce: client1Key.client_nonce,
+      canisterId,
+      clientActor: client1,
+    });
+
+    await sleep(sendAckIntervalMs);
+
+    let res = await gateway1.ws_get_messages({
+      nonce: BigInt(1), // skip the service open message
+    });
+    let messagesResult = (res as { Ok: CanisterOutputCertifiedMessages }).Ok;
+    expect(messagesResult.messages.length).toEqual(1);
+
+    const keepAliveMessage: WebsocketServiceMessageContent = {
+      KeepAliveMessage: {
+        last_incoming_sequence_num: BigInt(1), // not relevant
+      },
+    };
+    await wsMessage({
+      actor: client1,
+      message: createWebsocketMessage(client1Key, 1, encodeWebsocketServiceMessageContent(keepAliveMessage), true),
+    });
+
+    await sleep(keepAliveDelayMs);
+
+    // send a message to the canister to see the the sequence number increase in the ack message
+    await wsMessage({
+      actor: client1,
+      message: createWebsocketMessage(client1Key, 2),
+    });
+
+    // wait to receive the next acknowledgement
+    await sleep(sendAckIntervalMs);
+
+    res = await gateway1.ws_get_messages({
+      nonce: BigInt(1), // skip the service open message
+    });
+
+    messagesResult = (res as { Ok: CanisterOutputCertifiedMessages }).Ok;
+    expect(messagesResult.messages.length).toEqual(2);
+
+    let expectedClientSequenceNum = 0;
+    let expectedCanisterSequenceNum = 2; // first message is skipped and sequence number starts from 1
+    for (const message of messagesResult.messages) {
+      expect(isClientKeyEq(message.client_key, client1Key)).toEqual(true);
+
+      const websocketMessage = getWebsocketMessageFromCanisterMessage(message);
+      expect(websocketMessage.is_service_message).toEqual(true);
+      expect(websocketMessage.sequence_num).toEqual(expectedCanisterSequenceNum);
+
+      const serviceMessageContent = decodeWebsocketServiceMessageContent(websocketMessage.content as Uint8Array);
+      expect(serviceMessageContent).toMatchObject<WebsocketServiceMessageContent>({
+        AckMessage: {
+          last_incoming_sequence_num: BigInt(expectedClientSequenceNum),
+        },
+      });
+
+      expectedClientSequenceNum++;
+      expectedCanisterSequenceNum++;
+    }
   });
 });

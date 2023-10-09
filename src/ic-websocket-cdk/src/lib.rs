@@ -527,23 +527,23 @@ fn get_handlers_from_params() -> WsHandlers {
     get_params().get_handlers()
 }
 
-#[derive(CandidType, Deserialize)]
+#[derive(CandidType, Debug, Deserialize)]
 struct CanisterOpenMessageContent {
     client_key: ClientKey,
 }
 
-#[derive(CandidType, Deserialize)]
+#[derive(CandidType, Debug, Deserialize)]
 struct CanisterAckMessageContent {
     last_incoming_sequence_num: u64,
 }
 
-#[derive(CandidType, Deserialize)]
+#[derive(CandidType, Debug, Deserialize)]
 struct ClientKeepAliveMessageContent {
     last_incoming_sequence_num: u64,
 }
 
 /// A service message sent by the CDK to the client or vice versa.
-#[derive(CandidType, Deserialize)]
+#[derive(CandidType, Debug, Deserialize)]
 enum WebsocketServiceMessageContent {
     /// Message sent by the **canister** when a client opens a connection.
     OpenMessage(CanisterOpenMessageContent),
@@ -610,23 +610,30 @@ fn send_ack_to_clients_timer_callback() {
         let map = state.borrow();
         for client_key in map.keys() {
             // ignore the error, which shouldn't happen since the client is registered and the sequence number is initialized
-            if let Ok(last_incoming_message_sequence_num) =
-                get_expected_incoming_message_from_client_num(client_key)
-            {
-                let ack_message = CanisterAckMessageContent {
-                    last_incoming_sequence_num: last_incoming_message_sequence_num,
-                };
-                let message = WebsocketServiceMessageContent::AckMessage(ack_message);
-                if let Err(e) = send_service_message_to_client(client_key, message) {
-                    custom_print!(
-                        "[ack-to-clients-timer-cb]: Error sending ack message to client {}: {:?}",
-                        client_key,
-                        e
-                    );
+            match get_expected_incoming_message_from_client_num(client_key) {
+                Ok(expected_incoming_sequence_num) => {
+                    let ack_message = CanisterAckMessageContent {
+                        last_incoming_sequence_num: expected_incoming_sequence_num - 1,
+                    };
+                    let message = WebsocketServiceMessageContent::AckMessage(ack_message);
+                    if let Err(e) = send_service_message_to_client(client_key, message) {
+                        // TODO: decide what to do when sending the message fails
 
-                    // TODO: decide what to do when sending the message fails
-                    break;
-                };
+                        custom_print!(
+                            "[ack-to-clients-timer-cb]: Error sending ack message to client {}: {:?}",
+                            client_key,
+                            e
+                        );
+                    };
+                },
+                Err(e) => {
+                    // TODO: decide what to do when getting the expected incoming sequence number fails (shouldn't happen)
+                    custom_print!(
+                        "[ack-to-clients-timer-cb]: Error getting expected incoming sequence number for client {}: {:?}",
+                        client_key,
+                        e,
+                    );
+                }
             }
         }
     });
@@ -642,7 +649,7 @@ fn check_keep_alive_timer_callback(keep_alive_timeout_ms: u64) {
         map.iter()
             .filter_map(|(client_key, client_metadata)| {
                 let last_keep_alive = client_metadata.get_last_keep_alive_timestamp();
-                if get_current_time() - last_keep_alive > keep_alive_timeout_ms {
+                if get_current_time() - last_keep_alive > (keep_alive_timeout_ms * 1_000_000) {
                     Some(client_key.to_owned())
                 } else {
                     None
@@ -673,8 +680,9 @@ fn handle_keep_alive_client_message(
     // update the last keep alive timestamp for the client
     REGISTERED_CLIENTS.with(|map| {
         let mut map = map.borrow_mut();
-        let client_metadata = map.get_mut(client_key).unwrap();
-        client_metadata.update_last_keep_alive_timestamp();
+        if let Some(client_metadata) = map.get_mut(client_key) {
+            client_metadata.update_last_keep_alive_timestamp();
+        }
     });
 
     Ok(())
