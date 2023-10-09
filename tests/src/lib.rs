@@ -4,32 +4,33 @@ use canister::{on_close, on_message, on_open};
 use ic_websocket_cdk::{
     CanisterWsCloseArguments, CanisterWsCloseResult, CanisterWsGetMessagesArguments,
     CanisterWsGetMessagesResult, CanisterWsMessageArguments, CanisterWsMessageResult,
-    CanisterWsOpenArguments, CanisterWsOpenResult, CanisterWsRegisterArguments,
-    CanisterWsRegisterResult, CanisterWsSendResult, ClientPublicKey, WsHandlers,
+    CanisterWsOpenArguments, CanisterWsOpenResult, CanisterWsSendResult, ClientPrincipal,
+    WsHandlers, WsInitParams,
 };
 
 mod canister;
 
 #[init]
-fn init(gateway_principal: String) {
+fn init(gateway_principal: String, send_ack_interval_ms: u64, keep_alive_delay_ms: u64) {
     let handlers = WsHandlers {
         on_open: Some(on_open),
         on_message: Some(on_message),
         on_close: Some(on_close),
     };
 
-    ic_websocket_cdk::init(handlers, &gateway_principal)
+    let params = WsInitParams {
+        handlers,
+        gateway_principal,
+        send_ack_interval_ms,
+        keep_alive_delay_ms,
+    };
+
+    ic_websocket_cdk::init(params)
 }
 
 #[post_upgrade]
-fn post_upgrade(gateway_principal: String) {
-    init(gateway_principal);
-}
-
-// method called by the client SDK when instantiating a new IcWebSocket
-#[update]
-fn ws_register(args: CanisterWsRegisterArguments) -> CanisterWsRegisterResult {
-    ic_websocket_cdk::ws_register(args)
+fn post_upgrade(gateway_principal: String, send_ack_interval_ms: u64, keep_alive_delay_ms: u64) {
+    init(gateway_principal, send_ack_interval_ms, keep_alive_delay_ms);
 }
 
 // method called by the WS Gateway after receiving FirstMessage from the client
@@ -65,6 +66,19 @@ fn ws_wipe() {
 
 // send a message to the client, usually called by the canister itself
 #[update]
-fn ws_send(client_key: ClientPublicKey, msg_bytes: Vec<u8>) -> CanisterWsSendResult {
-    ic_websocket_cdk::ws_send(client_key, msg_bytes)
+fn ws_send(client_principal: ClientPrincipal, messages: Vec<Vec<u8>>) -> CanisterWsSendResult {
+    for msg_bytes in messages {
+        match ic_websocket_cdk::ws_send(client_principal, msg_bytes) {
+            Ok(_) => {},
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
+}
+
+// reinitialize the canister
+#[update]
+fn reinitialize(gateway_principal: String, send_ack_interval_ms: u64, keep_alive_delay_ms: u64) {
+    ic_websocket_cdk::wipe();
+    init(gateway_principal, send_ack_interval_ms, keep_alive_delay_ms);
 }

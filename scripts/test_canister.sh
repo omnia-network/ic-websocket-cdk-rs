@@ -12,7 +12,7 @@ npm install
 # integration tests
 dfx start --clean --background
 
-IC_WS_CDK_INTEGRATION_TEST=1 npm run deploy:tests
+npm run deploy:tests
 
 npm run generate
 

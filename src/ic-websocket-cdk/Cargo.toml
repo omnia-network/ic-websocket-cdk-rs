@@ -16,11 +16,11 @@ ic-certified-map = "0.4.0"
 base64 = "0.21.2"
 sha2 = "0.10.7"
 serde_bytes = "0.11.12"
-ed25519-compact = { version = "2.0.4", default-features = false }
 
 [dev-dependencies]
 ic-agent = "0.25.0"
 proptest = "1.2.0"
+rand = "0.8.5"
 ring = "0.16.20"
 
 [package.metadata.docs.rs]
