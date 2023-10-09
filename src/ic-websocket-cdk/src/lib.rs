@@ -374,7 +374,6 @@ fn get_messages_for_gateway_range(gateway_principal: Principal, nonce: u64) -> (
     MESSAGES_FOR_GATEWAY.with(|m| {
         let queue_len = m.borrow().len();
 
-        // TODO: test
         if nonce == 0 && queue_len > 0 {
             // this is the case in which the poller on the gateway restarted
             // the range to return is end:last index and start: max(end - MAX_NUMBER_OF_RETURNED_MESSAGES, 0)
@@ -595,7 +594,6 @@ pub struct WsHandlers {
 impl WsHandlers {
     fn call_on_open(&self, args: OnOpenCallbackArgs) {
         if let Some(on_open) = self.on_open {
-            // TODO: test the panic handling
             let res = panic::catch_unwind(|| {
                 on_open(args);
             });
@@ -608,7 +606,6 @@ impl WsHandlers {
 
     fn call_on_message(&self, args: OnMessageCallbackArgs) {
         if let Some(on_message) = self.on_message {
-            // TODO: test the panic handling
             let res = panic::catch_unwind(|| {
                 on_message(args);
             });
@@ -621,7 +618,6 @@ impl WsHandlers {
 
     fn call_on_close(&self, args: OnCloseCallbackArgs) {
         if let Some(on_close) = self.on_close {
-            // TODO: test the panic handling
             let res = panic::catch_unwind(|| {
                 on_close(args);
             });
@@ -988,6 +984,45 @@ mod test {
         assert!(CUSTOM_STATE.with(|h| h.borrow().is_on_open_called));
         assert!(CUSTOM_STATE.with(|h| h.borrow().is_on_message_called));
         assert!(CUSTOM_STATE.with(|h| h.borrow().is_on_close_called));
+    }
+
+    #[test]
+    fn test_ws_handlers_panic_is_handled() {
+        let handlers = WsHandlers {
+            on_open: Some(|_| {
+                panic!("on_open_panic");
+            }),
+            on_message: Some(|_| {
+                panic!("on_close_panic");
+            }),
+            on_close: Some(|_| {
+                panic!("on_close_panic");
+            }),
+        };
+
+        initialize_handlers(handlers);
+
+        let handlers = HANDLERS.with(|h| h.borrow().clone());
+
+        let res = panic::catch_unwind(|| {
+            handlers.call_on_open(OnOpenCallbackArgs {
+                client_principal: test_utils::generate_random_principal(),
+            });
+        });
+        assert!(res.is_ok());
+        let res = panic::catch_unwind(|| {
+            handlers.call_on_message(OnMessageCallbackArgs {
+                client_principal: test_utils::generate_random_principal(),
+                message: vec![],
+            });
+        });
+        assert!(res.is_ok());
+        let res = panic::catch_unwind(|| {
+            handlers.call_on_close(OnCloseCallbackArgs {
+                client_principal: test_utils::generate_random_principal(),
+            });
+        });
+        assert!(res.is_ok());
     }
 
     #[test]
