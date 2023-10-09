@@ -9,6 +9,7 @@ use serde_cbor::Serializer;
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::panic;
+use std::time::Duration;
 use std::{cell::RefCell, collections::HashMap, collections::VecDeque, convert::AsRef};
 
 mod logger;
@@ -158,6 +159,16 @@ impl RegisteredClient {
         Self {
             last_keep_alive_timestamp: get_current_time(),
         }
+    }
+
+    /// Gets the last keep alive timestamp.
+    fn get_last_keep_alive_timestamp(&self) -> u64 {
+        self.last_keep_alive_timestamp
+    }
+
+    /// Set the last keep alive timestamp to the current time.
+    fn update_last_keep_alive_timestamp(&mut self) {
+        self.last_keep_alive_timestamp = get_current_time();
     }
 }
 
@@ -535,7 +546,7 @@ enum WebsocketServiceMessageContent {
 }
 
 impl WebsocketServiceMessageContent {
-    fn from_candid_bytes(bytes: Vec<u8>) -> Result<Self, String> {
+    fn from_candid_bytes(bytes: &[u8]) -> Result<Self, String> {
         decode_one(&bytes).map_err(|e| {
             let mut err = String::from("Error decoding service message content: ");
             err.push_str(&e.to_string());
@@ -643,30 +654,20 @@ fn check_keep_alive_timer_callback() {
     custom_print!("[check-keep-alive-timer-cb]: Checked keep alive messages for all clients");
 }
 
-fn handle_keep_alive_client_message(client_key: &ClientKey, content: &[u8]) -> Result<(), String> {
-    match decode_one::<WebsocketServiceMessageContent>(content) {
-        Ok(message_content) => {
-            match message_content {
-                WebsocketServiceMessageContent::KeepAliveMessage(_keep_alive_message) => {
-                    // TODO: delete messages from the queue that have been acknowledged by the client
+fn handle_keep_alive_client_message(
+    client_key: &ClientKey,
+    keep_alive_message: ClientKeepAliveMessageContent,
+) -> Result<(), String> {
+    // TODO: delete messages from the queue that have been acknowledged by the client
 
-                    // update the last keep alive timestamp for the client
-                    REGISTERED_CLIENTS.with(|map| {
-                        let mut map = map.borrow_mut();
-                        let client_metadata = map.get_mut(client_key).unwrap();
-                        client_metadata.update_last_keep_alive_timestamp();
-                    });
+    // update the last keep alive timestamp for the client
+    REGISTERED_CLIENTS.with(|map| {
+        let mut map = map.borrow_mut();
+        let client_metadata = map.get_mut(client_key).unwrap();
+        client_metadata.update_last_keep_alive_timestamp();
+    });
 
-                    Ok(())
-                },
-                _ => Err(String::from("invalid keep alive message content")),
-            }
-        },
-        Err(e) => Err(format!(
-            "Error decoding service message from client: {:?}",
-            e
-        )),
-    }
+    Ok(())
 }
 
 /// Internal function used to put the messages in the outgoing messages queue and certify them.
@@ -718,16 +719,18 @@ fn _ws_send(
     Ok(())
 }
 
-fn handle_received_service_message(content: Vec<u8>) -> CanisterWsMessageResult {
+fn handle_received_service_message(
+    client_key: &ClientKey,
+    content: &[u8],
+) -> CanisterWsMessageResult {
     let decoded = WebsocketServiceMessageContent::from_candid_bytes(content)?;
     match decoded {
         WebsocketServiceMessageContent::OpenMessage(_)
         | WebsocketServiceMessageContent::AckMessage(_) => {
             Err(String::from("Invalid received service message"))
         },
-        WebsocketServiceMessageContent::KeepAliveMessage(_) => {
-            custom_print!("Service message handling not implemented yet");
-            Ok(())
+        WebsocketServiceMessageContent::KeepAliveMessage(keep_alive_message) => {
+            handle_keep_alive_client_message(client_key, keep_alive_message)
         },
     }
 }
@@ -951,7 +954,7 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
     increment_expected_incoming_message_from_client_num(&client_key)?;
 
     if is_service_message {
-        return handle_received_service_message(content);
+        return handle_received_service_message(&client_key, &content);
     }
 
     // call the on_message handler initialized in init()
