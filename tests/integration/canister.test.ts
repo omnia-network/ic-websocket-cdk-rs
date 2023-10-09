@@ -1,6 +1,4 @@
 import { IDL } from "@dfinity/candid";
-import { Principal } from "@dfinity/principal";
-import { Cbor } from "@dfinity/agent";
 import {
   anonymousClient,
   canisterId,
@@ -13,8 +11,6 @@ import {
   gateway2,
 } from "./utils/actors";
 import {
-  isMessageBodyValid,
-  isValidCertificate,
   reinitialize,
   wsClose,
   wsGetMessages,
@@ -34,14 +30,37 @@ import type {
   WebsocketMessage,
 } from "../src/declarations/test_canister/test_canister.did";
 import { generateClientKey, getRandomClientNonce } from "./utils/random";
-import { CanisterOpenMessageContent, WebsocketServiceMessageContent, encodeWebsocketServiceMessageContent, getServiceMessageFromCanisterMessage, isClientKeyEq } from "./utils/idl";
-import { createWebsocketMessage, decodeWebsocketMessage, filterServiceMessagesFromCanisterMessages } from "./utils/messages";
+import {
+  CanisterOpenMessageContent,
+  WebsocketServiceMessageContent,
+  encodeWebsocketServiceMessageContent,
+  getServiceMessageFromCanisterMessage,
+  isClientKeyEq,
+} from "./utils/idl";
+import {
+  isMessageBodyValid,
+  isValidCertificate,
+  createWebsocketMessage,
+  decodeWebsocketMessage,
+  filterServiceMessagesFromCanisterMessages,
+  getNextPollingNonceFromMessages,
+} from "./utils/messages";
+import { formatClientKey } from "./utils/client";
 
-const MAX_NUMBER_OF_RETURNED_MESSAGES = 10; // set in the CDK
+/**
+ * The maximum number of messages returned by the **ws_get_messages** method. Set in the CDK.
+ * 
+ * Value: `10`
+ */
+const MAX_NUMBER_OF_RETURNED_MESSAGES = 10;
+/**
+ * @{@link MAX_NUMBER_OF_RETURNED_MESSAGES} + 2
+ * 
+ * Value: `12`
+ */
 const SEND_MESSAGES_COUNT = MAX_NUMBER_OF_RETURNED_MESSAGES + 2; // test with more messages to check the indexes and limits
-const MAX_GATEWAY_KEEP_ALIVE_TIME_MS = 15_000; // set in the CDK
-const DEFAULT_TEST_SEND_ACK_INTERVAL_MS = 300_000; // 5 minutes to make sure the canister doesn't reset the client
-const DEFAULT_TEST_KEEP_ALIVE_DELAY_MS = 300_000; // 5 minutes to make sure the canister doesn't reset the client
+// const DEFAULT_TEST_SEND_ACK_INTERVAL_MS = 300_000; // 5 minutes to make sure the canister doesn't reset the client
+// const DEFAULT_TEST_KEEP_ALIVE_DELAY_MS = 300_000; // 5 minutes to make sure the canister doesn't reset the client
 
 let client1Key: ClientKey;
 let client2Key: ClientKey;
@@ -252,14 +271,14 @@ describe("Canister - ws_message", () => {
       clientActor: client1,
     }, true);
 
-    // wring content encoding
+    // wrong content encoding
     const res = await wsMessage({
       message: createWebsocketMessage(client1Key, 1, true, new Uint8Array([1, 2, 3])),
       actor: client1,
     });
 
     expect(res).toMatchObject<CanisterWsMessageResult>({
-      Err: expect.stringContaining("Error decoding service message from client:"),
+      Err: expect.stringContaining("Error decoding service message content:"),
     });
 
     const wrongServiceMessage: WebsocketServiceMessageContent = {
@@ -274,7 +293,7 @@ describe("Canister - ws_message", () => {
     });
 
     expect(res2).toMatchObject<CanisterWsMessageResult>({
-      Err: "invalid keep alive message content",
+      Err: "Invalid received service message",
     });
   });
 
@@ -333,233 +352,15 @@ describe("Canister - ws_get_messages (failures,empty)", () => {
   });
 });
 
-// describe("Canister - ws_message (gateway status)", () => {
-//   beforeAll(async () => {
-//     await assignKeysToClients();
-
-//     await wsRegister({
-//       clientActor: client1,
-//       clientKey: client1Key.publicKey,
-//     }, true);
-
-//     await wsOpen({
-//       clientPublicKey: client1Key.publicKey,
-//       clientSecretKey: client1Key.secretKey,
-//       canisterId,
-//       clientActor: gateway1,
-//     }, true);
-
-//     await wsSend({
-//       clientKey: client1Key.publicKey,
-//       actor: client1,
-//       message: { text: "test" },
-//     }, true);
-//   });
-
-//   afterAll(async () => {
-//     await wsWipe(gateway1);
-//   });
-
-//   it("fails if a non registered gateway sends an IcWebSocketGatewayStatus message", async () => {
-//     const res = await wsMessage({
-//       message: {
-//         IcWebSocketGatewayStatus: {
-//           status_index: BigInt(1),
-//         },
-//       },
-//       actor: gateway2,
-//     });
-
-//     expect(res).toMatchObject<CanisterWsMessageResult>({
-//       Err: "caller is not the gateway that has been registered during CDK initialization",
-//     });
-//   });
-
-//   it("registered gateway should update the status index", async () => {
-//     const res = await wsMessage({
-//       message: {
-//         IcWebSocketGatewayStatus: {
-//           status_index: BigInt(2), // set it high to test behavior for indexes behind the current one
-//         },
-//       },
-//       actor: gateway1,
-//     });
-
-//     expect(res).toMatchObject<CanisterWsMessageResult>({
-//       Ok: null,
-//     });
-//   });
-
-//   it("fails if a registered gateway sends an IcWebSocketGatewayStatus with a wrong status index (equal to current)", async () => {
-//     const res = await wsMessage({
-//       message: {
-//         IcWebSocketGatewayStatus: {
-//           status_index: BigInt(2),
-//         },
-//       },
-//       actor: gateway1,
-//     });
-
-//     expect(res).toMatchObject<CanisterWsMessageResult>({
-//       Err: "Gateway status index is equal to or behind the current one",
-//     });
-//   });
-
-//   it("fails if a registered gateway sends an IcWebSocketGatewayStatus with a wrong status index (behind the current)", async () => {
-//     const res = await wsMessage({
-//       message: {
-//         IcWebSocketGatewayStatus: {
-//           status_index: BigInt(1),
-//         },
-//       },
-//       actor: gateway1,
-//     });
-
-//     expect(res).toMatchObject<CanisterWsMessageResult>({
-//       Err: "Gateway status index is equal to or behind the current one",
-//     });
-//   });
-
-//   it("registered gateway should disconnect after maximum time", async () => {
-//     let res = await gateway1.ws_get_messages({
-//       nonce: BigInt(0),
-//     });
-
-//     expect(res).toMatchObject<CanisterWsGetMessagesResult>({
-//       Ok: {
-//         messages: expect.any(Array),
-//         cert: expect.any(Uint8Array),
-//         tree: expect.any(Uint8Array),
-//       },
-//     });
-//     expect((res as { Ok: CanisterOutputCertifiedMessages }).Ok.messages.length).toEqual(1);
-
-//     // wait for the maximum time the gateway can send a status message,
-//     // so that the internal canister state is reset
-//     // double the time to make sure the canister state is reset
-//     await new Promise((resolve) => setTimeout(resolve, 2 * MAX_GATEWAY_KEEP_ALIVE_TIME_MS));
-
-//     // check if messages have been deleted
-//     res = await gateway1.ws_get_messages({
-//       nonce: BigInt(0),
-//     });
-//     expect(res).toMatchObject<CanisterWsGetMessagesResult>({
-//       Ok: {
-//         messages: [],
-//         cert: expect.any(Uint8Array),
-//         tree: expect.any(Uint8Array),
-//       },
-//     });
-
-//     // check if registered client has been deleted
-//     const sendRes = await wsSend({
-//       clientKey: client1Key.publicKey,
-//       actor: client1,
-//       message: { text: "test" },
-//     });
-//     expect(sendRes).toMatchObject<CanisterWsSendResult>({
-//       Err: "client's public key has not been previously registered by client",
-//     });
-//   });
-
-//   it("registered gateway should reconnect by resetting the status index", async () => {
-//     let res = await wsMessage({
-//       message: {
-//         IcWebSocketGatewayStatus: {
-//           status_index: BigInt(0),
-//         },
-//       },
-//       actor: gateway1,
-//     });
-
-//     expect(res).toMatchObject<CanisterWsMessageResult>({
-//       Ok: null,
-//     });
-
-//     res = await wsMessage({
-//       message: {
-//         IcWebSocketGatewayStatus: {
-//           status_index: BigInt(1),
-//         },
-//       },
-//       actor: gateway1,
-//     });
-
-//     expect(res).toMatchObject<CanisterWsMessageResult>({
-//       Ok: null,
-//     });
-//   });
-
-//   it("registered gateway should reconnect before maximum time", async () => {
-//     // reconnect the client
-//     await wsRegister({
-//       clientActor: client1,
-//       clientKey: client1Key.publicKey,
-//     }, true);
-
-//     await wsOpen({
-//       clientPublicKey: client1Key.publicKey,
-//       clientSecretKey: client1Key.secretKey,
-//       canisterId,
-//       clientActor: gateway1,
-//     }, true);
-
-//     // send a test message from the canister to check if the internal state is reset
-//     await wsSend({
-//       clientKey: client1Key.publicKey,
-//       actor: client1,
-//       message: { text: "test" },
-//     }, true);
-
-//     // check if the canister has the message in the queue
-//     let messagesRes = await gateway1.ws_get_messages({
-//       nonce: BigInt(0),
-//     });
-//     expect(messagesRes).toMatchObject<CanisterWsGetMessagesResult>({
-//       Ok: {
-//         messages: expect.any(Array),
-//         cert: expect.any(Uint8Array),
-//         tree: expect.any(Uint8Array),
-//       },
-//     });
-//     expect((messagesRes as { Ok: CanisterOutputCertifiedMessages }).Ok.messages.length).toEqual(1);
-
-//     // simulate a reconnection
-//     const res = await wsMessage({
-//       message: {
-//         IcWebSocketGatewayStatus: {
-//           status_index: BigInt(0),
-//         },
-//       },
-//       actor: gateway1,
-//     });
-//     expect(res).toMatchObject<CanisterWsMessageResult>({
-//       Ok: null,
-//     });
-
-//     // check if the canister reset the internal state
-//     messagesRes = await gateway1.ws_get_messages({
-//       nonce: BigInt(0),
-//     });
-//     expect(messagesRes).toMatchObject<CanisterWsGetMessagesResult>({
-//       Ok: {
-//         messages: [],
-//         cert: expect.any(Uint8Array),
-//         tree: expect.any(Uint8Array),
-//       },
-//     });
-//   });
-// });
-
-describe.only("Canister - ws_get_messages (receive)", () => {
+describe("Canister - ws_get_messages (receive)", () => {
   beforeAll(async () => {
     await assignKeysToClients();
 
     // reset the internal timers
-    await reinitialize({
-      sendAckIntervalMs: DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
-      keepAliveDelayMs: DEFAULT_TEST_KEEP_ALIVE_DELAY_MS,
-    });
+    // await reinitialize({
+    //   sendAckIntervalMs: DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
+    //   keepAliveDelayMs: DEFAULT_TEST_KEEP_ALIVE_DELAY_MS,
+    // });
 
     await wsOpen({
       clientNonce: client1Key.client_nonce,
@@ -568,14 +369,15 @@ describe.only("Canister - ws_get_messages (receive)", () => {
     }, true);
 
     // prepare the messages
-    for (let i = 0; i < SEND_MESSAGES_COUNT; i++) {
-      const appMessage = { text: `test${i}` };
-      await wsSend({
-        clientPrincipal: client1Key.client_principal,
-        actor: client1,
-        message: appMessage,
-      }, true);
-    }
+    const messages = Array.from({ length: SEND_MESSAGES_COUNT }, (_, i) => {
+      return { text: `test${i}` };
+    });
+
+    await wsSend({
+      clientPrincipal: client1Key.client_principal,
+      actor: client1,
+      messages,
+    }, true);
 
     await commonAgent.fetchRootKey();
   });
@@ -586,7 +388,7 @@ describe.only("Canister - ws_get_messages (receive)", () => {
 
   it("registered gateway can receive correct amount of messages", async () => {
     // on open, the canister puts a service message in the queue
-    const messagesCount = SEND_MESSAGES_COUNT + 1; // +1 for the service message
+    const messagesCount = SEND_MESSAGES_COUNT + 1; // +1 for the open service message
     for (let i = 0; i < messagesCount; i++) {
       const res = await gateway1.ws_get_messages({
         nonce: BigInt(i),
@@ -625,21 +427,22 @@ describe.only("Canister - ws_get_messages (receive)", () => {
   it("registered gateway can receive certified messages", async () => {
     // first batch of messages
     const firstBatchRes = await gateway1.ws_get_messages({
-      nonce: BigInt(1),
+      nonce: BigInt(1), // skip the case in which the gateway restarts polling from the beginning (tested below)
     });
 
     const firstBatchMessagesResult = (firstBatchRes as { Ok: CanisterOutputCertifiedMessages }).Ok;
-    console.log(firstBatchMessagesResult.messages.map((msg) => msg.key));
-    for (let i = 0; i < firstBatchMessagesResult.messages.length; i++) {
-      const message = firstBatchMessagesResult.messages[i];
+    expect(firstBatchMessagesResult.messages.length).toBe(MAX_NUMBER_OF_RETURNED_MESSAGES);
+
+    let expectedSequenceNumber = 2; // first is the service open message and the number is incremented before sending
+    let i = 0;
+    for (const message of firstBatchMessagesResult.messages) {
       expect(isClientKeyEq(message.client_key, client1Key)).toEqual(true);
       const websocketMessage = decodeWebsocketMessage(new Uint8Array(message.content));
-      console.log(websocketMessage);
       expect(websocketMessage).toMatchObject<WebsocketMessage>({
         client_key: expect.any(Object),
         content: expect.any(Uint8Array),
-        sequence_num: BigInt(i + 1),
-        timestamp: expect.any(Object), // weird cbor bigint deserialization
+        sequence_num: BigInt(expectedSequenceNumber),
+        timestamp: expect.any(BigInt),
         is_service_message: false,
       });
       expect(isClientKeyEq(websocketMessage.client_key, client1Key)).toEqual(true);
@@ -661,27 +464,33 @@ describe.only("Canister - ws_get_messages (receive)", () => {
           firstBatchMessagesResult.tree as Uint8Array,
         )
       ).resolves.toBe(true);
+
+      expectedSequenceNumber++;
+      i++;
     }
+
+    const nextPollingNonce = getNextPollingNonceFromMessages(firstBatchMessagesResult.messages);
 
     // second batch of messages, starting from the last nonce of the first batch
     const secondBatchRes = await gateway1.ws_get_messages({
-      nonce: BigInt(MAX_NUMBER_OF_RETURNED_MESSAGES),
+      nonce: BigInt(nextPollingNonce),
     });
 
     const secondBatchMessagesResult = (secondBatchRes as { Ok: CanisterOutputCertifiedMessages }).Ok;
-    for (let i = 0; i < secondBatchMessagesResult.messages.length; i++) {
-      const message = secondBatchMessagesResult.messages[i];
+    expect(secondBatchMessagesResult.messages.length).toBe(SEND_MESSAGES_COUNT - MAX_NUMBER_OF_RETURNED_MESSAGES); // remaining from SEND_MESSAGES_COUNT
+
+    for (const message of secondBatchMessagesResult.messages) {
       expect(isClientKeyEq(message.client_key, client1Key)).toEqual(true);
       const websocketMessage = decodeWebsocketMessage(new Uint8Array(message.content));
       expect(websocketMessage).toMatchObject<WebsocketMessage>({
         client_key: expect.any(Object),
         content: expect.any(Uint8Array),
-        sequence_num: BigInt(i + MAX_NUMBER_OF_RETURNED_MESSAGES + 1),
-        timestamp: expect.any(Object), // weird cbor bigint deserialization
+        sequence_num: BigInt(expectedSequenceNumber),
+        timestamp: expect.any(BigInt),
         is_service_message: false,
       });
       expect(isClientKeyEq(websocketMessage.client_key, client1Key)).toEqual(true);
-      expect(IDL.decode([IDL.Record({ 'text': IDL.Text })], websocketMessage.content as Uint8Array)).toEqual([{ text: `test${i + MAX_NUMBER_OF_RETURNED_MESSAGES}` }]);
+      expect(IDL.decode([IDL.Record({ 'text': IDL.Text })], websocketMessage.content as Uint8Array)).toEqual([{ text: `test${i}` }]);
 
       // check the certification
       await expect(
@@ -699,107 +508,144 @@ describe.only("Canister - ws_get_messages (receive)", () => {
           secondBatchMessagesResult.tree as Uint8Array,
         )
       ).resolves.toBe(true);
+
+      expectedSequenceNumber++;
+      i++;
+    }
+  });
+
+  it("registered gateway can poll messages after restart", async () => {
+    const batchRes = await gateway1.ws_get_messages({
+      nonce: BigInt(0), // start polling from the beginning, as if the gateway restarted
+    });
+
+    // we expect that the messages returned are the last MAX_NUMBER_OF_RETURNED_MESSAGES
+    const messagesResult = (batchRes as { Ok: CanisterOutputCertifiedMessages }).Ok;
+    expect(messagesResult.messages.length).toBe(MAX_NUMBER_OF_RETURNED_MESSAGES);
+
+    let expectedSequenceNumber = SEND_MESSAGES_COUNT - MAX_NUMBER_OF_RETURNED_MESSAGES + 1 + 1; // +1 for the service open message +1 because the seq num is incremented before sending
+    let i = SEND_MESSAGES_COUNT - MAX_NUMBER_OF_RETURNED_MESSAGES;
+    for (const message of messagesResult.messages) {
+      expect(isClientKeyEq(message.client_key, client1Key)).toEqual(true);
+      const websocketMessage = decodeWebsocketMessage(new Uint8Array(message.content));
+      expect(websocketMessage).toMatchObject<WebsocketMessage>({
+        client_key: expect.any(Object),
+        content: expect.any(Uint8Array),
+        sequence_num: BigInt(expectedSequenceNumber),
+        timestamp: expect.any(BigInt),
+        is_service_message: false,
+      });
+      expect(isClientKeyEq(websocketMessage.client_key, client1Key)).toEqual(true);
+      expect(IDL.decode([IDL.Record({ 'text': IDL.Text })], websocketMessage.content as Uint8Array)).toEqual([{ text: `test${i}` }]);
+
+      // check the certification
+      await expect(
+        isValidCertificate(
+          canisterId,
+          messagesResult.cert as Uint8Array,
+          messagesResult.tree as Uint8Array,
+          commonAgent
+        )
+      ).resolves.toBe(true);
+      await expect(
+        isMessageBodyValid(
+          message.key,
+          message.content as Uint8Array,
+          messagesResult.tree as Uint8Array,
+        )
+      ).resolves.toBe(true);
+
+      expectedSequenceNumber++;
+      i++;
     }
   });
 });
 
-// describe("Canister - ws_close", () => {
-//   beforeAll(async () => {
-//     await assignKeysToClients();
+describe("Canister - ws_close", () => {
+  beforeAll(async () => {
+    await assignKeysToClients();
 
-//     await wsRegister({
-//       clientActor: client1,
-//       clientKey: client1Key.publicKey,
-//     }, true);
+    await wsOpen({
+      clientNonce: client1Key.client_nonce,
+      canisterId,
+      clientActor: client1,
+    }, true);
+  });
 
-//     await wsOpen({
-//       clientPublicKey: client1Key.publicKey,
-//       clientSecretKey: client1Key.secretKey,
-//       canisterId,
-//       clientActor: gateway1,
-//     }, true);
-//   });
+  afterAll(async () => {
+    await wsWipe();
+  });
 
-//   afterAll(async () => {
-//     await wsWipe(gateway1);
-//   });
+  it("fails if gateway is not registered", async () => {
+    const res = await wsClose({
+      clientKey: client1Key,
+      gatewayActor: gateway2,
+    });
 
-//   it("fails if gateway is not registered", async () => {
-//     const res = await wsClose({
-//       clientPublicKey: client1Key.publicKey,
-//       gatewayActor: gateway2,
-//     });
+    expect(res).toMatchObject<CanisterWsCloseResult>({
+      Err: "caller is not the gateway that has been registered during CDK initialization",
+    });
+  });
 
-//     expect(res).toMatchObject<CanisterWsCloseResult>({
-//       Err: "caller is not the gateway that has been registered during CDK initialization",
-//     });
-//   });
+  it("fails if client is not registered", async () => {
+    const res = await wsClose({
+      clientKey: client2Key,
+      gatewayActor: gateway1,
+    });
 
-//   it("fails if client is not registered", async () => {
-//     const res = await wsClose({
-//       clientPublicKey: client2Key.publicKey,
-//       gatewayActor: gateway1,
-//     });
+    expect(res).toMatchObject<CanisterWsCloseResult>({
+      Err: `client with key ${formatClientKey(client2Key)} doesn't have an open connection`,
+    });
+  });
 
-//     expect(res).toMatchObject<CanisterWsCloseResult>({
-//       Err: "client's public key has not been previously registered by client",
-//     });
-//   });
+  it("should close the websocket for a registered client", async () => {
+    const res = await wsClose({
+      clientKey: client1Key,
+      gatewayActor: gateway1,
+    });
 
-//   it("should close the websocket for a registered client", async () => {
-//     const res = await wsClose({
-//       clientPublicKey: client1Key.publicKey,
-//       gatewayActor: gateway1,
-//     });
+    expect(res).toMatchObject<CanisterWsCloseResult>({
+      Ok: null,
+    });
+  });
+});
 
-//     expect(res).toMatchObject<CanisterWsCloseResult>({
-//       Ok: null,
-//     });
-//   });
-// });
+describe("Canister - ws_send", () => {
+  beforeAll(async () => {
+    await assignKeysToClients();
 
-// describe("Canister - ws_send", () => {
-//   beforeAll(async () => {
-//     await assignKeysToClients();
+    await wsOpen({
+      clientNonce: client1Key.client_nonce,
+      canisterId,
+      clientActor: client1,
+    }, true);
+  });
 
-//     await wsRegister({
-//       clientActor: client1,
-//       clientKey: client1Key.publicKey,
-//     }, true);
+  afterAll(async () => {
+    await wsWipe();
+  });
 
-//     await wsOpen({
-//       clientPublicKey: client1Key.publicKey,
-//       clientSecretKey: client1Key.secretKey,
-//       canisterId,
-//       clientActor: gateway1,
-//     }, true);
-//   });
+  it("fails if sending a message to a non registered client", async () => {
+    const res = await wsSend({
+      clientPrincipal: client2Key.client_principal,
+      actor: client1,
+      messages: [{ text: "test" }],
+    });
 
-//   afterAll(async () => {
-//     await wsWipe(gateway1);
-//   });
+    expect(res).toMatchObject<CanisterWsSendResult>({
+      Err: `client with principal ${client2Key.client_principal.toText()} doesn't have an open connection`,
+    });
+  });
 
-//   it("fails if sending a message to a non registered client", async () => {
-//     const res = await wsSend({
-//       clientKey: client2Key.publicKey,
-//       actor: client1,
-//       message: { text: "test" },
-//     });
+  it("should send a message to a registered client", async () => {
+    const res = await wsSend({
+      clientPrincipal: client1Key.client_principal,
+      actor: client1,
+      messages: [{ text: "test" }],
+    });
 
-//     expect(res).toMatchObject<CanisterWsSendResult>({
-//       Err: "client's public key has not been previously registered by client",
-//     });
-//   });
-
-//   it("should send a message to a registered client", async () => {
-//     const res = await wsSend({
-//       clientKey: client1Key.publicKey,
-//       actor: client1,
-//       message: { text: "test" },
-//     });
-
-//     expect(res).toMatchObject<CanisterWsSendResult>({
-//       Ok: null,
-//     });
-//   });
-// });
+    expect(res).toMatchObject<CanisterWsSendResult>({
+      Ok: null,
+    });
+  });
+});

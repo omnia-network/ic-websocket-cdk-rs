@@ -66,8 +66,14 @@ fn ws_wipe() {
 
 // send a message to the client, usually called by the canister itself
 #[update]
-fn ws_send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> CanisterWsSendResult {
-    ic_websocket_cdk::ws_send(client_principal, msg_bytes)
+fn ws_send(client_principal: ClientPrincipal, messages: Vec<Vec<u8>>) -> CanisterWsSendResult {
+    for msg_bytes in messages {
+        match ic_websocket_cdk::ws_send(client_principal, msg_bytes) {
+            Ok(_) => {},
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
 }
 
 // reinitialize the canister

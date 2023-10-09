@@ -13,6 +13,6 @@ service : (text, nat64, nat64) -> {
 
   // methods used just for debugging/testing
   "ws_wipe" : () -> ();
-  "ws_send" : (ClientPrincipal, blob) -> (CanisterWsSendResult);
+  "ws_send" : (ClientPrincipal, vec blob) -> (CanisterWsSendResult);
   "reinitialize" : (text, nat64, nat64) -> ();
 };
