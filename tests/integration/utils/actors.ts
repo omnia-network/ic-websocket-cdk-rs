@@ -84,3 +84,5 @@ export const client2 = createActor(canisterId, {
     identity: client2Data.identity,
   },
 });
+
+export const anonymousClient = createActor(canisterId);
