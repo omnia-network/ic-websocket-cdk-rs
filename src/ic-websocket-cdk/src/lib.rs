@@ -1,4 +1,4 @@
-use candid::{encode_one, CandidType, Principal};
+use candid::{decode_one, encode_one, CandidType, Principal};
 #[cfg(not(test))]
 use ic_cdk::api::time;
 use ic_cdk::api::{caller, data_certificate, set_certified_data};
@@ -489,7 +489,7 @@ struct ClientKeepAliveMessageContent {
     last_incoming_sequence_num: u64,
 }
 
-/// A service message sent by the CDK to the client.
+/// A service message sent by the CDK to the client or vice versa.
 #[derive(CandidType, Deserialize)]
 enum WebsocketServiceMessageContent {
     /// Message sent by the **canister** when a client opens a connection.
@@ -498,6 +498,16 @@ enum WebsocketServiceMessageContent {
     AckMessage(CanisterAckMessageContent),
     /// Message sent by the **client** in response to an acknowledgement message from the canister.
     KeepAliveMessage(ClientKeepAliveMessageContent),
+}
+
+impl WebsocketServiceMessageContent {
+    fn from_candid_bytes(bytes: Vec<u8>) -> Result<Self, String> {
+        decode_one(&bytes).map_err(|e| {
+            let mut err = String::from("Error decoding service message content: ");
+            err.push_str(&e.to_string());
+            err
+        })
+    }
 }
 
 fn send_service_message_to_client(
@@ -555,6 +565,20 @@ fn _ws_send(
         });
     });
     Ok(())
+}
+
+fn handle_received_service_message(content: Vec<u8>) -> CanisterWsMessageResult {
+    let decoded = WebsocketServiceMessageContent::from_candid_bytes(content)?;
+    match decoded {
+        WebsocketServiceMessageContent::OpenMessage(_)
+        | WebsocketServiceMessageContent::AckMessage(_) => {
+            Err(String::from("Invalid received service message"))
+        },
+        WebsocketServiceMessageContent::KeepAliveMessage(_) => {
+            custom_print!("Service message handling not implemented yet");
+            Ok(())
+        },
+    }
 }
 
 /// Arguments passed to the `on_open` handler.
@@ -769,9 +793,8 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
     // increase the expected sequence number by 1
     increment_expected_incoming_message_from_client_num(&client_key)?;
 
-    // TODO: test
     if is_service_message {
-        custom_print!("Service message handling not implemented yet");
+        return handle_received_service_message(content);
     }
 
     // call the on_message handler initialized in init()
