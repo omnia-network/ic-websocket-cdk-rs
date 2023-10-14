@@ -11,7 +11,12 @@ use ic_websocket_cdk::{
 mod canister;
 
 #[init]
-fn init(gateway_principal: String, send_ack_interval_ms: u64, keep_alive_timeout_ms: u64) {
+fn init(
+    gateway_principal: String,
+    max_number_of_returned_messages: usize,
+    send_ack_interval_ms: u64,
+    keep_alive_timeout_ms: u64,
+) {
     let handlers = WsHandlers {
         on_open: Some(on_open),
         on_message: Some(on_message),
@@ -21,6 +26,7 @@ fn init(gateway_principal: String, send_ack_interval_ms: u64, keep_alive_timeout
     let params = WsInitParams {
         handlers,
         gateway_principal,
+        max_number_of_returned_messages,
         send_ack_interval_ms,
         keep_alive_timeout_ms,
     };
@@ -29,9 +35,15 @@ fn init(gateway_principal: String, send_ack_interval_ms: u64, keep_alive_timeout
 }
 
 #[post_upgrade]
-fn post_upgrade(gateway_principal: String, send_ack_interval_ms: u64, keep_alive_timeout_ms: u64) {
+fn post_upgrade(
+    gateway_principal: String,
+    max_number_of_returned_messages: usize,
+    send_ack_interval_ms: u64,
+    keep_alive_timeout_ms: u64,
+) {
     init(
         gateway_principal,
+        max_number_of_returned_messages,
         send_ack_interval_ms,
         keep_alive_timeout_ms,
     );
@@ -82,6 +94,16 @@ fn ws_send(client_principal: ClientPrincipal, messages: Vec<Vec<u8>>) -> Caniste
 
 // initialize the CK again
 #[update]
-fn initialize(gateway_principal: String, send_ack_interval_ms: u64, keep_alive_delay_ms: u64) {
-    init(gateway_principal, send_ack_interval_ms, keep_alive_delay_ms);
+fn initialize(
+    gateway_principal: String,
+    max_number_of_returned_messages: usize,
+    send_ack_interval_ms: u64,
+    keep_alive_delay_ms: u64,
+) {
+    init(
+        gateway_principal,
+        max_number_of_returned_messages,
+        send_ack_interval_ms,
+        keep_alive_delay_ms,
+    );
 }

@@ -16,8 +16,8 @@ mod logger;
 
 /// The label used when constructing the certification tree.
 const LABEL_WEBSOCKET: &[u8] = b"websocket";
-/// The maximum number of messages returned by [ws_get_messages] at each poll.
-const MAX_NUMBER_OF_RETURNED_MESSAGES: usize = 10;
+/// The default maximum number of messages returned by [ws_get_messages] at each poll.
+const DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES: usize = 10;
 /// The default interval at which to send acknowledgements to the client.
 const DEFAULT_SEND_ACK_INTERVAL_MS: u64 = 60_000; // 60 seconds
 /// The default timeout to wait for the client to send a keep alive after receiving an acknowledgement.
@@ -383,14 +383,16 @@ fn get_message_for_gateway_key(gateway_principal: Principal, nonce: u64) -> Stri
 }
 
 fn get_messages_for_gateway_range(gateway_principal: Principal, nonce: u64) -> (usize, usize) {
+    let max_number_of_returned_messages = get_params().max_number_of_returned_messages;
+
     MESSAGES_FOR_GATEWAY.with(|m| {
         let queue_len = m.borrow().len();
 
         if nonce == 0 && queue_len > 0 {
             // this is the case in which the poller on the gateway restarted
-            // the range to return is end:last index and start: max(end - MAX_NUMBER_OF_RETURNED_MESSAGES, 0)
-            let start_index = if queue_len > MAX_NUMBER_OF_RETURNED_MESSAGES {
-                queue_len - MAX_NUMBER_OF_RETURNED_MESSAGES
+            // the range to return is end:last index and start: max(end - max_number_of_returned_messages, 0)
+            let start_index = if queue_len > max_number_of_returned_messages {
+                queue_len - max_number_of_returned_messages
             } else {
                 0
             };
@@ -404,8 +406,8 @@ fn get_messages_for_gateway_range(gateway_principal: Principal, nonce: u64) -> (
         let start_index = m.borrow().partition_point(|x| x.key < smallest_key);
         // message at index corresponding to end index is excluded
         let mut end_index = queue_len;
-        if end_index - start_index > MAX_NUMBER_OF_RETURNED_MESSAGES {
-            end_index = start_index + MAX_NUMBER_OF_RETURNED_MESSAGES;
+        if end_index - start_index > max_number_of_returned_messages {
+            end_index = start_index + max_number_of_returned_messages;
         }
         (start_index, end_index)
     })
@@ -832,6 +834,9 @@ pub struct WsInitParams {
     pub handlers: WsHandlers,
     /// The principal of the WS Gateway that will be polling the canister.
     pub gateway_principal: String,
+    /// The maximum number of messages to be returned in a polling iteration.
+    /// Defaults to `10`.
+    pub max_number_of_returned_messages: usize,
     /// The interval at which to send an acknowledgement message to the client,
     /// so that the client knows that all the messages it sent have been received by the canister (in milliseconds).
     /// Defaults to `60_000` (60 seconds).
@@ -861,6 +866,7 @@ impl Default for WsInitParams {
         Self {
             handlers: WsHandlers::default(),
             gateway_principal: String::new(),
+            max_number_of_returned_messages: DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES,
             send_ack_interval_ms: DEFAULT_SEND_ACK_INTERVAL_MS,
             keep_alive_timeout_ms: DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS,
         }
@@ -882,7 +888,6 @@ pub fn init(params: WsInitParams) {
     reset_timers();
 
     // schedule a timer that will send an acknowledgement message to clients
-    // TODO: test
     schedule_send_ack_to_clients();
 }
 
@@ -1513,11 +1518,17 @@ mod test {
         }
 
         #[test]
-        fn test_get_messages_for_gateway_range_larger_than_max(gateway_principal in any::<u8>().prop_map(|_| test_utils::get_static_principal())) {
+        fn test_get_messages_for_gateway_range_larger_than_max(gateway_principal in any::<u8>().prop_map(|_| test_utils::get_static_principal()), max_number_of_returned_messages in any::<usize>().prop_map(|c| c % 1000)) {
             // Set up
+            PARAMS.with(|p| {
+                *p.borrow_mut() = WsInitParams {
+                    max_number_of_returned_messages,
+                    ..Default::default()
+                }
+            });
             REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(gateway_principal.clone())));
 
-            let messages_count: u64 = (2 * MAX_NUMBER_OF_RETURNED_MESSAGES).try_into().unwrap();
+            let messages_count: u64 = (2 * max_number_of_returned_messages).try_into().unwrap();
             let test_client_key = test_utils::get_random_client_key();
             test_utils::add_messages_for_gateway(test_client_key, gateway_principal, messages_count);
 
@@ -1526,10 +1537,10 @@ mod test {
             // the case in which the start index is 0 is tested in test_get_messages_for_gateway_range_initial_nonce
             for i in 1..messages_count + 1 {
                 let (start_index, end_index) = get_messages_for_gateway_range(gateway_principal, i);
-                let expected_end_index = if (i as usize) + MAX_NUMBER_OF_RETURNED_MESSAGES > messages_count as usize {
+                let expected_end_index = if (i as usize) + max_number_of_returned_messages > messages_count as usize {
                     messages_count as usize
                 } else {
-                    (i as usize) + MAX_NUMBER_OF_RETURNED_MESSAGES
+                    (i as usize) + max_number_of_returned_messages
                 };
                 prop_assert_eq!(start_index, i as usize);
                 prop_assert_eq!(end_index, expected_end_index);
@@ -1540,8 +1551,14 @@ mod test {
         }
 
         #[test]
-        fn test_get_messages_for_gateway_initial_nonce(gateway_principal in any::<u8>().prop_map(|_| test_utils::get_static_principal()), messages_count in any::<u64>().prop_map(|c| c % 100)) {
+        fn test_get_messages_for_gateway_initial_nonce(gateway_principal in any::<u8>().prop_map(|_| test_utils::get_static_principal()), messages_count in any::<u64>().prop_map(|c| c % 100), max_number_of_returned_messages in any::<usize>().prop_map(|c| c % 1000)) {
             // Set up
+            PARAMS.with(|p| {
+                *p.borrow_mut() = WsInitParams {
+                    max_number_of_returned_messages,
+                    ..Default::default()
+                }
+            });
             REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(gateway_principal.clone())));
 
             let test_client_key = test_utils::get_random_client_key();
@@ -1549,8 +1566,8 @@ mod test {
 
             // Test
             let (start_index, end_index) = get_messages_for_gateway_range(gateway_principal, 0);
-            let expected_start_index = if (messages_count as usize) > MAX_NUMBER_OF_RETURNED_MESSAGES {
-                (messages_count as usize) - MAX_NUMBER_OF_RETURNED_MESSAGES
+            let expected_start_index = if (messages_count as usize) > max_number_of_returned_messages {
+                (messages_count as usize) - max_number_of_returned_messages
             } else {
                 0
             };

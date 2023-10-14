@@ -51,18 +51,18 @@ import { formatClientKey } from "./utils/client";
 import { sleep } from "./utils/helpers";
 
 /**
- * The maximum number of messages returned by the **ws_get_messages** method. Set in the CDK.
+ * The maximum number of messages returned by the **ws_get_messages** method.
  * 
- * Value: `10`
+ * Value: `20`
  */
-const MAX_NUMBER_OF_RETURNED_MESSAGES = 10;
+const DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES = 20;
 /**
  * Add more messages than the max to check the indexes and limits.
  * @{@link MAX_NUMBER_OF_RETURNED_MESSAGES} + 2
  * 
  * Value: `12`
  */
-const SEND_MESSAGES_COUNT = MAX_NUMBER_OF_RETURNED_MESSAGES + 2;
+const SEND_MESSAGES_COUNT = DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES + 2;
 /**
  * The interval between sending acks from the canister.
  * Set to a high value to make sure the canister doesn't reset the client while testing other functions.
@@ -202,6 +202,7 @@ describe("Canister - ws_message", () => {
     await assignKeysToClients();
 
     await initializeCdk({
+      maxNumberOfReturnedMessages: DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
       sendAckIntervalMs: DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
       keepAliveDelayMs: DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
     });
@@ -378,6 +379,7 @@ describe("Canister - ws_get_messages (receive)", () => {
     await assignKeysToClients();
 
     await initializeCdk({
+      maxNumberOfReturnedMessages: DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
       sendAckIntervalMs: DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
       keepAliveDelayMs: DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
     });
@@ -422,8 +424,8 @@ describe("Canister - ws_get_messages (receive)", () => {
 
       const messagesResult = (res as { Ok: CanisterOutputCertifiedMessages }).Ok;
       expect(messagesResult.messages.length).toEqual(
-        messagesCount - i > MAX_NUMBER_OF_RETURNED_MESSAGES
-          ? MAX_NUMBER_OF_RETURNED_MESSAGES
+        messagesCount - i > DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES
+          ? DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES
           : messagesCount - i
       );
     }
@@ -449,7 +451,7 @@ describe("Canister - ws_get_messages (receive)", () => {
     });
 
     const firstBatchMessagesResult = (firstBatchRes as { Ok: CanisterOutputCertifiedMessages }).Ok;
-    expect(firstBatchMessagesResult.messages.length).toEqual(MAX_NUMBER_OF_RETURNED_MESSAGES);
+    expect(firstBatchMessagesResult.messages.length).toEqual(DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES);
 
     let expectedSequenceNumber = 2; // first is the service open message and the number is incremented before sending
     let i = 0;
@@ -495,7 +497,7 @@ describe("Canister - ws_get_messages (receive)", () => {
     });
 
     const secondBatchMessagesResult = (secondBatchRes as { Ok: CanisterOutputCertifiedMessages }).Ok;
-    expect(secondBatchMessagesResult.messages.length).toEqual(SEND_MESSAGES_COUNT - MAX_NUMBER_OF_RETURNED_MESSAGES); // remaining from SEND_MESSAGES_COUNT
+    expect(secondBatchMessagesResult.messages.length).toEqual(SEND_MESSAGES_COUNT - DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES); // remaining from SEND_MESSAGES_COUNT
 
     for (const message of secondBatchMessagesResult.messages) {
       expect(isClientKeyEq(message.client_key, client1Key)).toEqual(true);
@@ -539,10 +541,10 @@ describe("Canister - ws_get_messages (receive)", () => {
 
     // we expect that the messages returned are the last MAX_NUMBER_OF_RETURNED_MESSAGES
     const messagesResult = (batchRes as { Ok: CanisterOutputCertifiedMessages }).Ok;
-    expect(messagesResult.messages.length).toEqual(MAX_NUMBER_OF_RETURNED_MESSAGES);
+    expect(messagesResult.messages.length).toEqual(DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES);
 
-    let expectedSequenceNumber = SEND_MESSAGES_COUNT - MAX_NUMBER_OF_RETURNED_MESSAGES + 1 + 1; // +1 for the service open message +1 because the seq num is incremented before sending
-    let i = SEND_MESSAGES_COUNT - MAX_NUMBER_OF_RETURNED_MESSAGES;
+    let expectedSequenceNumber = SEND_MESSAGES_COUNT - DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES + 1 + 1; // +1 for the service open message +1 because the seq num is incremented before sending
+    let i = SEND_MESSAGES_COUNT - DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES;
     for (const message of messagesResult.messages) {
       expect(isClientKeyEq(message.client_key, client1Key)).toEqual(true);
       const websocketMessage = decodeWebsocketMessage(new Uint8Array(message.content));
@@ -584,6 +586,7 @@ describe("Canister - ws_close", () => {
     await assignKeysToClients();
 
     await initializeCdk({
+      maxNumberOfReturnedMessages: DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
       sendAckIntervalMs: DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
       keepAliveDelayMs: DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
     });
@@ -638,6 +641,7 @@ describe("Canister - ws_send", () => {
     await assignKeysToClients();
 
     await initializeCdk({
+      maxNumberOfReturnedMessages: DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
       sendAckIntervalMs: DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
       keepAliveDelayMs: DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
     });
@@ -690,6 +694,7 @@ describe("Messages acknowledgement", () => {
   it("client should receive ack messages", async () => {
     const sendAckIntervalMs = 5_000; // 5 seconds
     await initializeCdk({
+      maxNumberOfReturnedMessages: DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
       sendAckIntervalMs,
       keepAliveDelayMs: DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS, // keep alive timeout still high to avoid removing connected client
     });
@@ -760,6 +765,7 @@ describe("Messages acknowledgement", () => {
     const sendAckIntervalMs = 2_000; // 2 seconds
     const keepAliveDelayMs = 5_000; // 5 seconds
     await initializeCdk({
+      maxNumberOfReturnedMessages: DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
       sendAckIntervalMs,
       keepAliveDelayMs,
     });
@@ -801,6 +807,7 @@ describe("Messages acknowledgement", () => {
     const sendAckIntervalMs = 3_000; // 3 seconds
     const keepAliveDelayMs = 5_000; // 5 seconds
     await initializeCdk({
+      maxNumberOfReturnedMessages: DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
       sendAckIntervalMs,
       keepAliveDelayMs,
     });
