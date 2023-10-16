@@ -703,7 +703,7 @@ describe("Messages acknowledgement", () => {
       clientNonce: client1Key.client_nonce,
       canisterId,
       clientActor: client1,
-    });
+    }, true);
 
     const res = await gateway1.ws_get_messages({
       nonce: BigInt(1), // skip the service open message
@@ -716,6 +716,11 @@ describe("Messages acknowledgement", () => {
         tree: new Uint8Array(),
       },
     });
+
+    await wsMessage({
+      actor: client1,
+      message: createWebsocketMessage(client1Key, 1),
+    }, true);
 
     // sleep for 5 seconds, which is more than the sendAckIntervalMs due to the previous calls
     // so we are sure that the CDK has sent an ack
@@ -739,7 +744,7 @@ describe("Messages acknowledgement", () => {
     expect(isClientKeyEq(ackMessage.client_key, client1Key)).toEqual(true);
     expect(getServiceMessageContentFromCanisterMessage(ackMessage)).toMatchObject<WebsocketServiceMessageContent>({
       AckMessage: {
-        last_incoming_sequence_num: BigInt(0),
+        last_incoming_sequence_num: BigInt(1),
       }
     });
 
@@ -774,7 +779,7 @@ describe("Messages acknowledgement", () => {
       clientNonce: client1Key.client_nonce,
       canisterId,
       clientActor: client1,
-    });
+    }, true);
 
     await sleep(sendAckIntervalMs);
 
@@ -816,7 +821,7 @@ describe("Messages acknowledgement", () => {
       clientNonce: client1Key.client_nonce,
       canisterId,
       clientActor: client1,
-    });
+    }, true);
 
     await sleep(sendAckIntervalMs);
 
@@ -834,7 +839,7 @@ describe("Messages acknowledgement", () => {
     await wsMessage({
       actor: client1,
       message: createWebsocketMessage(client1Key, 1, encodeWebsocketServiceMessageContent(keepAliveMessage), true),
-    });
+    }, true);
 
     await sleep(keepAliveDelayMs);
 
@@ -842,7 +847,7 @@ describe("Messages acknowledgement", () => {
     await wsMessage({
       actor: client1,
       message: createWebsocketMessage(client1Key, 2),
-    });
+    }, true);
 
     // wait to receive the next acknowledgement
     await sleep(sendAckIntervalMs);
