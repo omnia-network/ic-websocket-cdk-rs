@@ -100,18 +100,19 @@ export const wsWipe = async () => {
   await anonymousClient.ws_wipe();
 };
 
-type ReinitializeArgs = {
+type InitializeCdkArgs = {
+  maxNumberOfReturnedMessages: number,
   sendAckIntervalMs: number,
   keepAliveDelayMs: number,
 };
 
 /**
- * Used to reinitialize the canister with the provided intervals.
- * @param args {@link ReinitializeArgs}
+ * Used to initialize the CDK again with the provided parameters.
+ * @param args {@link InitializeCdkArgs}
  */
-export const reinitialize = async (args: ReinitializeArgs) => {
+export const initializeCdk = async (args: InitializeCdkArgs) => {
   const gatewayPrincipal = (await gateway1Data.identity).getPrincipal().toText();
-  await anonymousClient.reinitialize(gatewayPrincipal, BigInt(args.sendAckIntervalMs), BigInt(args.keepAliveDelayMs));
+  await anonymousClient.initialize(gatewayPrincipal, BigInt(args.maxNumberOfReturnedMessages), BigInt(args.sendAckIntervalMs), BigInt(args.keepAliveDelayMs));
 };
 
 type WsSendArgs = {

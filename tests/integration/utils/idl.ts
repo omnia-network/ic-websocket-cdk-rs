@@ -56,7 +56,7 @@ export const isClientKeyEq = (a: ClientKey, b: ClientKey): boolean => {
   return a.client_principal.compareTo(b.client_principal) === "eq" && a.client_nonce === b.client_nonce;
 }
 
-export const getServiceMessageFromCanisterMessage = (msg: CanisterOutputMessage): WebsocketServiceMessageContent => {
+export const getServiceMessageContentFromCanisterMessage = (msg: CanisterOutputMessage): WebsocketServiceMessageContent => {
   const content = getWebsocketMessageFromCanisterMessage(msg).content;
   return decodeWebsocketServiceMessageContent(content as Uint8Array);
 }

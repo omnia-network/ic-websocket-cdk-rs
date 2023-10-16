@@ -31,7 +31,6 @@ In order for the frontend clients and the Gateway to work properly, the canister
 import "./ws_types.did";
 
 service : {
-  "ws_register" : (CanisterWsRegisterArguments) -> (CanisterWsRegisterResult);
   "ws_open" : (CanisterWsOpenArguments) -> (CanisterWsOpenResult);
   "ws_close" : (CanisterWsCloseArguments) -> (CanisterWsCloseResult);
   "ws_message" : (CanisterWsMessageArguments) -> (CanisterWsMessageResult);

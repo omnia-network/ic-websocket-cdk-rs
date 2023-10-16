@@ -2,24 +2,26 @@ use candid::{decode_one, encode_one, CandidType, Principal};
 #[cfg(not(test))]
 use ic_cdk::api::time;
 use ic_cdk::api::{caller, data_certificate, set_certified_data};
+use ic_cdk_timers::{clear_timer, set_timer, TimerId};
 use ic_certified_map::{labeled, labeled_hash, AsHashTree, Hash as ICHash, RbTree};
 use serde::{Deserialize, Serialize};
 use serde_cbor::Serializer;
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::panic;
+use std::time::Duration;
 use std::{cell::RefCell, collections::HashMap, collections::VecDeque, convert::AsRef};
 
 mod logger;
 
 /// The label used when constructing the certification tree.
 const LABEL_WEBSOCKET: &[u8] = b"websocket";
-/// The maximum number of messages returned by [ws_get_messages] at each poll.
-const MAX_NUMBER_OF_RETURNED_MESSAGES: usize = 10;
-/// The default delay between two consecutive acknowledgements sent to the client.
-const DEFAULT_SEND_ACK_DELAY_MS: u64 = 60_000; // 60 seconds
-/// The default delay to wait for the client to send a keep alive after receiving an acknowledgement.
-const DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS: u64 = 10_000; // 10 seconds
+/// The default maximum number of messages returned by [ws_get_messages] at each poll.
+const DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES: usize = 10;
+/// The default interval at which to send acknowledgements to the client.
+const DEFAULT_SEND_ACK_INTERVAL_MS: u64 = 60_000; // 60 seconds
+/// The default timeout to wait for the client to send a keep alive after receiving an acknowledgement.
+const DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS: u64 = 10_000; // 10 seconds
 
 pub type ClientPrincipal = Principal;
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug, Hash)]
@@ -158,6 +160,16 @@ impl RegisteredClient {
             last_keep_alive_timestamp: get_current_time(),
         }
     }
+
+    /// Gets the last keep alive timestamp.
+    fn get_last_keep_alive_timestamp(&self) -> u64 {
+        self.last_keep_alive_timestamp
+    }
+
+    /// Set the last keep alive timestamp to the current time.
+    fn update_last_keep_alive_timestamp(&mut self) {
+        self.last_keep_alive_timestamp = get_current_time();
+    }
 }
 
 thread_local! {
@@ -179,12 +191,12 @@ thread_local! {
     /// - the WS Gateway uses to specify the first index of the certified messages to be returned when polling
     /// - the client uses as part of the path in the Merkle tree in order to verify the certificate of the messages relayed by the WS Gateway
     /* flexible */ static OUTGOING_MESSAGE_NONCE: RefCell<u64> = RefCell::new(0u64);
-    /// The callback handlers for the WebSocket.
-    /* flexible */ static HANDLERS: RefCell<WsHandlers> = RefCell::new(WsHandlers {
-        on_open: None,
-        on_message: None,
-        on_close: None,
-    });
+    /// The parameters passed in the CDK initialization
+    /* flexible */ static PARAMS: RefCell<WsInitParams> = RefCell::new(WsInitParams::default());
+    /// The acknowledgement active timer.
+    /* flexible */ static ACK_TIMER: RefCell<Option<TimerId>> = RefCell::new(None);
+    /// The keep alive active timer.
+    /* flexible */ static KEEP_ALIVE_TIMER: RefCell<Option<TimerId>> = RefCell::new(None);
 }
 
 /// Resets all RefCells to their initial state.
@@ -360,7 +372,7 @@ fn remove_client(client_key: &ClientKey) {
         map.borrow_mut().remove(client_key);
     });
 
-    let handlers = HANDLERS.with(|state| state.borrow().clone());
+    let handlers = get_handlers_from_params();
     handlers.call_on_close(OnCloseCallbackArgs {
         client_principal: client_key.client_principal,
     });
@@ -371,14 +383,16 @@ fn get_message_for_gateway_key(gateway_principal: Principal, nonce: u64) -> Stri
 }
 
 fn get_messages_for_gateway_range(gateway_principal: Principal, nonce: u64) -> (usize, usize) {
+    let max_number_of_returned_messages = get_params().max_number_of_returned_messages;
+
     MESSAGES_FOR_GATEWAY.with(|m| {
         let queue_len = m.borrow().len();
 
         if nonce == 0 && queue_len > 0 {
             // this is the case in which the poller on the gateway restarted
-            // the range to return is end:last index and start: max(end - MAX_NUMBER_OF_RETURNED_MESSAGES, 0)
-            let start_index = if queue_len > MAX_NUMBER_OF_RETURNED_MESSAGES {
-                queue_len - MAX_NUMBER_OF_RETURNED_MESSAGES
+            // the range to return is end:last index and start: max(end - max_number_of_returned_messages, 0)
+            let start_index = if queue_len > max_number_of_returned_messages {
+                queue_len - max_number_of_returned_messages
             } else {
                 0
             };
@@ -392,8 +406,8 @@ fn get_messages_for_gateway_range(gateway_principal: Principal, nonce: u64) -> (
         let start_index = m.borrow().partition_point(|x| x.key < smallest_key);
         // message at index corresponding to end index is excluded
         let mut end_index = queue_len;
-        if end_index - start_index > MAX_NUMBER_OF_RETURNED_MESSAGES {
-            end_index = start_index + MAX_NUMBER_OF_RETURNED_MESSAGES;
+        if end_index - start_index > max_number_of_returned_messages {
+            end_index = start_index + max_number_of_returned_messages;
         }
         (start_index, end_index)
     })
@@ -474,23 +488,64 @@ fn get_cert_for_range(first: &String, last: &String) -> (Vec<u8>, Vec<u8>) {
     })
 }
 
-#[derive(CandidType, Deserialize)]
+fn put_ack_timer_id(timer_id: TimerId) {
+    ACK_TIMER.with(|timer| timer.borrow_mut().replace(timer_id));
+}
+
+fn reset_ack_timer() {
+    let timer_id = ACK_TIMER.with(|timer| timer.borrow_mut().take());
+
+    if let Some(t_id) = timer_id {
+        clear_timer(t_id);
+    }
+}
+
+fn put_keep_alive_timer_id(timer_id: TimerId) {
+    KEEP_ALIVE_TIMER.with(|timer| timer.borrow_mut().replace(timer_id));
+}
+
+fn reset_keep_alive_timer() {
+    let timer_id = KEEP_ALIVE_TIMER.with(|timer| timer.borrow_mut().take());
+
+    if let Some(t_id) = timer_id {
+        clear_timer(t_id);
+    }
+}
+
+fn reset_timers() {
+    reset_ack_timer();
+    reset_keep_alive_timer();
+}
+
+fn set_params(params: WsInitParams) {
+    PARAMS.with(|state| *state.borrow_mut() = params);
+}
+
+fn get_params() -> WsInitParams {
+    PARAMS.with(|state| state.borrow().clone())
+}
+
+fn get_handlers_from_params() -> WsHandlers {
+    get_params().get_handlers()
+}
+
+#[derive(CandidType, Debug, Deserialize)]
 struct CanisterOpenMessageContent {
     client_key: ClientKey,
 }
 
-#[derive(CandidType, Deserialize)]
+#[derive(CandidType, Debug, Deserialize)]
 struct CanisterAckMessageContent {
     last_incoming_sequence_num: u64,
 }
 
-#[derive(CandidType, Deserialize)]
+#[derive(CandidType, Debug, Deserialize)]
 struct ClientKeepAliveMessageContent {
     last_incoming_sequence_num: u64,
 }
 
 /// A service message sent by the CDK to the client or vice versa.
-#[derive(CandidType, Deserialize)]
+#[derive(CandidType, Debug, Deserialize)]
 enum WebsocketServiceMessageContent {
     /// Message sent by the **canister** when a client opens a connection.
     OpenMessage(CanisterOpenMessageContent),
@@ -501,7 +556,7 @@ enum WebsocketServiceMessageContent {
 }
 
 impl WebsocketServiceMessageContent {
-    fn from_candid_bytes(bytes: Vec<u8>) -> Result<Self, String> {
+    fn from_candid_bytes(bytes: &[u8]) -> Result<Self, String> {
         decode_one(&bytes).map_err(|e| {
             let mut err = String::from("Error decoding service message content: ");
             err.push_str(&e.to_string());
@@ -516,6 +571,123 @@ fn send_service_message_to_client(
 ) -> Result<(), String> {
     let message_bytes = encode_one(&message).unwrap();
     _ws_send(client_key, message_bytes, true)
+}
+
+/// Schedules a timer to send an acknowledgement message to the client.
+///
+/// The timer callback is [send_ack_to_clients_timer_callback]. After the callback is executed,
+/// a timer is scheduled to check if the registered clients have sent a keep alive message.
+fn schedule_send_ack_to_clients() {
+    let ack_interval_ms = get_params().send_ack_interval_ms;
+    let timer_id = set_timer(Duration::from_millis(ack_interval_ms), move || {
+        send_ack_to_clients_timer_callback();
+
+        schedule_check_keep_alive();
+    });
+
+    put_ack_timer_id(timer_id);
+}
+
+/// Schedules a timer to check if the registered clients have sent a keep alive message
+/// after receiving an acknowledgement message.
+///
+/// The timer callback is [check_keep_alive_timer_callback]. After the callback is executed,
+/// a timer is scheduled again to send an acknowledgement message to the registered clients.
+fn schedule_check_keep_alive() {
+    let keep_alive_timeout_ms = get_params().keep_alive_timeout_ms;
+    let timer_id = set_timer(Duration::from_millis(keep_alive_timeout_ms), move || {
+        check_keep_alive_timer_callback(keep_alive_timeout_ms);
+
+        schedule_send_ack_to_clients();
+    });
+
+    put_keep_alive_timer_id(timer_id);
+}
+
+/// Sends an acknowledgement message to the client.
+/// The message contains the current incoming message sequence number for that client,
+/// so that the client knows that all the messages it sent have been received by the canister.
+fn send_ack_to_clients_timer_callback() {
+    REGISTERED_CLIENTS.with(|state| {
+        let map = state.borrow();
+        for client_key in map.keys() {
+            // ignore the error, which shouldn't happen since the client is registered and the sequence number is initialized
+            match get_expected_incoming_message_from_client_num(client_key) {
+                Ok(expected_incoming_sequence_num) => {
+                    let ack_message = CanisterAckMessageContent {
+                        last_incoming_sequence_num: expected_incoming_sequence_num - 1,
+                    };
+                    let message = WebsocketServiceMessageContent::AckMessage(ack_message);
+                    if let Err(e) = send_service_message_to_client(client_key, message) {
+                        // TODO: decide what to do when sending the message fails
+
+                        custom_print!(
+                            "[ack-to-clients-timer-cb]: Error sending ack message to client {}: {:?}",
+                            client_key,
+                            e
+                        );
+                    };
+                },
+                Err(e) => {
+                    // TODO: decide what to do when getting the expected incoming sequence number fails (shouldn't happen)
+                    custom_print!(
+                        "[ack-to-clients-timer-cb]: Error getting expected incoming sequence number for client {}: {:?}",
+                        client_key,
+                        e,
+                    );
+                }
+            }
+        }
+    });
+
+    custom_print!("[ack-to-clients-timer-cb]: Sent ack messages to all clients");
+}
+
+/// Checks if the registered clients have sent a keep alive message.
+/// If a client has not sent a keep alive message, it is removed from the registered clients.
+fn check_keep_alive_timer_callback(keep_alive_timeout_ms: u64) {
+    let client_keys_to_remove: Vec<ClientKey> = REGISTERED_CLIENTS.with(|state| {
+        let map = state.borrow();
+        map.iter()
+            .filter_map(|(client_key, client_metadata)| {
+                let last_keep_alive = client_metadata.get_last_keep_alive_timestamp();
+                if get_current_time() - last_keep_alive > (keep_alive_timeout_ms * 1_000_000) {
+                    Some(client_key.to_owned())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    });
+
+    for client_key in client_keys_to_remove {
+        remove_client(&client_key);
+
+        custom_print!(
+            "[check-keep-alive-timer-cb]: Client {} has not sent a keep alive message in the last {} ms and has been removed",
+            client_key,
+            keep_alive_timeout_ms
+        );
+    }
+
+    custom_print!("[check-keep-alive-timer-cb]: Checked keep alive messages for all clients");
+}
+
+fn handle_keep_alive_client_message(
+    client_key: &ClientKey,
+    _keep_alive_message: ClientKeepAliveMessageContent,
+) -> Result<(), String> {
+    // TODO: delete messages from the queue that have been acknowledged by the client
+
+    // update the last keep alive timestamp for the client
+    REGISTERED_CLIENTS.with(|map| {
+        let mut map = map.borrow_mut();
+        if let Some(client_metadata) = map.get_mut(client_key) {
+            client_metadata.update_last_keep_alive_timestamp();
+        }
+    });
+
+    Ok(())
 }
 
 /// Internal function used to put the messages in the outgoing messages queue and certify them.
@@ -567,16 +739,18 @@ fn _ws_send(
     Ok(())
 }
 
-fn handle_received_service_message(content: Vec<u8>) -> CanisterWsMessageResult {
+fn handle_received_service_message(
+    client_key: &ClientKey,
+    content: &[u8],
+) -> CanisterWsMessageResult {
     let decoded = WebsocketServiceMessageContent::from_candid_bytes(content)?;
     match decoded {
         WebsocketServiceMessageContent::OpenMessage(_)
         | WebsocketServiceMessageContent::AckMessage(_) => {
             Err(String::from("Invalid received service message"))
         },
-        WebsocketServiceMessageContent::KeepAliveMessage(_) => {
-            custom_print!("Service message handling not implemented yet");
-            Ok(())
+        WebsocketServiceMessageContent::KeepAliveMessage(keep_alive_message) => {
+            handle_keep_alive_client_message(client_key, keep_alive_message)
         },
     }
 }
@@ -653,13 +827,6 @@ impl WsHandlers {
     }
 }
 
-fn initialize_handlers(handlers: WsHandlers) {
-    HANDLERS.with(|h| {
-        let mut h = h.borrow_mut();
-        *h = handlers;
-    });
-}
-
 /// Parameters for the IC WebSocket CDK initialization. For default parameters and simpler initialization, use [`WsInitParams::new`].
 #[derive(Clone)]
 pub struct WsInitParams {
@@ -667,13 +834,16 @@ pub struct WsInitParams {
     pub handlers: WsHandlers,
     /// The principal of the WS Gateway that will be polling the canister.
     pub gateway_principal: String,
+    /// The maximum number of messages to be returned in a polling iteration.
+    /// Defaults to `10`.
+    pub max_number_of_returned_messages: usize,
     /// The interval at which to send an acknowledgement message to the client,
     /// so that the client knows that all the messages it sent have been received by the canister (in milliseconds).
     /// Defaults to `60_000` (60 seconds).
     pub send_ack_interval_ms: u64,
     /// The delay to wait for the client to send a keep alive after receiving an acknowledgement (in milliseconds).
     /// Defaults to `10_000` (10 seconds).
-    pub keep_alive_delay_ms: u64,
+    pub keep_alive_timeout_ms: u64,
 }
 
 impl WsInitParams {
@@ -682,8 +852,23 @@ impl WsInitParams {
         Self {
             handlers,
             gateway_principal,
-            send_ack_interval_ms: DEFAULT_SEND_ACK_DELAY_MS,
-            keep_alive_delay_ms: DEFAULT_CLIENT_KEEP_ALIVE_DELAY_MS,
+            ..Default::default()
+        }
+    }
+
+    fn get_handlers(&self) -> WsHandlers {
+        self.handlers.clone()
+    }
+}
+
+impl Default for WsInitParams {
+    fn default() -> Self {
+        Self {
+            handlers: WsHandlers::default(),
+            gateway_principal: String::new(),
+            max_number_of_returned_messages: DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES,
+            send_ack_interval_ms: DEFAULT_SEND_ACK_INTERVAL_MS,
+            keep_alive_timeout_ms: DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS,
         }
     }
 }
@@ -691,14 +876,19 @@ impl WsInitParams {
 /// Initialize the CDK by setting the callback handlers and the **principal** of the WS Gateway that
 /// will be polling the canister.
 ///
-/// Under the hood, an interval (**60 seconds**) is started using [ic_cdk_timers::set_timer]
-/// to check if the WS Gateway is still alive.
+/// **Note**: Resets the timers under the hood.
 pub fn init(params: WsInitParams) {
     // set the handlers specified by the canister that the CDK uses to manage the IC WebSocket connection
-    initialize_handlers(params.handlers);
+    set_params(params.clone());
 
     // set the principal of the (only) WS Gateway that will be polling the canister
     initialize_registered_gateway(&params.gateway_principal);
+
+    // reset initial timers
+    reset_timers();
+
+    // schedule a timer that will send an acknowledgement message to clients
+    schedule_send_ack_to_clients();
 }
 
 /// Handles the WS connection open event sent by the client and relayed by the Gateway.
@@ -736,10 +926,7 @@ pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
     send_service_message_to_client(&client_key, message)?;
 
     // call the on_open handler initialized in init()
-    HANDLERS.with(|h| {
-        h.borrow()
-            .call_on_open(OnOpenCallbackArgs { client_principal });
-    });
+    get_handlers_from_params().call_on_open(OnOpenCallbackArgs { client_principal });
 
     Ok(())
 }
@@ -794,17 +981,13 @@ pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
     increment_expected_incoming_message_from_client_num(&client_key)?;
 
     if is_service_message {
-        return handle_received_service_message(content);
+        return handle_received_service_message(&client_key, &content);
     }
 
     // call the on_message handler initialized in init()
-    HANDLERS.with(|h| {
-        // trigger the on_message handler initialized by canister
-        // create message to send to client
-        h.borrow().call_on_message(OnMessageCallbackArgs {
-            client_principal,
-            message: content,
-        });
+    get_handlers_from_params().call_on_message(OnMessageCallbackArgs {
+        client_principal,
+        message: content,
     });
     Ok(())
 }
@@ -924,31 +1107,32 @@ mod test {
             static CUSTOM_STATE : RefCell<CustomState> = RefCell::new(CustomState::new());
         }
 
-        let mut handlers = WsHandlers {
+        let mut h = WsHandlers {
             on_open: None,
             on_message: None,
             on_close: None,
         };
 
-        initialize_handlers(handlers);
+        set_params(WsInitParams {
+            handlers: h.clone(),
+            ..Default::default()
+        });
 
-        HANDLERS.with(|h| {
-            let h = h.borrow();
+        let handlers = get_handlers_from_params();
 
-            assert!(h.on_open.is_none());
-            assert!(h.on_message.is_none());
-            assert!(h.on_close.is_none());
+        assert!(handlers.on_open.is_none());
+        assert!(handlers.on_message.is_none());
+        assert!(handlers.on_close.is_none());
 
-            h.call_on_open(OnOpenCallbackArgs {
-                client_principal: test_utils::generate_random_principal(),
-            });
-            h.call_on_message(OnMessageCallbackArgs {
-                client_principal: test_utils::generate_random_principal(),
-                message: vec![],
-            });
-            h.call_on_close(OnCloseCallbackArgs {
-                client_principal: test_utils::generate_random_principal(),
-            });
+        handlers.call_on_open(OnOpenCallbackArgs {
+            client_principal: test_utils::generate_random_principal(),
+        });
+        handlers.call_on_message(OnMessageCallbackArgs {
+            client_principal: test_utils::generate_random_principal(),
+            message: vec![],
+        });
+        handlers.call_on_close(OnCloseCallbackArgs {
+            client_principal: test_utils::generate_random_principal(),
         });
 
         // test that the handlers are not called if they are not initialized
@@ -976,31 +1160,32 @@ mod test {
             });
         };
 
-        handlers = WsHandlers {
+        h = WsHandlers {
             on_open: Some(on_open),
             on_message: Some(on_message),
             on_close: Some(on_close),
         };
 
-        initialize_handlers(handlers);
+        set_params(WsInitParams {
+            handlers: h.clone(),
+            ..Default::default()
+        });
 
-        HANDLERS.with(|h| {
-            let h = h.borrow();
+        let handlers = get_handlers_from_params();
 
-            assert!(h.on_open.is_some());
-            assert!(h.on_message.is_some());
-            assert!(h.on_close.is_some());
+        assert!(handlers.on_open.is_some());
+        assert!(handlers.on_message.is_some());
+        assert!(handlers.on_close.is_some());
 
-            h.call_on_open(OnOpenCallbackArgs {
-                client_principal: test_utils::generate_random_principal(),
-            });
-            h.call_on_message(OnMessageCallbackArgs {
-                client_principal: test_utils::generate_random_principal(),
-                message: vec![],
-            });
-            h.call_on_close(OnCloseCallbackArgs {
-                client_principal: test_utils::generate_random_principal(),
-            });
+        handlers.call_on_open(OnOpenCallbackArgs {
+            client_principal: test_utils::generate_random_principal(),
+        });
+        handlers.call_on_message(OnMessageCallbackArgs {
+            client_principal: test_utils::generate_random_principal(),
+            message: vec![],
+        });
+        handlers.call_on_close(OnCloseCallbackArgs {
+            client_principal: test_utils::generate_random_principal(),
         });
 
         // test that the handlers are called if they are initialized
@@ -1011,7 +1196,7 @@ mod test {
 
     #[test]
     fn test_ws_handlers_panic_is_handled() {
-        let handlers = WsHandlers {
+        let h = WsHandlers {
             on_open: Some(|_| {
                 panic!("on_open_panic");
             }),
@@ -1023,9 +1208,12 @@ mod test {
             }),
         };
 
-        initialize_handlers(handlers);
+        set_params(WsInitParams {
+            handlers: h.clone(),
+            ..Default::default()
+        });
 
-        let handlers = HANDLERS.with(|h| h.borrow().clone());
+        let handlers = get_handlers_from_params();
 
         let res = panic::catch_unwind(|| {
             handlers.call_on_open(OnOpenCallbackArgs {
@@ -1330,11 +1518,17 @@ mod test {
         }
 
         #[test]
-        fn test_get_messages_for_gateway_range_larger_than_max(gateway_principal in any::<u8>().prop_map(|_| test_utils::get_static_principal())) {
+        fn test_get_messages_for_gateway_range_larger_than_max(gateway_principal in any::<u8>().prop_map(|_| test_utils::get_static_principal()), max_number_of_returned_messages in any::<usize>().prop_map(|c| c % 1000)) {
             // Set up
+            PARAMS.with(|p| {
+                *p.borrow_mut() = WsInitParams {
+                    max_number_of_returned_messages,
+                    ..Default::default()
+                }
+            });
             REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(gateway_principal.clone())));
 
-            let messages_count: u64 = (2 * MAX_NUMBER_OF_RETURNED_MESSAGES).try_into().unwrap();
+            let messages_count: u64 = (2 * max_number_of_returned_messages).try_into().unwrap();
             let test_client_key = test_utils::get_random_client_key();
             test_utils::add_messages_for_gateway(test_client_key, gateway_principal, messages_count);
 
@@ -1343,10 +1537,10 @@ mod test {
             // the case in which the start index is 0 is tested in test_get_messages_for_gateway_range_initial_nonce
             for i in 1..messages_count + 1 {
                 let (start_index, end_index) = get_messages_for_gateway_range(gateway_principal, i);
-                let expected_end_index = if (i as usize) + MAX_NUMBER_OF_RETURNED_MESSAGES > messages_count as usize {
+                let expected_end_index = if (i as usize) + max_number_of_returned_messages > messages_count as usize {
                     messages_count as usize
                 } else {
-                    (i as usize) + MAX_NUMBER_OF_RETURNED_MESSAGES
+                    (i as usize) + max_number_of_returned_messages
                 };
                 prop_assert_eq!(start_index, i as usize);
                 prop_assert_eq!(end_index, expected_end_index);
@@ -1357,8 +1551,14 @@ mod test {
         }
 
         #[test]
-        fn test_get_messages_for_gateway_initial_nonce(gateway_principal in any::<u8>().prop_map(|_| test_utils::get_static_principal()), messages_count in any::<u64>().prop_map(|c| c % 100)) {
+        fn test_get_messages_for_gateway_initial_nonce(gateway_principal in any::<u8>().prop_map(|_| test_utils::get_static_principal()), messages_count in any::<u64>().prop_map(|c| c % 100), max_number_of_returned_messages in any::<usize>().prop_map(|c| c % 1000)) {
             // Set up
+            PARAMS.with(|p| {
+                *p.borrow_mut() = WsInitParams {
+                    max_number_of_returned_messages,
+                    ..Default::default()
+                }
+            });
             REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(gateway_principal.clone())));
 
             let test_client_key = test_utils::get_random_client_key();
@@ -1366,8 +1566,8 @@ mod test {
 
             // Test
             let (start_index, end_index) = get_messages_for_gateway_range(gateway_principal, 0);
-            let expected_start_index = if (messages_count as usize) > MAX_NUMBER_OF_RETURNED_MESSAGES {
-                (messages_count as usize) - MAX_NUMBER_OF_RETURNED_MESSAGES
+            let expected_start_index = if (messages_count as usize) > max_number_of_returned_messages {
+                (messages_count as usize) - max_number_of_returned_messages
             } else {
                 0
             };

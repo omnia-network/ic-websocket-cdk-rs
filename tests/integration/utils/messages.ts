@@ -14,8 +14,8 @@ export const filterServiceMessagesFromCanisterMessages = (messages: CanisterOutp
 export const createWebsocketMessage = (
   clientKey: ClientKey,
   sequenceNumber: number,
+  content?: ArrayBuffer | Uint8Array,
   isServiceMessage = false,
-  content?: ArrayBuffer | Uint8Array
 ): WebsocketMessage => {
   const websocketMessage: WebsocketMessage = {
     client_key: clientKey,
@@ -61,6 +61,10 @@ export const getCertifiedMessageKey = async (gatewayIdentity: Promise<Secp256k1K
 export const isValidCertificate = async (canisterId: string, certificate: Uint8Array, tree: Uint8Array, agent: HttpAgent) => {
   const canisterPrincipal = Principal.fromText(canisterId);
   let cert: Certificate;
+
+  if (!agent["_rootKeyFetched"]) {
+    await agent.fetchRootKey();
+  }
 
   try {
     cert = await Certificate.create({

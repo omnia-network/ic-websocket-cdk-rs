@@ -10,17 +10,16 @@
   ],
   "scripts": {
     "generate": "dfx generate test_canister",
-    "deploy:tests": "dfx deploy test_canister --no-wallet --argument '(\"i3gux-m3hwt-5mh2w-t7wwm-fwx5j-6z6ht-hxguo-t4rfw-qp24z-g5ivt-2qe\", 300_000 : nat64, 300_000 : nat64)'",
+    "deploy:tests": "dfx deploy test_canister --no-wallet --argument '(\"i3gux-m3hwt-5mh2w-t7wwm-fwx5j-6z6ht-hxguo-t4rfw-qp24z-g5ivt-2qe\", 10 : nat64, 300_000 : nat64, 300_000 : nat64)'",
     "test:integration": "jest integration"
   },
   "devDependencies": {
     "@babel/preset-env": "^7.22.9",
     "@babel/preset-typescript": "^7.22.5",
-    "@dfinity/agent": "^0.18.1",
-    "@dfinity/candid": "^0.18.1",
-    "@dfinity/identity-secp256k1": "^0.18.1",
-    "@dfinity/principal": "^0.18.1",
-    "@noble/ed25519": "^2.0.0",
+    "@dfinity/agent": "^0.19.2",
+    "@dfinity/candid": "^0.19.2",
+    "@dfinity/identity-secp256k1": "^0.19.2",
+    "@dfinity/principal": "^0.19.2",
     "@types/hdkey": "^2.0.1",
     "@types/jest": "^29.5.3",
     "assert": "2.0.0",
