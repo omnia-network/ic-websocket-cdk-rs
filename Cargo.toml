@@ -8,6 +8,7 @@ members = [
 edition = "2021"
 repository = "https://github.com/omnia-network/ic-websocket-cdk-rs"
 rust-version = "1.69.0"
+description = "IC Websocket Canister Development Kit"
 
 [workspace.dependencies]
 ic-websocket-cdk = { path = "src/ic-websocket-cdk", version = "0.1.0" }
