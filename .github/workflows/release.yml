@@ -15,8 +15,7 @@ jobs:
     # only run if the tests were successful
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     outputs:
-      exit_code: ${{ steps.npm-publish.outputs.exit_code }}
-      version: ${{ steps.npm-publish.outputs.version }}
+      version: ${{ steps.cargo-publish.outputs.version }}
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
@@ -25,10 +24,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: "true"
-      - run: |
+      - id: cargo-publish
+        run: |
+          rustup target add wasm32-unknown-unknown
           cargo publish -p ic-websocket-cdk
-          EXIT_CODE=$?
-          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
           echo "version=v$(cargo pkgid -p ic-websocket-cdk | cut -d# -f2 | cut -d: -f2)" >> "$GITHUB_OUTPUT"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -36,7 +35,6 @@ jobs:
   tag:
     needs: publish
     runs-on: ubuntu-latest
-    if: ${{ needs.publish.outputs.exit_code == '0' }}
     outputs:
       version: ${{ steps.tag_version.outputs.new_tag }}
     steps:
