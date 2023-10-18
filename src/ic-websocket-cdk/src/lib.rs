@@ -24,6 +24,14 @@ const DEFAULT_SEND_ACK_INTERVAL_MS: u64 = 60_000; // 60 seconds
 /// The default timeout to wait for the client to send a keep alive after receiving an acknowledgement.
 const DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS: u64 = 10_000; // 10 seconds
 
+/// The initial nonce for outgoing messages.
+const INITIAL_OUTGOING_MESSAGE_NONCE: u64 = 0;
+/// The initial sequence number to expect from messages coming from clients.
+/// The first message coming from the client will have sequence number `1` because on the client the sequence number is incremented before sending the message.
+const INITIAL_CLIENT_SEQUENCE_NUM: u64 = 1;
+/// The initial sequence number for outgoing messages.
+const INITIAL_CANISTER_SEQUENCE_NUM: u64 = 0;
+
 pub type ClientPrincipal = Principal;
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug, Hash)]
 struct ClientKey {
@@ -191,7 +199,7 @@ thread_local! {
     /// Keeps track of the nonce which:
     /// - the WS Gateway uses to specify the first index of the certified messages to be returned when polling
     /// - the client uses as part of the path in the Merkle tree in order to verify the certificate of the messages relayed by the WS Gateway
-    /* flexible */ static OUTGOING_MESSAGE_NONCE: RefCell<u64> = RefCell::new(0u64);
+    /* flexible */ static OUTGOING_MESSAGE_NONCE: RefCell<u64> = RefCell::new(INITIAL_OUTGOING_MESSAGE_NONCE);
     /// The parameters passed in the CDK initialization
     /* flexible */ static PARAMS: RefCell<WsInitParams> = RefCell::new(WsInitParams::default());
     /// The acknowledgement active timer.
@@ -226,7 +234,7 @@ fn reset_internal_state() {
         t.replace(RbTree::new());
     });
     MESSAGES_FOR_GATEWAY.with(|m| *m.borrow_mut() = VecDeque::new());
-    OUTGOING_MESSAGE_NONCE.with(|next_id| next_id.replace(0u64));
+    OUTGOING_MESSAGE_NONCE.with(|next_id| next_id.replace(INITIAL_OUTGOING_MESSAGE_NONCE));
 }
 
 /// Resets the internal state of the IC WebSocket CDK.
@@ -301,7 +309,8 @@ fn get_registered_gateway_principal() -> Principal {
 
 fn init_outgoing_message_to_client_num(client_key: ClientKey) {
     OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
-        map.borrow_mut().insert(client_key, 0);
+        map.borrow_mut()
+            .insert(client_key, INITIAL_CANISTER_SEQUENCE_NUM);
     });
 }
 
@@ -326,7 +335,8 @@ fn increment_outgoing_message_to_client_num(client_key: &ClientKey) -> Result<()
 
 fn init_expected_incoming_message_from_client_num(client_key: ClientKey) {
     INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
-        map.borrow_mut().insert(client_key, 1);
+        map.borrow_mut()
+            .insert(client_key, INITIAL_CLIENT_SEQUENCE_NUM);
     });
 }
 
@@ -1357,7 +1367,7 @@ mod test {
             init_outgoing_message_to_client_num(test_client_key.clone());
 
             let actual_result = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
-            prop_assert_eq!(actual_result, 0);
+            prop_assert_eq!(actual_result, INITIAL_CANISTER_SEQUENCE_NUM);
         }
 
         #[test]
@@ -1391,7 +1401,7 @@ mod test {
             init_expected_incoming_message_from_client_num(test_client_key.clone());
 
             let actual_result = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
-            prop_assert_eq!(actual_result, 1);
+            prop_assert_eq!(actual_result, INITIAL_CLIENT_SEQUENCE_NUM);
         }
 
         #[test]
@@ -1434,10 +1444,10 @@ mod test {
             prop_assert_eq!(actual_result, registered_client);
 
             let actual_result = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
-            prop_assert_eq!(actual_result, 1);
+            prop_assert_eq!(actual_result, INITIAL_CLIENT_SEQUENCE_NUM);
 
             let actual_result = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
-            prop_assert_eq!(actual_result, 0);
+            prop_assert_eq!(actual_result, INITIAL_CANISTER_SEQUENCE_NUM);
         }
 
         #[test]
@@ -1450,10 +1460,10 @@ mod test {
                 map.borrow_mut().insert(test_client_key.clone(), test_utils::generate_random_registered_client());
             });
             INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
-                map.borrow_mut().insert(test_client_key.clone(), 0);
+                map.borrow_mut().insert(test_client_key.clone(), INITIAL_CLIENT_SEQUENCE_NUM);
             });
             OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
-                map.borrow_mut().insert(test_client_key.clone(), 0);
+                map.borrow_mut().insert(test_client_key.clone(), INITIAL_CANISTER_SEQUENCE_NUM);
             });
 
             remove_client(&test_client_key);
