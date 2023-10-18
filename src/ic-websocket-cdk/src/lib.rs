@@ -197,7 +197,7 @@ thread_local! {
     /// The acknowledgement active timer.
     /* flexible */ static ACK_TIMER: Rc<RefCell<Option<TimerId>>> = Rc::new(RefCell::new(None));
     /// The keep alive active timer.
-    /* flexible */ static KEEP_ALIVE_TIMER: RefCell<Option<TimerId>> = RefCell::new(None);
+    /* flexible */ static KEEP_ALIVE_TIMER: Rc<RefCell<Option<TimerId>>> = Rc::new(RefCell::new(None));
 }
 
 /// Resets all RefCells to their initial state.
@@ -504,9 +504,7 @@ fn put_keep_alive_timer_id(timer_id: TimerId) {
 }
 
 fn reset_keep_alive_timer() {
-    let timer_id = KEEP_ALIVE_TIMER.with(|timer| timer.borrow_mut().take());
-
-    if let Some(t_id) = timer_id {
+    if let Some(t_id) = KEEP_ALIVE_TIMER.with(Rc::clone).borrow_mut().take() {
         clear_timer(t_id);
     }
 }
