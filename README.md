@@ -2,8 +2,6 @@
 
 This repository contains the Rust implementation of IC WebSocket CDK. For more information about IC WebSockets, see [IC WebSocket Gateway](https://github.com/omnia-network/ic-websocket-gateway).
 
-> ⚠️ This library is still in development and is not ready for production use. Expect breaking changes.
-
 ## Installation
 
 You can install the library by running:
@@ -49,7 +47,7 @@ There's a script that runs all the tests together, taking care of setting up the
 
 ## License
 
-TODO: Add a license
+MIT License. See [LICENSE](./LICENSE).
 
 ## Contributing
 
