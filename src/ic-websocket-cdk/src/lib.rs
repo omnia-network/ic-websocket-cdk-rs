@@ -2,15 +2,22 @@ use candid::{decode_one, encode_one, CandidType, Principal};
 #[cfg(not(test))]
 use ic_cdk::api::time;
 use ic_cdk::api::{caller, data_certificate, set_certified_data};
-use ic_cdk_timers::{clear_timer, set_timer, TimerId};
+use ic_cdk::trap;
+use ic_cdk_timers::{clear_timer, set_timer, set_timer_interval, TimerId};
 use ic_certified_map::{labeled, labeled_hash, AsHashTree, Hash as ICHash, RbTree};
 use serde::{Deserialize, Serialize};
 use serde_cbor::Serializer;
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::panic;
+use std::rc::Rc;
 use std::time::Duration;
-use std::{cell::RefCell, collections::HashMap, collections::VecDeque, convert::AsRef};
+use std::{
+    cell::RefCell,
+    collections::VecDeque,
+    collections::{HashMap, HashSet},
+    convert::AsRef,
+};
 
 mod logger;
 
@@ -22,6 +29,14 @@ const DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES: usize = 10;
 const DEFAULT_SEND_ACK_INTERVAL_MS: u64 = 60_000; // 60 seconds
 /// The default timeout to wait for the client to send a keep alive after receiving an acknowledgement.
 const DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS: u64 = 10_000; // 10 seconds
+
+/// The initial nonce for outgoing messages.
+const INITIAL_OUTGOING_MESSAGE_NONCE: u64 = 0;
+/// The initial sequence number to expect from messages coming from clients.
+/// The first message coming from the client will have sequence number `1` because on the client the sequence number is incremented before sending the message.
+const INITIAL_CLIENT_SEQUENCE_NUM: u64 = 1;
+/// The initial sequence number for outgoing messages.
+const INITIAL_CANISTER_SEQUENCE_NUM: u64 = 0;
 
 pub type ClientPrincipal = Principal;
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug, Hash)]
@@ -174,9 +189,11 @@ impl RegisteredClient {
 
 thread_local! {
     /// Maps the client's key to the client metadata
-    /* flexible */ static REGISTERED_CLIENTS: RefCell<HashMap<ClientKey, RegisteredClient>> = RefCell::new(HashMap::new());
+    /* flexible */ static REGISTERED_CLIENTS: Rc<RefCell<HashMap<ClientKey, RegisteredClient>>> = Rc::new(RefCell::new(HashMap::new()));
     /// Maps the client's principal to the current client key
     /* flexible */ static CURRENT_CLIENT_KEY_MAP: RefCell<HashMap<ClientPrincipal, ClientKey>> = RefCell::new(HashMap::new());
+    /// Keeps track of all the clients for which we're waiting for a keep alive message
+    /* flexible */ static CLIENTS_WAITING_FOR_KEEP_ALIVE: Rc<RefCell<HashSet<ClientKey>>> = Rc::new(RefCell::new(HashSet::new()));
     /// Maps the client's key to the sequence number to use for the next outgoing message (to that client).
     /* flexible */ static OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP: RefCell<HashMap<ClientKey, u64>> = RefCell::new(HashMap::new());
     /// Maps the client's key to the expected sequence number of the next incoming message (from that client).
@@ -190,13 +207,13 @@ thread_local! {
     /// Keeps track of the nonce which:
     /// - the WS Gateway uses to specify the first index of the certified messages to be returned when polling
     /// - the client uses as part of the path in the Merkle tree in order to verify the certificate of the messages relayed by the WS Gateway
-    /* flexible */ static OUTGOING_MESSAGE_NONCE: RefCell<u64> = RefCell::new(0u64);
+    /* flexible */ static OUTGOING_MESSAGE_NONCE: RefCell<u64> = RefCell::new(INITIAL_OUTGOING_MESSAGE_NONCE);
     /// The parameters passed in the CDK initialization
     /* flexible */ static PARAMS: RefCell<WsInitParams> = RefCell::new(WsInitParams::default());
     /// The acknowledgement active timer.
-    /* flexible */ static ACK_TIMER: RefCell<Option<TimerId>> = RefCell::new(None);
+    /* flexible */ static ACK_TIMER: Rc<RefCell<Option<TimerId>>> = Rc::new(RefCell::new(None));
     /// The keep alive active timer.
-    /* flexible */ static KEEP_ALIVE_TIMER: RefCell<Option<TimerId>> = RefCell::new(None);
+    /* flexible */ static KEEP_ALIVE_TIMER: Rc<RefCell<Option<TimerId>>> = Rc::new(RefCell::new(None));
 }
 
 /// Resets all RefCells to their initial state.
@@ -211,10 +228,13 @@ fn reset_internal_state() {
         remove_client(&client_key);
     }
 
+    // make sure all the maps are cleared
     CURRENT_CLIENT_KEY_MAP.with(|map| {
         map.borrow_mut().clear();
     });
-
+    CLIENTS_WAITING_FOR_KEEP_ALIVE.with(|set| {
+        set.borrow_mut().clear();
+    });
     OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
         map.borrow_mut().clear();
     });
@@ -225,7 +245,7 @@ fn reset_internal_state() {
         t.replace(RbTree::new());
     });
     MESSAGES_FOR_GATEWAY.with(|m| *m.borrow_mut() = VecDeque::new());
-    OUTGOING_MESSAGE_NONCE.with(|next_id| next_id.replace(0u64));
+    OUTGOING_MESSAGE_NONCE.with(|next_id| next_id.replace(INITIAL_OUTGOING_MESSAGE_NONCE));
 }
 
 /// Resets the internal state of the IC WebSocket CDK.
@@ -282,6 +302,12 @@ fn check_registered_client(client_key: &ClientKey) -> Result<(), String> {
     Ok(())
 }
 
+fn add_client_to_wait_for_keep_alive(client_key: &ClientKey) {
+    CLIENTS_WAITING_FOR_KEEP_ALIVE.with(|clients| {
+        clients.borrow_mut().insert(client_key.clone());
+    });
+}
+
 fn initialize_registered_gateway(gateway_principal: &str) {
     REGISTERED_GATEWAY.with(|p| {
         let gateway_principal =
@@ -300,7 +326,8 @@ fn get_registered_gateway_principal() -> Principal {
 
 fn init_outgoing_message_to_client_num(client_key: ClientKey) {
     OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
-        map.borrow_mut().insert(client_key, 0);
+        map.borrow_mut()
+            .insert(client_key, INITIAL_CANISTER_SEQUENCE_NUM);
     });
 }
 
@@ -325,7 +352,8 @@ fn increment_outgoing_message_to_client_num(client_key: &ClientKey) -> Result<()
 
 fn init_expected_incoming_message_from_client_num(client_key: ClientKey) {
     INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
-        map.borrow_mut().insert(client_key, 1);
+        map.borrow_mut()
+            .insert(client_key, INITIAL_CLIENT_SEQUENCE_NUM);
     });
 }
 
@@ -359,6 +387,9 @@ fn add_client(client_key: ClientKey, new_client: RegisteredClient) {
 }
 
 fn remove_client(client_key: &ClientKey) {
+    CLIENTS_WAITING_FOR_KEEP_ALIVE.with(|set| {
+        set.borrow_mut().remove(client_key);
+    });
     CURRENT_CLIENT_KEY_MAP.with(|map| {
         map.borrow_mut().remove(&client_key.client_principal);
     });
@@ -493,9 +524,7 @@ fn put_ack_timer_id(timer_id: TimerId) {
 }
 
 fn reset_ack_timer() {
-    let timer_id = ACK_TIMER.with(|timer| timer.borrow_mut().take());
-
-    if let Some(t_id) = timer_id {
+    if let Some(t_id) = ACK_TIMER.with(Rc::clone).borrow_mut().take() {
         clear_timer(t_id);
     }
 }
@@ -505,9 +534,7 @@ fn put_keep_alive_timer_id(timer_id: TimerId) {
 }
 
 fn reset_keep_alive_timer() {
-    let timer_id = KEEP_ALIVE_TIMER.with(|timer| timer.borrow_mut().take());
-
-    if let Some(t_id) = timer_id {
+    if let Some(t_id) = KEEP_ALIVE_TIMER.with(Rc::clone).borrow_mut().take() {
         clear_timer(t_id);
     }
 }
@@ -573,13 +600,13 @@ fn send_service_message_to_client(
     _ws_send(client_key, message_bytes, true)
 }
 
-/// Schedules a timer to send an acknowledgement message to the client.
+/// Start an interval to send an acknowledgement messages to the clients.
 ///
-/// The timer callback is [send_ack_to_clients_timer_callback]. After the callback is executed,
+/// The interval callback is [send_ack_to_clients_timer_callback]. After the callback is executed,
 /// a timer is scheduled to check if the registered clients have sent a keep alive message.
 fn schedule_send_ack_to_clients() {
     let ack_interval_ms = get_params().send_ack_interval_ms;
-    let timer_id = set_timer(Duration::from_millis(ack_interval_ms), move || {
+    let timer_id = set_timer_interval(Duration::from_millis(ack_interval_ms), move || {
         send_ack_to_clients_timer_callback();
 
         schedule_check_keep_alive();
@@ -588,17 +615,14 @@ fn schedule_send_ack_to_clients() {
     put_ack_timer_id(timer_id);
 }
 
-/// Schedules a timer to check if the registered clients have sent a keep alive message
+/// Schedules a timer to check if the clients (only those to which an ack message was sent) have sent a keep alive message
 /// after receiving an acknowledgement message.
 ///
-/// The timer callback is [check_keep_alive_timer_callback]. After the callback is executed,
-/// a timer is scheduled again to send an acknowledgement message to the registered clients.
+/// The timer callback is [check_keep_alive_timer_callback].
 fn schedule_check_keep_alive() {
     let keep_alive_timeout_ms = get_params().keep_alive_timeout_ms;
     let timer_id = set_timer(Duration::from_millis(keep_alive_timeout_ms), move || {
         check_keep_alive_timer_callback(keep_alive_timeout_ms);
-
-        schedule_send_ack_to_clients();
     });
 
     put_keep_alive_timer_id(timer_id);
@@ -608,57 +632,64 @@ fn schedule_check_keep_alive() {
 /// The message contains the current incoming message sequence number for that client,
 /// so that the client knows that all the messages it sent have been received by the canister.
 fn send_ack_to_clients_timer_callback() {
-    REGISTERED_CLIENTS.with(|state| {
-        let map = state.borrow();
-        for client_key in map.keys() {
-            // ignore the error, which shouldn't happen since the client is registered and the sequence number is initialized
-            match get_expected_incoming_message_from_client_num(client_key) {
-                Ok(expected_incoming_sequence_num) => {
-                    let ack_message = CanisterAckMessageContent {
-                        last_incoming_sequence_num: expected_incoming_sequence_num - 1,
-                    };
-                    let message = WebsocketServiceMessageContent::AckMessage(ack_message);
-                    if let Err(e) = send_service_message_to_client(client_key, message) {
-                        // TODO: decide what to do when sending the message fails
+    for client_key in REGISTERED_CLIENTS.with(Rc::clone).borrow().keys() {
+        // ignore the error, which shouldn't happen since the client is registered and the sequence number is initialized
+        match get_expected_incoming_message_from_client_num(client_key) {
+            Ok(expected_incoming_sequence_num) => {
+                let ack_message = CanisterAckMessageContent {
+                    // the expected sequence number is 1 more because it's incremented when a message is received
+                    last_incoming_sequence_num: expected_incoming_sequence_num - 1,
+                };
+                let message = WebsocketServiceMessageContent::AckMessage(ack_message);
+                if let Err(e) = send_service_message_to_client(client_key, message) {
+                    // TODO: decide what to do when sending the message fails
 
-                        custom_print!(
-                            "[ack-to-clients-timer-cb]: Error sending ack message to client {}: {:?}",
-                            client_key,
-                            e
-                        );
-                    };
-                },
-                Err(e) => {
-                    // TODO: decide what to do when getting the expected incoming sequence number fails (shouldn't happen)
                     custom_print!(
-                        "[ack-to-clients-timer-cb]: Error getting expected incoming sequence number for client {}: {:?}",
+                        "[ack-to-clients-timer-cb]: Error sending ack message to client {}: {:?}",
                         client_key,
-                        e,
+                        e
                     );
+                } else {
+                    add_client_to_wait_for_keep_alive(client_key);
                 }
-            }
+            },
+            Err(e) => {
+                // TODO: decide what to do when getting the expected incoming sequence number fails (shouldn't happen)
+                custom_print!(
+                    "[ack-to-clients-timer-cb]: Error getting expected incoming sequence number for client {}: {:?}",
+                    client_key,
+                    e,
+                );
+            },
         }
-    });
+    }
 
     custom_print!("[ack-to-clients-timer-cb]: Sent ack messages to all clients");
 }
 
-/// Checks if the registered clients have sent a keep alive message.
-/// If a client has not sent a keep alive message, it is removed from the registered clients.
+/// Checks if the clients for which we are waiting for keep alive have sent a keep alive message.
+/// If a client has not sent a keep alive message, it is removed from the connected clients.
 fn check_keep_alive_timer_callback(keep_alive_timeout_ms: u64) {
-    let client_keys_to_remove: Vec<ClientKey> = REGISTERED_CLIENTS.with(|state| {
-        let map = state.borrow();
-        map.iter()
-            .filter_map(|(client_key, client_metadata)| {
+    let client_keys_to_remove: Vec<ClientKey> = CLIENTS_WAITING_FOR_KEEP_ALIVE
+        .with(Rc::clone)
+        .borrow()
+        .iter()
+        .filter_map(|client_key| {
+            // get the last keep alive timestamp for the client and check if it has exceeded the timeout
+            if let Some(client_metadata) =
+                REGISTERED_CLIENTS.with(Rc::clone).borrow().get(client_key)
+            {
                 let last_keep_alive = client_metadata.get_last_keep_alive_timestamp();
                 if get_current_time() - last_keep_alive > (keep_alive_timeout_ms * 1_000_000) {
                     Some(client_key.to_owned())
                 } else {
                     None
                 }
-            })
-            .collect()
-    });
+            } else {
+                None
+            }
+        })
+        .collect();
 
     for client_key in client_keys_to_remove {
         remove_client(&client_key);
@@ -680,12 +711,13 @@ fn handle_keep_alive_client_message(
     // TODO: delete messages from the queue that have been acknowledged by the client
 
     // update the last keep alive timestamp for the client
-    REGISTERED_CLIENTS.with(|map| {
-        let mut map = map.borrow_mut();
-        if let Some(client_metadata) = map.get_mut(client_key) {
-            client_metadata.update_last_keep_alive_timestamp();
-        }
-    });
+    if let Some(client_metadata) = REGISTERED_CLIENTS
+        .with(Rc::clone)
+        .borrow_mut()
+        .get_mut(client_key)
+    {
+        client_metadata.update_last_keep_alive_timestamp();
+    }
 
     Ok(())
 }
@@ -839,9 +871,15 @@ pub struct WsInitParams {
     pub max_number_of_returned_messages: usize,
     /// The interval at which to send an acknowledgement message to the client,
     /// so that the client knows that all the messages it sent have been received by the canister (in milliseconds).
+    ///
+    /// Must be greater than `keep_alive_timeout_ms`.
+    ///
     /// Defaults to `60_000` (60 seconds).
     pub send_ack_interval_ms: u64,
     /// The delay to wait for the client to send a keep alive after receiving an acknowledgement (in milliseconds).
+    ///
+    /// Must be lower than `send_ack_interval_ms`.
+    ///
     /// Defaults to `10_000` (10 seconds).
     pub keep_alive_timeout_ms: u64,
 }
@@ -858,6 +896,17 @@ impl WsInitParams {
 
     fn get_handlers(&self) -> WsHandlers {
         self.handlers.clone()
+    }
+
+    /// Checks the validity of the timer parameters.
+    /// `send_ack_interval_ms` must be greater than `keep_alive_timeout_ms`.
+    ///
+    /// # Traps
+    /// If `send_ack_interval_ms` < `keep_alive_timeout_ms`.
+    fn check_validity(&self) {
+        if self.keep_alive_timeout_ms > self.send_ack_interval_ms {
+            trap("send_ack_interval_ms must be greater than keep_alive_timeout_ms");
+        }
     }
 }
 
@@ -877,7 +926,13 @@ impl Default for WsInitParams {
 /// will be polling the canister.
 ///
 /// **Note**: Resets the timers under the hood.
+///
+/// # Traps
+/// If the parameters are invalid. See [`WsInitParams::check_validity`] for more details.
 pub fn init(params: WsInitParams) {
+    // check if the parameters are valid
+    params.check_validity();
+
     // set the handlers specified by the canister that the CDK uses to manage the IC WebSocket connection
     set_params(params.clone());
 
@@ -1360,7 +1415,7 @@ mod test {
             init_outgoing_message_to_client_num(test_client_key.clone());
 
             let actual_result = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
-            prop_assert_eq!(actual_result, 0);
+            prop_assert_eq!(actual_result, INITIAL_CANISTER_SEQUENCE_NUM);
         }
 
         #[test]
@@ -1394,7 +1449,7 @@ mod test {
             init_expected_incoming_message_from_client_num(test_client_key.clone());
 
             let actual_result = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
-            prop_assert_eq!(actual_result, 1);
+            prop_assert_eq!(actual_result, INITIAL_CLIENT_SEQUENCE_NUM);
         }
 
         #[test]
@@ -1424,6 +1479,14 @@ mod test {
         }
 
         #[test]
+        fn test_add_client_to_wait_for_keep_alive(test_client_key in any::<u8>().prop_map(|_| test_utils::get_random_client_key())) {
+            add_client_to_wait_for_keep_alive(&test_client_key);
+
+            let actual_result = CLIENTS_WAITING_FOR_KEEP_ALIVE.with(|map| map.borrow().get(&test_client_key).is_some());
+            prop_assert_eq!(actual_result, true);
+        }
+
+        #[test]
         fn test_add_client(test_client_key in any::<u8>().prop_map(|_| test_utils::get_random_client_key())) {
             let registered_client = test_utils::generate_random_registered_client();
 
@@ -1437,10 +1500,10 @@ mod test {
             prop_assert_eq!(actual_result, registered_client);
 
             let actual_result = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
-            prop_assert_eq!(actual_result, 1);
+            prop_assert_eq!(actual_result, INITIAL_CLIENT_SEQUENCE_NUM);
 
             let actual_result = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
-            prop_assert_eq!(actual_result, 0);
+            prop_assert_eq!(actual_result, INITIAL_CANISTER_SEQUENCE_NUM);
         }
 
         #[test]
@@ -1453,10 +1516,10 @@ mod test {
                 map.borrow_mut().insert(test_client_key.clone(), test_utils::generate_random_registered_client());
             });
             INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
-                map.borrow_mut().insert(test_client_key.clone(), 0);
+                map.borrow_mut().insert(test_client_key.clone(), INITIAL_CLIENT_SEQUENCE_NUM);
             });
             OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
-                map.borrow_mut().insert(test_client_key.clone(), 0);
+                map.borrow_mut().insert(test_client_key.clone(), INITIAL_CANISTER_SEQUENCE_NUM);
             });
 
             remove_client(&test_client_key);

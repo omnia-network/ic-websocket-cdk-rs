@@ -74,9 +74,9 @@ const DEFAULT_TEST_SEND_ACK_INTERVAL_MS = 300_000;
  * The interval between keep alive checks in the canister.
  * Set to a high value to make sure the canister doesn't reset the client while testing other functions.
  * 
- * Value: `300_000` (5 minutes)
+ * Value: `120_000` (2 minutes)
  */
-const DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS = 300_000;
+const DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS = 120_000;
 
 let client1Key: ClientKey;
 let client2Key: ClientKey;
@@ -692,11 +692,12 @@ describe("Messages acknowledgement", () => {
   });
 
   it("client should receive ack messages", async () => {
-    const sendAckIntervalMs = 5_000; // 5 seconds
+    const sendAckIntervalMs = 10_000; // 10 seconds
+    const keepAliveDelayMs = 5_000; // 5 seconds
     await initializeCdk({
       maxNumberOfReturnedMessages: DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
       sendAckIntervalMs,
-      keepAliveDelayMs: DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS, // keep alive timeout still high to avoid removing connected client
+      keepAliveDelayMs,
     });
 
     await wsOpen({
@@ -722,7 +723,7 @@ describe("Messages acknowledgement", () => {
       message: createWebsocketMessage(client1Key, 1),
     }, true);
 
-    // sleep for 5 seconds, which is more than the sendAckIntervalMs due to the previous calls
+    // sleep for 10 seconds, which is more than the sendAckIntervalMs due to the previous calls
     // so we are sure that the CDK has sent an ack
     await sleep(sendAckIntervalMs);
 
@@ -767,7 +768,7 @@ describe("Messages acknowledgement", () => {
   });
 
   it("client is removed if keep alive timeout is reached", async () => {
-    const sendAckIntervalMs = 2_000; // 2 seconds
+    const sendAckIntervalMs = 10_000; // 10 seconds
     const keepAliveDelayMs = 5_000; // 5 seconds
     await initializeCdk({
       maxNumberOfReturnedMessages: DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
@@ -809,7 +810,7 @@ describe("Messages acknowledgement", () => {
   });
 
   it("client is not removed if it sends a keep alive before timeout", async () => {
-    const sendAckIntervalMs = 3_000; // 3 seconds
+    const sendAckIntervalMs = 15_000; // 15 seconds
     const keepAliveDelayMs = 5_000; // 5 seconds
     await initializeCdk({
       maxNumberOfReturnedMessages: DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
@@ -829,11 +830,24 @@ describe("Messages acknowledgement", () => {
       nonce: BigInt(1), // skip the service open message
     });
     let messagesResult = (res as { Ok: CanisterOutputCertifiedMessages }).Ok;
+    // the queue contains only the first ack message
     expect(messagesResult.messages.length).toEqual(1);
+    let ackMessage = messagesResult.messages[0];
+    expect(isClientKeyEq(ackMessage.client_key, client1Key)).toEqual(true);
+    let websocketMessage = getWebsocketMessageFromCanisterMessage(ackMessage);
+    expect(websocketMessage.is_service_message).toEqual(true);
+    expect(websocketMessage.sequence_num).toEqual(2);
+    let serviceMessageContent = decodeWebsocketServiceMessageContent(websocketMessage.content as Uint8Array);
+    expect(serviceMessageContent).toMatchObject<WebsocketServiceMessageContent>({
+      AckMessage: {
+        last_incoming_sequence_num: BigInt(0),
+      },
+    });
 
+    // send the keep alive message
     const keepAliveMessage: WebsocketServiceMessageContent = {
       KeepAliveMessage: {
-        last_incoming_sequence_num: BigInt(1), // not relevant
+        last_incoming_sequence_num: BigInt(1), // ignored in the CDK
       },
     };
     await wsMessage({
@@ -841,9 +855,11 @@ describe("Messages acknowledgement", () => {
       message: createWebsocketMessage(client1Key, 1, encodeWebsocketServiceMessageContent(keepAliveMessage), true),
     }, true);
 
+    // wait for the canister to check if the client has sent the keep alive
     await sleep(keepAliveDelayMs);
 
-    // send a message to the canister to see the the sequence number increase in the ack message
+    // send a message to the canister to see the sequence number increasing in the ack message
+    // and be sure that the client can still send messages
     await wsMessage({
       actor: client1,
       message: createWebsocketMessage(client1Key, 2),
@@ -853,30 +869,81 @@ describe("Messages acknowledgement", () => {
     await sleep(sendAckIntervalMs);
 
     res = await gateway1.ws_get_messages({
+      nonce: BigInt(2), // skip the service open message and the first service ack message
+    });
+
+    messagesResult = (res as { Ok: CanisterOutputCertifiedMessages }).Ok;
+    // the fetched queue only contains the second ack message
+    expect(messagesResult.messages.length).toEqual(1);
+    ackMessage = messagesResult.messages[0];
+    expect(isClientKeyEq(ackMessage.client_key, client1Key)).toEqual(true);
+    websocketMessage = getWebsocketMessageFromCanisterMessage(ackMessage);
+    expect(websocketMessage.is_service_message).toEqual(true);
+    expect(websocketMessage.sequence_num).toEqual(3);
+    serviceMessageContent = decodeWebsocketServiceMessageContent(websocketMessage.content as Uint8Array);
+    expect(serviceMessageContent).toMatchObject<WebsocketServiceMessageContent>({
+      AckMessage: {
+        last_incoming_sequence_num: BigInt(2), // as expected, the canister acks both the messages that we've sent
+      },
+    });
+  });
+
+  it("client is not removed if it connects while canister is waiting for keep alive", async () => {
+    const sendAckIntervalMs = 15_000; // 15 seconds
+    const keepAliveDelayMs = 10_000; // 10 seconds, to make sure the canister is waiting for keep alive when the client connects
+    await initializeCdk({
+      maxNumberOfReturnedMessages: DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
+      sendAckIntervalMs,
+      keepAliveDelayMs,
+    });
+
+    // make sure the canister is waiting for keep alive
+    await sleep(sendAckIntervalMs);
+
+    await wsOpen({
+      clientNonce: client1Key.client_nonce,
+      canisterId,
+      clientActor: client1,
+    }, true);
+
+    let res = await gateway1.ws_get_messages({
+      nonce: BigInt(1), // skip the service open message
+    });
+    let messagesResult = (res as { Ok: CanisterOutputCertifiedMessages }).Ok;
+    expect(messagesResult.messages.length).toEqual(0); // client doesn't expect any other messages at this point
+
+    // send a message to the canister to see the sequence number increasing in the ack message
+    // ad verify that the client is still connected to the canister
+    const wsMessageRes = await wsMessage({
+      actor: client1,
+      message: createWebsocketMessage(client1Key, 1),
+    });
+    expect(wsMessageRes).toMatchObject<CanisterWsMessageResult>({
+      Ok: null,
+    });
+
+    // wait to for the keep alive timeout to expire
+    await sleep(keepAliveDelayMs);
+    // wait for the canister to send the next ack
+    await sleep(sendAckIntervalMs - keepAliveDelayMs);
+
+    res = await gateway1.ws_get_messages({
       nonce: BigInt(1), // skip the service open message
     });
 
     messagesResult = (res as { Ok: CanisterOutputCertifiedMessages }).Ok;
-    expect(messagesResult.messages.length).toEqual(2);
+    expect(messagesResult.messages.length).toEqual(1);
 
-    let expectedClientSequenceNum = 0;
-    let expectedCanisterSequenceNum = 2; // first message is skipped and sequence number starts from 1
-    for (const message of messagesResult.messages) {
-      expect(isClientKeyEq(message.client_key, client1Key)).toEqual(true);
-
-      const websocketMessage = getWebsocketMessageFromCanisterMessage(message);
-      expect(websocketMessage.is_service_message).toEqual(true);
-      expect(websocketMessage.sequence_num).toEqual(expectedCanisterSequenceNum);
-
-      const serviceMessageContent = decodeWebsocketServiceMessageContent(websocketMessage.content as Uint8Array);
-      expect(serviceMessageContent).toMatchObject<WebsocketServiceMessageContent>({
-        AckMessage: {
-          last_incoming_sequence_num: BigInt(expectedClientSequenceNum),
-        },
-      });
-
-      expectedClientSequenceNum++;
-      expectedCanisterSequenceNum++;
-    }
-  });
+    const ackMessage = messagesResult.messages[0];
+    expect(isClientKeyEq(ackMessage.client_key, client1Key)).toEqual(true);
+    const websocketMessage = getWebsocketMessageFromCanisterMessage(ackMessage);
+    expect(websocketMessage.is_service_message).toEqual(true);
+    expect(websocketMessage.sequence_num).toEqual(2); // first message is skipped and sequence number starts from 1
+    const serviceMessageContent = decodeWebsocketServiceMessageContent(websocketMessage.content as Uint8Array);
+    expect(serviceMessageContent).toMatchObject<WebsocketServiceMessageContent>({
+      AckMessage: {
+        last_incoming_sequence_num: BigInt(1),
+      },
+    });
+  })
 });
