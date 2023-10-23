@@ -800,7 +800,7 @@ type OnOpenCallback = fn(OnOpenCallbackArgs);
 /// To deserialize the message, use [candid::decode_one].
 ///
 /// # Example
-/// This example is the serialize equivalent of the [ws_send's example](fn.ws_send.html#example) deserialize one.
+/// This example is the deserialize equivalent of the [ws_send's example](fn.ws_send.html#example) serialize one.
 /// ```rust
 /// use candid::{decode_one, CandidType};
 /// use ic_websocket_cdk::OnMessageCallbackArgs;

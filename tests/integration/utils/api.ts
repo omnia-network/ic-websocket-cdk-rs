@@ -3,7 +3,6 @@
 import { ActorSubclass } from "@dfinity/agent";
 import { anonymousClient, gateway1Data } from "./actors";
 import { IDL } from "@dfinity/candid";
-import { idlFactory } from "../../src/declarations/test_canister";
 import { extractApplicationMessageIdlFromActor } from "./idl";
 import type { AppMessage, CanisterOutputCertifiedMessages, ClientKey, ClientPrincipal, WebsocketMessage, _SERVICE } from "../../src/declarations/test_canister/test_canister.did";
 
@@ -129,8 +128,3 @@ export const wsSend = async (args: WsSendArgs, throwIfError = false) => {
 
   return resolveResult(res, throwIfError);
 };
-
-const f = idlFactory({ IDL });
-
-const func = f._fields.find(f => f[0] === "ws_message")[1]
-func.argTypes
