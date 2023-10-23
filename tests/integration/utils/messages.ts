@@ -1,8 +1,8 @@
 import { Cbor, Certificate, HashTree, HttpAgent, compare, lookup_path, reconstruct } from "@dfinity/agent";
-import { CanisterOutputMessage, ClientKey, WebsocketMessage } from "../../src/declarations/test_canister/test_canister.did";
 import { getWebsocketMessageFromCanisterMessage } from "./idl";
 import { Principal } from "@dfinity/principal";
 import { Secp256k1KeyIdentity } from "@dfinity/identity-secp256k1";
+import type { CanisterOutputMessage, ClientKey, WebsocketMessage } from "../../src/declarations/test_canister/test_canister.did";
 
 export const filterServiceMessagesFromCanisterMessages = (messages: CanisterOutputMessage[]): CanisterOutputMessage[] => {
   return messages.filter((msg) => {

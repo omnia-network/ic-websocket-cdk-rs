@@ -1,9 +1,11 @@
 // helpers for functions that are called frequently in tests
 
 import { ActorSubclass } from "@dfinity/agent";
-import { IDL } from "@dfinity/candid";
 import { anonymousClient, gateway1Data } from "./actors";
-import type { CanisterOutputCertifiedMessages, ClientKey, ClientPrincipal, WebsocketMessage, _SERVICE } from "../../src/declarations/test_canister/test_canister.did";
+import { IDL } from "@dfinity/candid";
+import { idlFactory } from "../../src/declarations/test_canister";
+import { extractApplicationMessageIdlFromActor } from "./idl";
+import type { AppMessage, CanisterOutputCertifiedMessages, ClientKey, ClientPrincipal, WebsocketMessage, _SERVICE } from "../../src/declarations/test_canister/test_canister.did";
 
 type GenericResult<T> = {
   Ok: T,
@@ -53,7 +55,7 @@ type WsMessageArgs = {
 export const wsMessage = async (args: WsMessageArgs, throwIfError = false) => {
   const res = await args.actor.ws_message({
     msg: args.message,
-  });
+  }, []);
 
   return resolveResult(res, throwIfError);
 };
@@ -118,16 +120,17 @@ export const initializeCdk = async (args: InitializeCdkArgs) => {
 type WsSendArgs = {
   clientPrincipal: ClientPrincipal,
   actor: ActorSubclass<_SERVICE>,
-  messages: Array<{
-    text: string,
-  }>,
+  messages: Array<AppMessage>,
 };
 
 export const wsSend = async (args: WsSendArgs, throwIfError = false) => {
-  const serializedMessages = args.messages.map((msg) => {
-    return new Uint8Array(IDL.encode([IDL.Record({ 'text': IDL.Text })], [msg]));
-  });
-  const res = await args.actor.ws_send(args.clientPrincipal, serializedMessages);
+  const messagesBytes = args.messages.map((msg) => IDL.encode([extractApplicationMessageIdlFromActor<AppMessage>(args.actor)], [msg])).map((m) => new Uint8Array(m));
+  const res = await args.actor.ws_send(args.clientPrincipal, messagesBytes);
 
   return resolveResult(res, throwIfError);
 };
+
+const f = idlFactory({ IDL });
+
+const func = f._fields.find(f => f[0] === "ws_message")[1]
+func.argTypes

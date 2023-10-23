@@ -1,6 +1,13 @@
+use candid::CandidType;
 use ic_cdk::print;
 
 use ic_websocket_cdk::{OnCloseCallbackArgs, OnMessageCallbackArgs, OnOpenCallbackArgs};
+use serde::{Deserialize, Serialize};
+
+#[derive(CandidType, Serialize, Deserialize)]
+pub struct AppMessage {
+    pub text: String,
+}
 
 pub fn on_open(args: OnOpenCallbackArgs) {
     print(format!("Opened websocket: {:?}", args.client_principal));

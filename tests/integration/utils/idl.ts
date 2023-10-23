@@ -1,6 +1,6 @@
 import { IDL } from "@dfinity/candid";
-import { CanisterOutputMessage, ClientKey, WebsocketMessage } from "../../src/declarations/test_canister/test_canister.did";
-import { Cbor } from "@dfinity/agent";
+import { Actor, ActorSubclass, Cbor } from "@dfinity/agent";
+import type { CanisterOutputMessage, ClientKey, WebsocketMessage, _SERVICE } from "../../src/declarations/test_canister/test_canister.did";
 
 export const ClientPrincipalIdl = IDL.Principal;
 export const ClientKeyIdl = IDL.Record({
@@ -65,3 +65,30 @@ export const getWebsocketMessageFromCanisterMessage = (msg: CanisterOutputMessag
   const websocketMessage: WebsocketMessage = Cbor.decode(msg.content as Uint8Array);
   return websocketMessage;
 }
+
+/**
+ * Extracts the message type from the canister service definition.
+ * 
+ * @throws {Error} if the canister does not implement the ws_message method
+ * @throws {Error} if the application message type is not optional
+ * 
+ * COPIED from IC WebSocket JS SDK.
+ */
+export const extractApplicationMessageIdlFromActor = <T>(actor: ActorSubclass<_SERVICE>): IDL.Type<T> => {
+  const wsMessageMethod = Actor.interfaceOf(actor)._fields.find((f) => f[0] === "ws_message");
+
+  if (!wsMessageMethod) {
+    throw new Error("Canister does not implement ws_message method");
+  }
+
+  if (wsMessageMethod[1].argTypes.length !== 2) {
+    throw new Error("ws_message method must have 2 arguments");
+  }
+
+  const applicationMessageArg = wsMessageMethod[1].argTypes[1] as IDL.OptClass<T>;
+  if (!(applicationMessageArg instanceof IDL.OptClass)) {
+    throw new Error("Application message type must be optional in the ws_message arguments");
+  }
+
+  return applicationMessageArg["_type"]; // extract the underlying option type
+};
