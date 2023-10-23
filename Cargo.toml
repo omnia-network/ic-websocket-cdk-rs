@@ -3,6 +3,7 @@ members = [
   "src/ic-websocket-cdk",
   "tests",
 ]
+resolver = "2"
 
 [workspace.package]
 edition = "2021"
