@@ -8,7 +8,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 repository = "https://github.com/omnia-network/ic-websocket-cdk-rs"
-rust-version = "1.69.0"
+rust-version = "1.70.0"
 description = "IC Websocket CDK Rust workspace"
 license = "MIT"
 
