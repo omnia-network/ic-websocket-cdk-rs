@@ -20,14 +20,23 @@ In order for the frontend clients and the Gateway to work properly, the canister
 ```
 import "./ws_types.did";
 
+// define here your message type
+type MyMessageType = {
+  some_field : text;
+};
+
 service : {
   "ws_open" : (CanisterWsOpenArguments) -> (CanisterWsOpenResult);
   "ws_close" : (CanisterWsCloseArguments) -> (CanisterWsCloseResult);
-  "ws_message" : (CanisterWsMessageArguments) -> (CanisterWsMessageResult);
+  "ws_message" : (CanisterWsMessageArguments, opt MyMessageType) -> (CanisterWsMessageResult);
   "ws_get_messages" : (CanisterWsGetMessagesArguments) -> (CanisterWsGetMessagesResult) query;
 };
 ```
 This snipped is copied from the [service.example.did](./src/ic-websocket-cdk/service.example.did) file and the types imported are defined in the [ws_types.did](./src/ic-websocket-cdk/ws_types.did) file.
+
+To define your message type, you can use the [Candid reference docs](https://internetcomputer.org/docs/current/references/candid-ref). We suggest you to define your message type using a [variant](https://internetcomputer.org/docs/current/references/candid-ref#type-variant--n--t--), so that you can support different messages over the same websocket instance and make it safe for future updates of your types.
+
+To automatically generate the Candid interfaces for your canister, have a look at [this article](https://daviddalbusco.com/blog/automatic-candid-generation-in-rust-exploring-the-ic-cdk-v0-10-0-update/).
 
 ## Development
 

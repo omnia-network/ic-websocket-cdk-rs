@@ -796,8 +796,31 @@ pub struct OnOpenCallbackArgs {
 type OnOpenCallback = fn(OnOpenCallbackArgs);
 
 /// Arguments passed to the `on_message` handler.
+/// The `message` argument is the message received from the client, serialized in Candid.
+/// To deserialize the message, use [candid::decode_one].
+///
+/// # Example
+/// This example is the deserialize equivalent of the [ws_send's example](fn.ws_send.html#example) serialize one.
+/// ```rust
+/// use candid::{decode_one, CandidType};
+/// use ic_websocket_cdk::OnMessageCallbackArgs;
+/// use serde::Deserialize;
+///
+/// #[derive(CandidType, Deserialize)]
+/// struct MyMessage {
+///     some_field: String,
+/// }
+///
+/// fn on_message(args: OnMessageCallbackArgs) {
+///     let received_message: MyMessage = decode_one(&args.message).unwrap();
+///
+///     println!("Received message: some_field: {:?}", received_message.some_field);
+/// }
+/// ```
 pub struct OnMessageCallbackArgs {
+    /// The principal of the client sending the message to the canister.
     pub client_principal: ClientPrincipal,
+    /// The message received from the client, serialized in Candid. See [OnMessageCallbackArgs] for an example on how to deserialize the message.
     pub message: Vec<u8>,
 }
 /// Handler initialized by the canister
@@ -1000,7 +1023,35 @@ pub fn ws_close(args: CanisterWsCloseArguments) -> CanisterWsCloseResult {
 }
 
 /// Handles the WS messages received either directly from the client or relayed by the WS Gateway.
-pub fn ws_message(args: CanisterWsMessageArguments) -> CanisterWsMessageResult {
+///
+/// The second argument is only needed to expose the type of the message on the canister Candid interface and get automatic types generation on the client side.
+/// This way, on the client you have the same types and you don't have to care about serializing and deserializing the messages sent through IC WebSocket.
+///
+/// # Example
+/// ```rust
+/// use ic_cdk_macros::*;
+/// use candid::{CandidType};
+/// use ic_websocket_cdk::{CanisterWsMessageArguments, CanisterWsMessageResult};
+/// use serde::Deserialize;
+///
+/// #[derive(CandidType, Deserialize)]
+/// struct MyMessage {
+///     some_field: String,
+/// }
+///
+/// // method called by the WS Gateway to send a message of type GatewayMessage to the canister
+/// #[update]
+/// fn ws_message(
+///     args: CanisterWsMessageArguments,
+///     msg_type: Option<MyMessage>,
+/// ) -> CanisterWsMessageResult {
+///     ic_websocket_cdk::ws_message(args, msg_type)
+/// }
+/// ```
+pub fn ws_message<T: CandidType + for<'a> Deserialize<'a>>(
+    args: CanisterWsMessageArguments,
+    _message_type: Option<T>,
+) -> CanisterWsMessageResult {
     let client_principal = caller();
     // check if client registered its principal by calling ws_open
     let registered_client_key = get_client_key_from_principal(&client_principal)?;
@@ -1056,10 +1107,34 @@ pub fn ws_get_messages(args: CanisterWsGetMessagesArguments) -> CanisterWsGetMes
     get_cert_messages(gateway_principal, args.nonce)
 }
 
-/// Sends a message to the client. The message must already be serialized, using a method of your choice, like Candid or CBOR.
+/// Sends a message to the client. The message must already be serialized **using Candid**.
+/// Use [candid::encode_one] to serialize the message.
 ///
-/// Under the hood, the message is serialized and certified, and then it is added to the queue of messages
+/// Under the hood, the message is certified and added to the queue of messages
 /// that the WS Gateway will poll in the next iteration.
+///
+/// # Example
+/// This example is the serialize equivalent of the [OnMessageCallbackArgs's example](struct.OnMessageCallbackArgs.html#example) deserialize one.
+/// ```rust
+/// use candid::{encode_one, CandidType, Principal};
+/// use ic_websocket_cdk::ws_send;
+/// use serde::Deserialize;
+///
+/// #[derive(CandidType, Deserialize)]
+/// struct MyMessage {
+///     some_field: String,
+/// }
+///
+/// // obtained when the on_open callback was fired
+/// let my_client_principal = Principal::from_text("wnkwv-wdqb5-7wlzr-azfpw-5e5n5-dyxrf-uug7x-qxb55-mkmpa-5jqik-tqe").unwrap();
+///
+/// let my_message = MyMessage {
+///     some_field: "Hello, World!".to_string(),
+/// };
+///
+/// let msg_bytes = encode_one(&my_message).unwrap();
+/// ws_send(my_client_principal, msg_bytes);
+/// ```
 pub fn ws_send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> CanisterWsSendResult {
     let client_key = get_client_key_from_principal(&client_principal)?;
     _ws_send(&client_key, msg_bytes, false)

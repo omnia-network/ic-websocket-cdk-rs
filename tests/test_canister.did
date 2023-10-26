@@ -5,10 +5,14 @@ type CanisterWsSendResult = variant {
   Err : text;
 };
 
+type AppMessage = record {
+  text : text;
+};
+
 service : (text, nat64, nat64, nat64) -> {
   "ws_open" : (CanisterWsOpenArguments) -> (CanisterWsOpenResult);
   "ws_close" : (CanisterWsCloseArguments) -> (CanisterWsCloseResult);
-  "ws_message" : (CanisterWsMessageArguments) -> (CanisterWsMessageResult);
+  "ws_message" : (CanisterWsMessageArguments, opt AppMessage) -> (CanisterWsMessageResult);
   "ws_get_messages" : (CanisterWsGetMessagesArguments) -> (CanisterWsGetMessagesResult) query;
 
   // methods used just for debugging/testing

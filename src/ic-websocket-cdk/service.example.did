@@ -1,8 +1,13 @@
 import "./ws_types.did";
 
+// define your message type here
+type MyMessageType = {
+  some_field : text;
+};
+
 service : {
   "ws_open" : (CanisterWsOpenArguments) -> (CanisterWsOpenResult);
   "ws_close" : (CanisterWsCloseArguments) -> (CanisterWsCloseResult);
-  "ws_message" : (CanisterWsMessageArguments) -> (CanisterWsMessageResult);
+  "ws_message" : (CanisterWsMessageArguments, opt MyMessageType) -> (CanisterWsMessageResult);
   "ws_get_messages" : (CanisterWsGetMessagesArguments) -> (CanisterWsGetMessagesResult) query;
 };

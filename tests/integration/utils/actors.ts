@@ -1,7 +1,7 @@
 import { Actor, ActorConfig, HttpAgent, HttpAgentOptions } from "@dfinity/agent";
 import { identityFromSeed } from "./identity";
-// @ts-ignore
-import { _SERVICE, idlFactory } from "../../src/declarations/test_canister/test_canister.did";
+import { idlFactory } from "../../src/declarations/test_canister";
+import type { _SERVICE } from "../../src/declarations/test_canister/test_canister.did";
 
 export const localReplicaHost = "http://127.0.0.1:4943";
 
