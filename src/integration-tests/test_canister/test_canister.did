@@ -1,0 +1,22 @@
+import "../src/ic-websocket-cdk/ws_types.did";
+
+type CanisterWsSendResult = variant {
+  Ok : null;
+  Err : text;
+};
+
+type AppMessage = record {
+  text : text;
+};
+
+service : (text, nat64, nat64, nat64) -> {
+  "ws_open" : (CanisterWsOpenArguments) -> (CanisterWsOpenResult);
+  "ws_close" : (CanisterWsCloseArguments) -> (CanisterWsCloseResult);
+  "ws_message" : (CanisterWsMessageArguments, opt AppMessage) -> (CanisterWsMessageResult);
+  "ws_get_messages" : (CanisterWsGetMessagesArguments) -> (CanisterWsGetMessagesResult) query;
+
+  // methods used just for debugging/testing
+  "ws_wipe" : () -> ();
+  "ws_send" : (ClientPrincipal, vec blob) -> (CanisterWsSendResult);
+  "initialize" : (text, nat64, nat64, nat64) -> ();
+};

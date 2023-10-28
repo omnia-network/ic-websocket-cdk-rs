@@ -1,6 +1,8 @@
 [workspace]
 members = [
   "src/ic-websocket-cdk",
+  "src/integration-tests",
+  "src/integration-tests/test_canister",
   "tests",
 ]
 resolver = "2"
@@ -20,6 +22,7 @@ ic-cdk = "0.10.0"
 ic-cdk-macros = "0.7.1"
 serde = "1.0.176"
 serde_cbor = "0.11.2"
+rand = "0.8.5"
 
 [profile.canister-release]
 inherits = "release"

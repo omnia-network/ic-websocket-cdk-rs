@@ -40,14 +40,14 @@ const INITIAL_CANISTER_SEQUENCE_NUM: u64 = 0;
 
 pub type ClientPrincipal = Principal;
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug, Hash)]
-struct ClientKey {
-    client_principal: ClientPrincipal,
-    client_nonce: u64,
+pub struct ClientKey {
+    pub client_principal: ClientPrincipal,
+    pub client_nonce: u64,
 }
 
 impl ClientKey {
     /// Creates a new instance of ClientKey.
-    fn new(client_principal: ClientPrincipal, client_nonce: u64) -> Self {
+    pub fn new(client_principal: ClientPrincipal, client_nonce: u64) -> Self {
         Self {
             client_principal,
             client_nonce,
@@ -75,7 +75,7 @@ pub type CanisterWsSendResult = Result<(), String>;
 /// The arguments for [ws_open].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsOpenArguments {
-    client_nonce: u64,
+    pub client_nonce: u64,
 }
 
 /// The arguments for [ws_close].
@@ -93,18 +93,18 @@ pub struct CanisterWsMessageArguments {
 /// The arguments for [ws_get_messages].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsGetMessagesArguments {
-    nonce: u64,
+    pub nonce: u64,
 }
 
 /// Messages exchanged through the WebSocket.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-struct WebsocketMessage {
+pub struct WebsocketMessage {
     client_key: ClientKey, // The client that the gateway will forward the message to or that sent the message.
     sequence_num: u64,     // Both ways, messages should arrive with sequence numbers 0, 1, 2...
     timestamp: u64,        // Timestamp of when the message was made for the recipient to inspect.
     is_service_message: bool, // Whether the message is a service message sent by the CDK to the client or vice versa.
     #[serde(with = "serde_bytes")]
-    content: Vec<u8>, // Application message encoded in binary.
+    pub content: Vec<u8>, // Application message encoded in binary.
 }
 
 impl WebsocketMessage {
@@ -121,16 +121,16 @@ impl WebsocketMessage {
 /// Element of the list of messages returned to the WS Gateway after polling.
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
 pub struct CanisterOutputMessage {
-    client_key: ClientKey, // The client that the gateway will forward the message to or that sent the message.
-    key: String,           // Key for certificate verification.
+    pub client_key: ClientKey, // The client that the gateway will forward the message to or that sent the message.
+    pub key: String,           // Key for certificate verification.
     #[serde(with = "serde_bytes")]
-    content: Vec<u8>, // The message to be relayed, that contains the application message.
+    pub content: Vec<u8>, // The message to be relayed, that contains the application message.
 }
 
 /// List of messages returned to the WS Gateway after polling.
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
 pub struct CanisterOutputCertifiedMessages {
-    messages: Vec<CanisterOutputMessage>, // List of messages.
+    pub messages: Vec<CanisterOutputMessage>, // List of messages.
     #[serde(with = "serde_bytes")]
     cert: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
     #[serde(with = "serde_bytes")]
@@ -557,23 +557,23 @@ fn get_handlers_from_params() -> WsHandlers {
 }
 
 #[derive(CandidType, Debug, Deserialize)]
-struct CanisterOpenMessageContent {
-    client_key: ClientKey,
+pub struct CanisterOpenMessageContent {
+    pub client_key: ClientKey,
 }
 
 #[derive(CandidType, Debug, Deserialize)]
-struct CanisterAckMessageContent {
+pub struct CanisterAckMessageContent {
     last_incoming_sequence_num: u64,
 }
 
 #[derive(CandidType, Debug, Deserialize)]
-struct ClientKeepAliveMessageContent {
+pub struct ClientKeepAliveMessageContent {
     last_incoming_sequence_num: u64,
 }
 
 /// A service message sent by the CDK to the client or vice versa.
 #[derive(CandidType, Debug, Deserialize)]
-enum WebsocketServiceMessageContent {
+pub enum WebsocketServiceMessageContent {
     /// Message sent by the **canister** when a client opens a connection.
     OpenMessage(CanisterOpenMessageContent),
     /// Message sent _periodically_ by the **canister** to the client to acknowledge the messages received.

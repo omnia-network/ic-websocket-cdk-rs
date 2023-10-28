@@ -8,3 +8,6 @@ node_modules
 dist
 declarations
 .env
+
+# the binary file needed for tests
+pocket-ic

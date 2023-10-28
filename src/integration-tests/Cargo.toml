@@ -1,0 +1,12 @@
+[package]
+name = "integration-tests"
+version = "0.1.0"
+edition = "2021"
+
+[dev-dependencies]
+candid = { workspace = true }
+lazy_static = "1.4.0"
+pocket-ic = "1.0.0"
+ic-websocket-cdk = { workspace = true }
+rand = { workspace = true }
+serde_cbor = { workspace = true }
