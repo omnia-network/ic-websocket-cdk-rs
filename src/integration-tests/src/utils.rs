@@ -8,3 +8,11 @@ pub fn bin_folder_path() -> PathBuf {
     file_path.push("bin");
     file_path
 }
+
+/// Returns the current timestamp in nanoseconds.
+pub fn get_current_timestamp_ns() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64
+}

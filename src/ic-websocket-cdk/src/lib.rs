@@ -87,7 +87,7 @@ pub struct CanisterWsCloseArguments {
 /// The arguments for [ws_message].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsMessageArguments {
-    msg: WebsocketMessage,
+    pub msg: WebsocketMessage,
 }
 
 /// The arguments for [ws_get_messages].
@@ -99,10 +99,10 @@ pub struct CanisterWsGetMessagesArguments {
 /// Messages exchanged through the WebSocket.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct WebsocketMessage {
-    client_key: ClientKey, // The client that the gateway will forward the message to or that sent the message.
-    sequence_num: u64,     // Both ways, messages should arrive with sequence numbers 0, 1, 2...
-    timestamp: u64,        // Timestamp of when the message was made for the recipient to inspect.
-    is_service_message: bool, // Whether the message is a service message sent by the CDK to the client or vice versa.
+    pub client_key: ClientKey, // The client that the gateway will forward the message to or that sent the message.
+    pub sequence_num: u64,     // Both ways, messages should arrive with sequence numbers 0, 1, 2...
+    pub timestamp: u64, // Timestamp of when the message was made for the recipient to inspect.
+    pub is_service_message: bool, // Whether the message is a service message sent by the CDK to the client or vice versa.
     #[serde(with = "serde_bytes")]
     pub content: Vec<u8>, // Application message encoded in binary.
 }
@@ -563,12 +563,12 @@ pub struct CanisterOpenMessageContent {
 
 #[derive(CandidType, Debug, Deserialize)]
 pub struct CanisterAckMessageContent {
-    last_incoming_sequence_num: u64,
+    pub last_incoming_sequence_num: u64,
 }
 
 #[derive(CandidType, Debug, Deserialize)]
 pub struct ClientKeepAliveMessageContent {
-    last_incoming_sequence_num: u64,
+    pub last_incoming_sequence_num: u64,
 }
 
 /// A service message sent by the CDK to the client or vice versa.

@@ -7,7 +7,7 @@ use ic_websocket_cdk::{
 };
 
 use crate::{
-    actor::{call_ws_get_messages, call_ws_open},
+    actor::{ws_get_messages::call_ws_get_messages, ws_open::call_ws_open},
     clients::{generate_random_client_nonce, CLIENT_1, CLIENT_1_KEY, GATEWAY_1},
     messages::get_service_message_content_from_canister_message,
 };
@@ -17,7 +17,7 @@ fn test_1_fail_for_an_anonymous_client() {
     let args = CanisterWsOpenArguments {
         client_nonce: generate_random_client_nonce(),
     };
-    let res = call_ws_open(Principal::anonymous(), args);
+    let res = call_ws_open(&Principal::anonymous(), args);
     assert_eq!(
         res,
         CanisterWsOpenResult::Err(String::from("anonymous principal cannot open a connection")),
@@ -29,7 +29,7 @@ fn test_2_fails_for_the_registered_gateway() {
     let args = CanisterWsOpenArguments {
         client_nonce: generate_random_client_nonce(),
     };
-    let res = call_ws_open(*GATEWAY_1.deref(), args);
+    let res = call_ws_open(GATEWAY_1.deref(), args);
     assert_eq!(
         res,
         CanisterWsOpenResult::Err(String::from(
@@ -44,7 +44,7 @@ fn test_3_should_open_a_connection() {
     let args = CanisterWsOpenArguments {
         client_nonce: client_1_key.client_nonce,
     };
-    let res = call_ws_open(*CLIENT_1.deref(), args);
+    let res = call_ws_open(CLIENT_1.deref(), args);
     assert_eq!(res, CanisterWsOpenResult::Ok(()));
 
     let msgs = call_ws_get_messages(
@@ -74,7 +74,7 @@ fn test_4_fails_for_a_client_with_the_same_nonce() {
     let args = CanisterWsOpenArguments {
         client_nonce: client_1_key.client_nonce,
     };
-    let res = call_ws_open(*CLIENT_1.deref(), args);
+    let res = call_ws_open(CLIENT_1.deref(), args);
     assert_eq!(
         res,
         CanisterWsOpenResult::Err(String::from(format!(
@@ -92,7 +92,7 @@ fn test_5_should_open_a_connection_for_the_same_client_with_a_different_nonce() 
     let args = CanisterWsOpenArguments {
         client_nonce: client_key.client_nonce,
     };
-    let res = call_ws_open(client_key.client_principal, args);
+    let res = call_ws_open(&client_key.client_principal, args);
     assert_eq!(res, CanisterWsOpenResult::Ok(()));
 
     let msgs = call_ws_get_messages(
