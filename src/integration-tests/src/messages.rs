@@ -8,7 +8,7 @@ use crate::utils::get_current_timestamp_ns;
 pub fn get_websocket_message_from_canister_message(
     msg: &CanisterOutputMessage,
 ) -> WebsocketMessage {
-    serde_cbor::from_slice(&msg.content).unwrap()
+    decode_websocket_message(&msg.content)
 }
 
 pub fn encode_websocket_service_message_content(
@@ -43,4 +43,16 @@ pub fn create_websocket_message(
         content,
         is_service_message,
     }
+}
+
+pub fn decode_websocket_message(bytes: &[u8]) -> WebsocketMessage {
+    serde_cbor::from_slice(bytes).unwrap()
+}
+
+pub fn get_polling_nonce_from_message(message: &CanisterOutputMessage) -> u64 {
+    message.key.split("_").last().unwrap().parse().unwrap()
+}
+
+pub fn get_next_polling_nonce_from_messages(messages: Vec<CanisterOutputMessage>) -> u64 {
+    get_polling_nonce_from_message(messages.last().unwrap()) + 1
 }

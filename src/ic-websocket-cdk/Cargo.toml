@@ -22,7 +22,7 @@ serde = { workspace = true }
 serde_cbor = { workspace = true }
 ic-certified-map = "0.4.0"
 base64 = "0.21.2"
-sha2 = "0.10.7"
+sha2 = { workspace = true }
 serde_bytes = "0.11.12"
 
 [dev-dependencies]

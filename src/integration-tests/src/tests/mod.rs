@@ -3,3 +3,4 @@
 
 pub mod a_ws_open;
 pub mod b_ws_message;
+pub mod c_ws_get_messages;

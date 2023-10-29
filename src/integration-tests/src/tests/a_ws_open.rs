@@ -48,7 +48,7 @@ fn test_3_should_open_a_connection() {
     assert_eq!(res, CanisterWsOpenResult::Ok(()));
 
     let msgs = call_ws_get_messages(
-        *GATEWAY_1.deref(),
+        GATEWAY_1.deref(),
         CanisterWsGetMessagesArguments { nonce: 0 },
     );
 
@@ -96,7 +96,7 @@ fn test_5_should_open_a_connection_for_the_same_client_with_a_different_nonce() 
     assert_eq!(res, CanisterWsOpenResult::Ok(()));
 
     let msgs = call_ws_get_messages(
-        *GATEWAY_1.deref(),
+        GATEWAY_1.deref(),
         CanisterWsGetMessagesArguments { nonce: 0 },
     );
 

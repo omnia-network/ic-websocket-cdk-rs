@@ -78,14 +78,14 @@ pub mod ws_get_messages {
     use super::*;
 
     pub fn call_ws_get_messages(
-        caller: Principal,
+        caller: &Principal,
         args: CanisterWsGetMessagesArguments,
     ) -> CanisterWsGetMessagesResult {
         let res = TEST_ENV
             .pic
             .query_call(
                 TEST_ENV.canister_id,
-                caller,
+                *caller,
                 "ws_get_messages",
                 encode_one(args).unwrap(),
             )
@@ -94,6 +94,51 @@ pub mod ws_get_messages {
         match res {
             WasmResult::Reply(bytes) => decode_one(&bytes).unwrap(),
             _ => panic!("Expected reply"),
+        }
+    }
+}
+
+pub mod ws_send {
+    use candid::{encode_args, CandidType};
+    use ic_websocket_cdk::CanisterWsSendResult;
+    use serde::{Deserialize, Serialize};
+
+    use super::*;
+
+    #[derive(CandidType, Debug, Serialize, Deserialize, PartialEq, Eq)]
+    pub struct AppMessage {
+        pub text: String,
+    }
+
+    /// (`Principal`, `Vec<Vec<u8>>`)
+    type WsSendArguments = (Principal, Vec<Vec<u8>>);
+
+    pub fn call_ws_send(
+        send_to_principal: &Principal,
+        messages: Vec<AppMessage>,
+    ) -> CanisterWsSendResult {
+        let messages: Vec<Vec<u8>> = messages.iter().map(|m| encode_one(m).unwrap()).collect();
+        let args: WsSendArguments = (send_to_principal.clone(), messages);
+        let res = TEST_ENV
+            .pic
+            .update_call(
+                TEST_ENV.canister_id,
+                Principal::anonymous(),
+                "ws_send",
+                encode_args(args).unwrap(),
+            )
+            .expect("Failed to call counter canister");
+        match res {
+            WasmResult::Reply(bytes) => decode_one(&bytes).unwrap(),
+            _ => panic!("Expected reply"),
+        }
+    }
+
+    pub fn call_ws_send_with_panic(send_to_principal: &Principal, messages: Vec<AppMessage>) {
+        let res = call_ws_send(send_to_principal, messages);
+        match res {
+            CanisterWsSendResult::Ok(_) => {},
+            CanisterWsSendResult::Err(err) => panic!("failed ws_send: {:?}", err),
         }
     }
 }

@@ -1,12 +1,19 @@
 #![cfg(test)]
 
+use std::time::SystemTime;
+
 use candid::Principal;
 use lazy_static::lazy_static;
 use pocket_ic::PocketIc;
 
-use crate::wasm::load_canister_wasm_from_bin;
+use constants::{
+    DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS, DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
+    DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
+};
+use wasm::load_canister_wasm_from_bin;
 
 mod actor;
+mod certification;
 mod clients;
 mod constants;
 mod messages;
@@ -38,9 +45,9 @@ impl TestEnv<'_> {
         let wasm_bytes = load_canister_wasm_from_bin("test_canister.wasm");
         let arguments: CanisterInitArgs = (
             "i3gux-m3hwt-5mh2w-t7wwm-fwx5j-6z6ht-hxguo-t4rfw-qp24z-g5ivt-2qe",
-            10,
-            300_000,
-            300_000,
+            DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
+            DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
+            DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
         );
         pic.install_canister(
             canister_id,
@@ -82,5 +89,18 @@ impl TestEnv<'_> {
                 panic!("Failed to reset canister: {:?}", err);
             },
         }
+    }
+
+    /// Returns the current time of the canister in nanoseconds.
+    pub fn get_canister_time(&self) -> u64 {
+        self.pic
+            .get_time()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64
+    }
+
+    pub fn get_root_ic_key(&self) -> Vec<u8> {
+        self.pic.root_key()
     }
 }

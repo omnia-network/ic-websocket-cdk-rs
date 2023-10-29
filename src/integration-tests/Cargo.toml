@@ -9,4 +9,8 @@ lazy_static = "1.4.0"
 pocket-ic = "1.0.0"
 ic-websocket-cdk = { workspace = true }
 rand = { workspace = true }
+serde = { workspace = true }
 serde_cbor = { workspace = true }
+ic-certificate-verification = "1.2.0"
+ic-certification = "1.2.0"
+sha2 = { workspace = true }

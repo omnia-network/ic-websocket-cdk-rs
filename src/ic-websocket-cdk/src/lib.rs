@@ -119,7 +119,7 @@ impl WebsocketMessage {
 }
 
 /// Element of the list of messages returned to the WS Gateway after polling.
-#[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct CanisterOutputMessage {
     pub client_key: ClientKey, // The client that the gateway will forward the message to or that sent the message.
     pub key: String,           // Key for certificate verification.
@@ -128,13 +128,13 @@ pub struct CanisterOutputMessage {
 }
 
 /// List of messages returned to the WS Gateway after polling.
-#[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct CanisterOutputCertifiedMessages {
     pub messages: Vec<CanisterOutputMessage>, // List of messages.
     #[serde(with = "serde_bytes")]
-    cert: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
+    pub cert: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
     #[serde(with = "serde_bytes")]
-    tree: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
+    pub tree: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
