@@ -22,7 +22,6 @@ const resolveResult = <T>(result: GenericResult<T>, throwIfError: boolean) => {
 
 type WsOpenArgs = {
   clientNonce: bigint,
-  canisterId: string,
   clientActor: ActorSubclass<_SERVICE>,
 };
 

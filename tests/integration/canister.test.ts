@@ -104,7 +104,6 @@ describe("Canister - ws_open", () => {
 
   it("fails for an anonymous client", async () => {
     const res = await wsOpen({
-      canisterId,
       clientActor: anonymousClient,
       clientNonce: getRandomClientNonce(),
     })
@@ -116,7 +115,6 @@ describe("Canister - ws_open", () => {
 
   it("fails for the registered gateway", async () => {
     const res = await wsOpen({
-      canisterId,
       clientActor: gateway1,
       clientNonce: getRandomClientNonce(),
     });
@@ -128,7 +126,6 @@ describe("Canister - ws_open", () => {
 
   it("should open a connection", async () => {
     const res = await wsOpen({
-      canisterId,
       clientActor: client1,
       clientNonce: client1Key.client_nonce,
     });
@@ -155,7 +152,6 @@ describe("Canister - ws_open", () => {
 
   it("fails for a client with the same nonce", async () => {
     const res = await wsOpen({
-      canisterId,
       clientActor: client1,
       clientNonce: client1Key.client_nonce,
     });
@@ -171,7 +167,6 @@ describe("Canister - ws_open", () => {
       client_nonce: getRandomClientNonce(),
     }
     const res = await wsOpen({
-      canisterId,
       clientActor: client1,
       clientNonce: clientKey.client_nonce,
     });
@@ -209,7 +204,6 @@ describe("Canister - ws_message", () => {
 
     await wsOpen({
       clientNonce: client1Key.client_nonce,
-      canisterId,
       clientActor: client1,
     }, true);
   });
@@ -289,7 +283,6 @@ describe("Canister - ws_message", () => {
     // open the connection again
     await wsOpen({
       clientNonce: client1Key.client_nonce,
-      canisterId,
       clientActor: client1,
     }, true);
 
@@ -386,7 +379,6 @@ describe("Canister - ws_get_messages (receive)", () => {
 
     await wsOpen({
       clientNonce: client1Key.client_nonce,
-      canisterId,
       clientActor: client1,
     }, true);
 
@@ -593,7 +585,6 @@ describe("Canister - ws_close", () => {
 
     await wsOpen({
       clientNonce: client1Key.client_nonce,
-      canisterId,
       clientActor: client1,
     }, true);
   });
@@ -648,7 +639,6 @@ describe("Canister - ws_send", () => {
 
     await wsOpen({
       clientNonce: client1Key.client_nonce,
-      canisterId,
       clientActor: client1,
     }, true);
   });
@@ -702,7 +692,6 @@ describe("Messages acknowledgement", () => {
 
     await wsOpen({
       clientNonce: client1Key.client_nonce,
-      canisterId,
       clientActor: client1,
     }, true);
 
@@ -778,7 +767,6 @@ describe("Messages acknowledgement", () => {
 
     await wsOpen({
       clientNonce: client1Key.client_nonce,
-      canisterId,
       clientActor: client1,
     }, true);
 
@@ -820,7 +808,6 @@ describe("Messages acknowledgement", () => {
 
     await wsOpen({
       clientNonce: client1Key.client_nonce,
-      canisterId,
       clientActor: client1,
     }, true);
 
@@ -902,7 +889,6 @@ describe("Messages acknowledgement", () => {
 
     await wsOpen({
       clientNonce: client1Key.client_nonce,
-      canisterId,
       clientActor: client1,
     }, true);
 
