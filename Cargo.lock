@@ -1882,18 +1882,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "test_canister_old"
-version = "0.1.0"
-dependencies = [
- "candid",
- "ic-cdk",
- "ic-cdk-macros",
- "ic-websocket-cdk",
- "serde",
- "serde_cbor",
-]
-
-[[package]]
 name = "thiserror"
 version = "1.0.50"
 source = "registry+https://github.com/rust-lang/crates.io-index"

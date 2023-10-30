@@ -3,7 +3,6 @@ members = [
   "src/ic-websocket-cdk",
   "src/integration-tests",
   "src/integration-tests/test_canister",
-  "tests",
 ]
 resolver = "2"
 

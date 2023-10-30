@@ -5,17 +5,11 @@ set -e
 # unit tests
 cargo test -p ic-websocket-cdk
 
-cd tests
-
-npm install
-
 # integration tests
-dfx start --clean --background
+cd src/integration-tests
 
-npm run deploy:tests
+./scripts/download-pocket-ic.sh
 
-npm run generate
+./scripts/build-test-canister.sh
 
-npm run test:integration
-
-dfx stop
+POCKET_IC_BIN=./bin/pocket-ic RUST_BACKTRACE=1 cargo test -p integration-tests -- --test-threads 1
