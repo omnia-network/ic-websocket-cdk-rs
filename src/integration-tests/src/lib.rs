@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use candid::Principal;
 use lazy_static::lazy_static;
@@ -40,6 +40,10 @@ type CanisterInitArgs<'a> = (&'a str, u64, u64, u64);
 impl TestEnv<'_> {
     pub fn new() -> Self {
         let pic = PocketIc::new();
+
+        // set ic time to current time
+        pic.set_time(SystemTime::now());
+
         let canister_id = pic.create_canister(None);
         pic.add_cycles(canister_id, 1_000_000_000_000_000);
 
@@ -114,5 +118,11 @@ impl TestEnv<'_> {
 
     pub fn get_root_ic_key(&self) -> Vec<u8> {
         self.root_ic_key.clone()
+    }
+
+    pub fn advance_canister_time_ms(&self, ms: u64) {
+        self.pic.advance_time(Duration::from_millis(ms));
+        // produce and advance by one block to fire eventual timers
+        self.pic.tick();
     }
 }

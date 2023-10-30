@@ -556,23 +556,23 @@ fn get_handlers_from_params() -> WsHandlers {
     get_params().get_handlers()
 }
 
-#[derive(CandidType, Debug, Deserialize)]
+#[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
 pub struct CanisterOpenMessageContent {
     pub client_key: ClientKey,
 }
 
-#[derive(CandidType, Debug, Deserialize)]
+#[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
 pub struct CanisterAckMessageContent {
     pub last_incoming_sequence_num: u64,
 }
 
-#[derive(CandidType, Debug, Deserialize)]
+#[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
 pub struct ClientKeepAliveMessageContent {
     pub last_incoming_sequence_num: u64,
 }
 
 /// A service message sent by the CDK to the client or vice versa.
-#[derive(CandidType, Debug, Deserialize)]
+#[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
 pub enum WebsocketServiceMessageContent {
     /// Message sent by the **canister** when a client opens a connection.
     OpenMessage(CanisterOpenMessageContent),

@@ -70,6 +70,14 @@ pub mod ws_message {
             _ => panic!("Expected reply"),
         }
     }
+
+    /// Same as [call_ws_message] but panics if the call returns an error variant.
+    pub fn call_ws_message_with_panic(caller: &Principal, args: CanisterWsMessageArguments) {
+        match call_ws_message(caller, args) {
+            CanisterWsMessageResult::Ok(_) => {},
+            CanisterWsMessageResult::Err(err) => panic!("failed ws_message: {:?}", err),
+        }
+    }
 }
 
 pub mod ws_close {
