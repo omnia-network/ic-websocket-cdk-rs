@@ -81,7 +81,7 @@ pub struct CanisterWsOpenArguments {
 /// The arguments for [ws_close].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsCloseArguments {
-    client_key: ClientKey,
+    pub client_key: ClientKey,
 }
 
 /// The arguments for [ws_message].

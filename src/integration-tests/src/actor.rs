@@ -1,13 +1,11 @@
 use candid::{decode_one, encode_one, Principal};
-use ic_websocket_cdk::{
-    CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult, CanisterWsOpenArguments,
-    CanisterWsOpenResult, ClientKey,
-};
 use pocket_ic::WasmResult;
 
 use crate::TEST_ENV;
 
 pub mod ws_open {
+    use ic_websocket_cdk::{CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey};
+
     use super::*;
 
     /// # Panics
@@ -74,7 +72,37 @@ pub mod ws_message {
     }
 }
 
+pub mod ws_close {
+    use ic_websocket_cdk::{CanisterWsCloseArguments, CanisterWsCloseResult};
+
+    use super::*;
+
+    /// # Panics
+    /// if the call returns a [WasmResult::Reject].
+    pub fn call_ws_close(
+        caller: &Principal,
+        args: CanisterWsCloseArguments,
+    ) -> CanisterWsCloseResult {
+        let res = TEST_ENV
+            .pic
+            .update_call(
+                TEST_ENV.canister_id,
+                *caller,
+                "ws_close",
+                encode_one(args).unwrap(),
+            )
+            .expect("Failed to call canister");
+
+        match res {
+            WasmResult::Reply(bytes) => decode_one(&bytes).unwrap(),
+            _ => panic!("Expected reply"),
+        }
+    }
+}
+
 pub mod ws_get_messages {
+    use ic_websocket_cdk::{CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult};
+
     use super::*;
 
     pub fn call_ws_get_messages(
