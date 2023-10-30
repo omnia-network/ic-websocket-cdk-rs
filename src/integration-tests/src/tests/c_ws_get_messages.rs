@@ -138,7 +138,7 @@ fn test_4_registered_gateway_can_receive_certified_messages() {
 
             let mut expected_sequence_number = 2; // first is the service open message and the number is incremented before sending
             let mut i = 0;
-            utils::verify_messages(
+            helpers::verify_messages(
                 &first_batch_messages,
                 client_1_key,
                 &first_batch_cert,
@@ -166,7 +166,7 @@ fn test_4_registered_gateway_can_receive_certified_messages() {
                         SEND_MESSAGES_COUNT - DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES // remaining from SEND_MESSAGES_COUNT
                     );
 
-                    utils::verify_messages(
+                    helpers::verify_messages(
                         &second_batch_messages,
                         client_1_key,
                         &second_batch_cert,
@@ -199,7 +199,7 @@ fn test_5_registered_gateway_can_poll_messages_after_restart() {
                 SEND_MESSAGES_COUNT - DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES + 1 + 1;
             let mut i = SEND_MESSAGES_COUNT - DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES;
 
-            utils::verify_messages(
+            helpers::verify_messages(
                 &messages,
                 CLIENT_1_KEY.deref(),
                 &cert,
@@ -212,7 +212,7 @@ fn test_5_registered_gateway_can_poll_messages_after_restart() {
     };
 }
 
-mod utils {
+mod helpers {
     use candid::decode_one;
     use ic_websocket_cdk::{CanisterOutputMessage, ClientKey};
 
