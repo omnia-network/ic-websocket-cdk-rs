@@ -1,24 +1,20 @@
-use candid::Principal;
 use ic_certificate_verification::VerifyCertificate;
 use ic_certification::{Certificate, HashTree, LookupResult};
 use sha2::{Digest, Sha256};
 
-pub fn is_valid_certificate(
-    canister_id: Principal,
-    certificate: &[u8],
-    tree: &[u8],
-    root_ic_key: &[u8],
-) -> bool {
+use crate::TestEnv;
+
+pub fn is_valid_certificate(test_env: &TestEnv, certificate: &[u8], tree: &[u8]) -> bool {
     let cert: Certificate = serde_cbor::from_slice(certificate).unwrap();
-    let verify_res = cert.verify(canister_id.as_slice(), root_ic_key);
+    let canister_id_bytes = test_env.canister_id.as_slice();
+    let verify_res = cert.verify(canister_id_bytes, &test_env.get_root_ic_key());
     match verify_res {
         Ok(_) => {
             let tree: HashTree = serde_cbor::from_slice(tree).unwrap();
-            match cert.tree.lookup_path(vec![
-                b"canister",
-                canister_id.as_slice(),
-                b"certified_data",
-            ]) {
+            match cert
+                .tree
+                .lookup_path(vec![b"canister", canister_id_bytes, b"certified_data"])
+            {
                 LookupResult::Found(witness) => witness == tree.digest(),
                 _ => return false,
             }

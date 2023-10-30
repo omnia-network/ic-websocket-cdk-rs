@@ -213,6 +213,8 @@ fn test_5_registered_gateway_can_poll_messages_after_restart() {
 }
 
 mod helpers {
+    use std::ops::Deref;
+
     use candid::decode_one;
     use ic_websocket_cdk::{CanisterOutputMessage, ClientKey};
 
@@ -269,12 +271,7 @@ mod helpers {
         );
 
         // check the certification
-        assert!(is_valid_certificate(
-            TEST_ENV.canister_id,
-            cert,
-            tree,
-            &TEST_ENV.get_root_ic_key()
-        ));
+        assert!(is_valid_certificate(TEST_ENV.deref(), cert, tree,));
         assert!(is_message_body_valid(&message.key, &message.content, tree));
     }
 }
