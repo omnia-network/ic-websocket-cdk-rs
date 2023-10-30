@@ -11,10 +11,7 @@ use crate::{
         ws_send::{call_ws_send_with_panic, AppMessage},
     },
     clients::{CLIENT_1_KEY, GATEWAY_1, GATEWAY_2},
-    constants::{
-        DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS, DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
-        DEFAULT_TEST_SEND_ACK_INTERVAL_MS, SEND_MESSAGES_COUNT,
-    },
+    constants::{DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES, SEND_MESSAGES_COUNT},
     messages::get_next_polling_nonce_from_messages,
     TEST_ENV,
 };
@@ -22,11 +19,7 @@ use crate::{
 #[test]
 fn test_1_fails_if_a_non_registered_gateway_tries_to_get_messages() {
     // first, reset the canister
-    TEST_ENV.reset_canister(
-        DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
-        DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
-        DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
-    );
+    TEST_ENV.reset_canister_with_default_params();
 
     let res = call_ws_get_messages(
         GATEWAY_2.deref(),

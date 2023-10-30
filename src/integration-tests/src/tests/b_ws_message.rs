@@ -8,10 +8,6 @@ use ic_websocket_cdk::{
 use crate::{
     actor::{ws_message::call_ws_message, ws_open::call_ws_open_for_client_key_with_panic},
     clients::{generate_random_client_nonce, CLIENT_1_KEY, CLIENT_2, CLIENT_2_KEY},
-    constants::{
-        DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS, DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
-        DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
-    },
     messages::{create_websocket_message, encode_websocket_service_message_content},
     TEST_ENV,
 };
@@ -19,11 +15,7 @@ use crate::{
 #[test]
 fn test_1_fails_if_client_is_not_registered() {
     // first, reset the canister
-    TEST_ENV.reset_canister(
-        DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
-        DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
-        DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
-    );
+    TEST_ENV.reset_canister_with_default_params();
     // second, open a connection for client 1
     call_ws_open_for_client_key_with_panic(CLIENT_1_KEY.deref());
 

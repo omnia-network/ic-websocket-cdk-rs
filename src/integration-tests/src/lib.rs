@@ -31,6 +31,7 @@ pub struct TestEnv<'a> {
     pub canister_id: Principal,
     canister_init_args: CanisterInitArgs<'a>,
     wasm_module: Vec<u8>,
+    root_ic_key: Vec<u8>,
 }
 
 /// (`gateway_principal`, `max_number_or_returned_messages`, `send_ack_interval_ms`, `send_ack_timeout_ms`)
@@ -56,11 +57,14 @@ impl TestEnv<'_> {
             None,
         );
 
+        let root_ic_key = pic.root_key();
+
         Self {
             pic,
             canister_id,
             canister_init_args: arguments,
             wasm_module: wasm_bytes,
+            root_ic_key,
         }
     }
 
@@ -91,6 +95,14 @@ impl TestEnv<'_> {
         }
     }
 
+    pub fn reset_canister_with_default_params(&self) {
+        self.reset_canister(
+            DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
+            DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
+            DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
+        );
+    }
+
     /// Returns the current time of the canister in nanoseconds.
     pub fn get_canister_time(&self) -> u64 {
         self.pic
@@ -101,6 +113,6 @@ impl TestEnv<'_> {
     }
 
     pub fn get_root_ic_key(&self) -> Vec<u8> {
-        self.pic.root_key()
+        self.root_ic_key.clone()
     }
 }

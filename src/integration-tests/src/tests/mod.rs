@@ -5,3 +5,4 @@ pub mod a_ws_open;
 pub mod b_ws_message;
 pub mod c_ws_get_messages;
 pub mod d_ws_close;
+pub mod e_ws_send;
