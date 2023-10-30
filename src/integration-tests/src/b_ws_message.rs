@@ -5,11 +5,11 @@ use ic_websocket_cdk::{
     ClientKeepAliveMessageContent, ClientKey, WebsocketServiceMessageContent,
 };
 
-use crate::{
+use crate::utils::{
     actor::{ws_message::call_ws_message, ws_open::call_ws_open_for_client_key_with_panic},
     clients::{generate_random_client_nonce, CLIENT_1_KEY, CLIENT_2, CLIENT_2_KEY},
     messages::{create_websocket_message, encode_websocket_service_message_content},
-    TEST_ENV,
+    test_env::TEST_ENV,
 };
 
 #[test]

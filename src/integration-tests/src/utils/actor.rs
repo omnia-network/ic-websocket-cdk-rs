@@ -1,7 +1,7 @@
 use candid::{decode_one, encode_one, Principal};
 use pocket_ic::WasmResult;
 
-use crate::TEST_ENV;
+use crate::utils::test_env::TEST_ENV;
 
 pub mod ws_open {
     use ic_websocket_cdk::{CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey};

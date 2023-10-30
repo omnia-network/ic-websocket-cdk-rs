@@ -6,7 +6,7 @@ use ic_websocket_cdk::{
     WebsocketServiceMessageContent,
 };
 
-use crate::{
+use crate::utils::{
     actor::{
         ws_get_messages::call_ws_get_messages,
         ws_message::{call_ws_message, call_ws_message_with_panic},
@@ -15,10 +15,8 @@ use crate::{
     clients::{CLIENT_1_KEY, GATEWAY_1},
     constants::{DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS, DEFAULT_TEST_SEND_ACK_INTERVAL_MS},
     messages::{create_websocket_message, encode_websocket_service_message_content},
-    TEST_ENV,
+    test_env::TEST_ENV,
 };
-
-use self::helpers::check_ack_message_result;
 
 #[test]
 fn test_1_client_should_receive_ack_messages() {
@@ -51,7 +49,7 @@ fn test_1_client_should_receive_ack_messages() {
         GATEWAY_1.deref(),
         CanisterWsGetMessagesArguments { nonce: 1 },
     );
-    check_ack_message_result(&res, client_1_key, 1, 2);
+    helpers::check_ack_message_result(&res, client_1_key, 1, 2);
 }
 
 #[test]
@@ -112,7 +110,7 @@ fn test_3_client_is_not_removed_if_it_sends_a_keep_alive_before_timeout() {
         GATEWAY_1.deref(),
         CanisterWsGetMessagesArguments { nonce: 1 },
     );
-    check_ack_message_result(&res, client_1_key, 0, 2);
+    helpers::check_ack_message_result(&res, client_1_key, 0, 2);
 
     // send keep alive message
     call_ws_message_with_panic(
@@ -148,7 +146,7 @@ fn test_3_client_is_not_removed_if_it_sends_a_keep_alive_before_timeout() {
         GATEWAY_1.deref(),
         CanisterWsGetMessagesArguments { nonce: 2 }, // skip the service open message and the fist ack message
     );
-    check_ack_message_result(&res, client_1_key, 2, 3);
+    helpers::check_ack_message_result(&res, client_1_key, 2, 3);
 }
 
 #[test]
@@ -193,7 +191,7 @@ fn test_4_client_is_not_removed_if_it_connects_while_canister_is_waiting_for_kee
         GATEWAY_1.deref(),
         CanisterWsGetMessagesArguments { nonce: 1 }, // skip the service open message
     );
-    check_ack_message_result(&res, client_1_key, 1, 2);
+    helpers::check_ack_message_result(&res, client_1_key, 1, 2);
 }
 
 mod helpers {
@@ -204,12 +202,12 @@ mod helpers {
         WebsocketServiceMessageContent,
     };
 
-    use crate::{
+    use crate::utils::{
         certification::{is_message_body_valid, is_valid_certificate},
         messages::{
             decode_websocket_service_message_content, get_websocket_message_from_canister_message,
         },
-        TEST_ENV,
+        test_env::TEST_ENV,
     };
 
     pub fn check_ack_message_result(

@@ -4,7 +4,7 @@ use ic_websocket_cdk::{
     CanisterOutputCertifiedMessages, CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult,
 };
 
-use crate::{
+use crate::utils::{
     actor::{
         ws_get_messages::call_ws_get_messages,
         ws_open::call_ws_open_for_client_key_with_panic,
@@ -13,7 +13,7 @@ use crate::{
     clients::{CLIENT_1_KEY, GATEWAY_1, GATEWAY_2},
     constants::{DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES, SEND_MESSAGES_COUNT},
     messages::get_next_polling_nonce_from_messages,
-    TEST_ENV,
+    test_env::TEST_ENV,
 };
 
 #[test]
@@ -218,11 +218,11 @@ mod helpers {
     use candid::decode_one;
     use ic_websocket_cdk::{CanisterOutputMessage, ClientKey};
 
-    use crate::{
+    use crate::utils::{
         actor::ws_send::AppMessage,
         certification::{is_message_body_valid, is_valid_certificate},
         messages::decode_websocket_message,
-        TEST_ENV,
+        test_env::TEST_ENV,
     };
 
     pub fn verify_messages(

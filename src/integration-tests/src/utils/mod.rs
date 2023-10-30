@@ -1,5 +1,13 @@
 use std::path::PathBuf;
 
+pub mod actor;
+pub mod certification;
+pub mod clients;
+pub mod constants;
+pub mod messages;
+pub mod test_env;
+pub mod wasm;
+
 pub fn bin_folder_path() -> PathBuf {
     let mut file_path = PathBuf::from(
         std::env::var("CARGO_MANIFEST_DIR")

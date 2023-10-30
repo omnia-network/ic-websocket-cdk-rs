@@ -6,7 +6,7 @@ use ic_websocket_cdk::{
     CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey, WebsocketServiceMessageContent,
 };
 
-use crate::{
+use crate::utils::{
     actor::{ws_get_messages::call_ws_get_messages, ws_open::call_ws_open},
     clients::{generate_random_client_nonce, CLIENT_1, CLIENT_1_KEY, GATEWAY_1},
     messages::get_service_message_content_from_canister_message,

@@ -2,13 +2,13 @@ use std::ops::Deref;
 
 use ic_websocket_cdk::CanisterWsSendResult;
 
-use crate::{
+use crate::utils::{
     actor::{
         ws_open::call_ws_open_for_client_key_with_panic,
         ws_send::{call_ws_send, AppMessage},
     },
     clients::{CLIENT_1, CLIENT_1_KEY, CLIENT_2},
-    TEST_ENV,
+    test_env::TEST_ENV,
 };
 
 #[test]

@@ -2,7 +2,7 @@ use ic_certificate_verification::VerifyCertificate;
 use ic_certification::{Certificate, HashTree, LookupResult};
 use sha2::{Digest, Sha256};
 
-use crate::TestEnv;
+use super::test_env::TestEnv;
 
 pub fn is_valid_certificate(test_env: &TestEnv, certificate: &[u8], tree: &[u8]) -> bool {
     let cert: Certificate = serde_cbor::from_slice(certificate).unwrap();
