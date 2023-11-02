@@ -11,30 +11,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
-        with:
-          node-version: 16
-          cache: "npm"
-          cache-dependency-path: "tests/package-lock.json"
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.69.0
-      - uses: aviate-labs/setup-dfx@v0.2.6
-        with:
-          dfx-version: 0.14.1
+          toolchain: "stable"
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: "true"
       - name: Run unit tests
-        run: cargo test
-      - name: Install dependencies for integration tests
-        run: cd tests && npm install
+        run: cargo test -p ic-websocket-cdk
       - name: Prepare environment for integration tests
         run: |
-          cd tests
           rustup target add wasm32-unknown-unknown
-          dfx start --clean --background
-          npm run deploy:tests
-          npm run generate
+          cd src/integration-tests
+          ./scripts/download-pocket-ic.sh
+          ./scripts/build-test-canister.sh
       - name: Run integration tests
-        run: cd tests && npm run test:integration
+        run: cargo test -p integration-tests -- --test-threads 1
+        env:
+          POCKET_IC_BIN: "./src/integration-tests/bin/pocket-ic"
