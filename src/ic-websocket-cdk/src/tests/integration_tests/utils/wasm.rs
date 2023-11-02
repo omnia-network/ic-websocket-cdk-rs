@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::Read;
 
-use crate::utils::bin_folder_path;
+use super::bin_folder_path;
 
 pub fn load_canister_wasm_from_bin(wasm_name: &str) -> Vec<u8> {
     let mut file_path = bin_folder_path();

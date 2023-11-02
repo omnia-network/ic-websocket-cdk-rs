@@ -1,34 +1,34 @@
 use candid::{decode_one, encode_one};
-use ic_websocket_cdk::{
-    CanisterOutputMessage, ClientKey, WebsocketMessage, WebsocketServiceMessageContent,
-};
 
-use crate::utils::get_current_timestamp_ns;
+use super::get_current_timestamp_ns;
+use crate::{CanisterOutputMessage, ClientKey, WebsocketMessage, WebsocketServiceMessageContent};
 
-pub fn get_websocket_message_from_canister_message(
+pub(crate) fn get_websocket_message_from_canister_message(
     msg: &CanisterOutputMessage,
 ) -> WebsocketMessage {
     decode_websocket_message(&msg.content)
 }
 
-pub fn encode_websocket_service_message_content(
+pub(crate) fn encode_websocket_service_message_content(
     content: &WebsocketServiceMessageContent,
 ) -> Vec<u8> {
     encode_one(content).unwrap()
 }
 
-pub fn decode_websocket_service_message_content(bytes: &[u8]) -> WebsocketServiceMessageContent {
+pub(crate) fn decode_websocket_service_message_content(
+    bytes: &[u8],
+) -> WebsocketServiceMessageContent {
     decode_one(bytes).unwrap()
 }
 
-pub fn get_service_message_content_from_canister_message(
+pub(crate) fn get_service_message_content_from_canister_message(
     msg: &CanisterOutputMessage,
 ) -> WebsocketServiceMessageContent {
     let websocket_message = get_websocket_message_from_canister_message(msg);
     decode_websocket_service_message_content(&websocket_message.content)
 }
 
-pub fn create_websocket_message(
+pub(crate) fn create_websocket_message(
     client_key: &ClientKey,
     sequence_number: u64,
     content: Option<Vec<u8>>,
@@ -45,7 +45,7 @@ pub fn create_websocket_message(
     }
 }
 
-pub fn decode_websocket_message(bytes: &[u8]) -> WebsocketMessage {
+pub(crate) fn decode_websocket_message(bytes: &[u8]) -> WebsocketMessage {
     serde_cbor::from_slice(bytes).unwrap()
 }
 

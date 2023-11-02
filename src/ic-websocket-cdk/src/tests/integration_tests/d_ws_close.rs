@@ -1,8 +1,8 @@
 use std::ops::Deref;
 
-use ic_websocket_cdk::{CanisterWsCloseArguments, CanisterWsCloseResult};
+use crate::{CanisterWsCloseArguments, CanisterWsCloseResult};
 
-use crate::utils::{
+use super::utils::{
     actor::{ws_close::call_ws_close, ws_open::call_ws_open_for_client_key_with_panic},
     clients::{CLIENT_1_KEY, CLIENT_2_KEY, GATEWAY_1, GATEWAY_2},
     test_env::TEST_ENV,

@@ -5,6 +5,7 @@ use lazy_static::lazy_static;
 use pocket_ic::PocketIc;
 
 use super::{
+    clients::GATEWAY_1,
     constants::{
         DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS, DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
         DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
@@ -13,21 +14,21 @@ use super::{
 };
 
 lazy_static! {
-    pub static ref TEST_ENV: TestEnv<'static> = TestEnv::new();
+    pub static ref TEST_ENV: TestEnv = TestEnv::new();
 }
 
-pub struct TestEnv<'a> {
+pub struct TestEnv {
     pub pic: PocketIc,
     pub canister_id: Principal,
-    canister_init_args: CanisterInitArgs<'a>,
+    canister_init_args: CanisterInitArgs,
     wasm_module: Vec<u8>,
     root_ic_key: Vec<u8>,
 }
 
 /// (`gateway_principal`, `max_number_or_returned_messages`, `send_ack_interval_ms`, `send_ack_timeout_ms`)
-type CanisterInitArgs<'a> = (&'a str, u64, u64, u64);
+type CanisterInitArgs = (String, u64, u64, u64);
 
-impl TestEnv<'_> {
+impl TestEnv {
     pub fn new() -> Self {
         let pic = PocketIc::new();
 
@@ -39,7 +40,7 @@ impl TestEnv<'_> {
 
         let wasm_bytes = load_canister_wasm_from_bin("test_canister.wasm");
         let arguments: CanisterInitArgs = (
-            "i3gux-m3hwt-5mh2w-t7wwm-fwx5j-6z6ht-hxguo-t4rfw-qp24z-g5ivt-2qe",
+            GATEWAY_1.to_string(),
             DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
             DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
             DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
@@ -69,7 +70,7 @@ impl TestEnv<'_> {
         keep_alive_delay_ms: u64,
     ) {
         let arguments: CanisterInitArgs = (
-            self.canister_init_args.0,
+            self.canister_init_args.0.clone(),
             max_number_or_returned_messages,
             send_ack_interval_ms,
             keep_alive_delay_ms,

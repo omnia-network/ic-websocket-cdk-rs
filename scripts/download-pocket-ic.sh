@@ -4,7 +4,7 @@ cd bin/
 
 POCKET_IC_BIN=pocket-ic
 if [ -f "$POCKET_IC_BIN" ]; then
-    echo "$POCKET_IC_BIN exists. Path: $(pwd)/$POCKET_IC_BIN"
+    echo -e "$POCKET_IC_BIN exists. Path: $(pwd)/$POCKET_IC_BIN\n"
 else 
     echo "$POCKET_IC_BIN does not exist."
     echo "Downloading Pocket IC binary..."
@@ -14,5 +14,5 @@ else
     gzip -d $POCKET_IC_BIN.gz
     chmod +x $POCKET_IC_BIN
 
-    echo "Pocket IC binary downloaded and extracted successfully! Path: $(pwd)/$POCKET_IC_BIN"
+    echo -e "Pocket IC binary downloaded and extracted successfully! Path: $(pwd)/$POCKET_IC_BIN\n"
 fi

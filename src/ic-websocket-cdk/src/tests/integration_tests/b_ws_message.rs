@@ -1,11 +1,11 @@
 use std::ops::Deref;
 
-use ic_websocket_cdk::{
+use crate::{
     CanisterAckMessageContent, CanisterWsMessageArguments, CanisterWsMessageResult,
     ClientKeepAliveMessageContent, ClientKey, WebsocketServiceMessageContent,
 };
 
-use crate::utils::{
+use super::utils::{
     actor::{ws_message::call_ws_message, ws_open::call_ws_open_for_client_key_with_panic},
     clients::{generate_random_client_nonce, CLIENT_1_KEY, CLIENT_2, CLIENT_2_KEY},
     messages::{create_websocket_message, encode_websocket_service_message_content},

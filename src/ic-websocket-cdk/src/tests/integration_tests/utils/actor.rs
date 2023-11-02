@@ -1,10 +1,10 @@
 use candid::{decode_one, encode_one, Principal};
 use pocket_ic::WasmResult;
 
-use crate::utils::test_env::TEST_ENV;
+use super::test_env::TEST_ENV;
 
 pub mod ws_open {
-    use ic_websocket_cdk::{CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey};
+    use crate::{CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey};
 
     use super::*;
 
@@ -36,7 +36,7 @@ pub mod ws_open {
     }
 
     /// See [call_ws_open_with_panic].
-    pub fn call_ws_open_for_client_key_with_panic(client_key: &ClientKey) {
+    pub(crate) fn call_ws_open_for_client_key_with_panic(client_key: &ClientKey) {
         let args = CanisterWsOpenArguments {
             client_nonce: client_key.client_nonce,
         };
@@ -45,7 +45,7 @@ pub mod ws_open {
 }
 
 pub mod ws_message {
-    use ic_websocket_cdk::{CanisterWsMessageArguments, CanisterWsMessageResult};
+    use crate::{CanisterWsMessageArguments, CanisterWsMessageResult};
 
     use super::*;
 
@@ -81,7 +81,7 @@ pub mod ws_message {
 }
 
 pub mod ws_close {
-    use ic_websocket_cdk::{CanisterWsCloseArguments, CanisterWsCloseResult};
+    use crate::{CanisterWsCloseArguments, CanisterWsCloseResult};
 
     use super::*;
 
@@ -109,7 +109,7 @@ pub mod ws_close {
 }
 
 pub mod ws_get_messages {
-    use ic_websocket_cdk::{CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult};
+    use crate::{CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult};
 
     use super::*;
 
@@ -135,8 +135,8 @@ pub mod ws_get_messages {
 }
 
 pub mod ws_send {
+    use crate::CanisterWsSendResult;
     use candid::{encode_args, CandidType};
-    use ic_websocket_cdk::CanisterWsSendResult;
     use serde::{Deserialize, Serialize};
 
     use super::*;

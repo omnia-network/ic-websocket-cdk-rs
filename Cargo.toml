@@ -1,8 +1,7 @@
 [workspace]
 members = [
   "src/ic-websocket-cdk",
-  "src/integration-tests",
-  "src/integration-tests/test_canister",
+  "src/test_canister",
 ]
 resolver = "2"
 

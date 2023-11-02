@@ -1,12 +1,12 @@
 use std::ops::Deref;
 
-use ic_websocket_cdk::{
+use crate::{
     CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult, CanisterWsMessageArguments,
     CanisterWsMessageResult, CanisterWsSendResult, ClientKeepAliveMessageContent,
     WebsocketServiceMessageContent,
 };
 
-use crate::utils::{
+use super::utils::{
     actor::{
         ws_get_messages::call_ws_get_messages,
         ws_message::{call_ws_message, call_ws_message_with_panic},
@@ -197,20 +197,20 @@ fn test_4_client_is_not_removed_if_it_connects_while_canister_is_waiting_for_kee
 mod helpers {
     use std::ops::Deref;
 
-    use ic_websocket_cdk::{
+    use crate::{
+        tests::integration_tests::utils::{
+            certification::{is_message_body_valid, is_valid_certificate},
+            messages::{
+                decode_websocket_service_message_content,
+                get_websocket_message_from_canister_message,
+            },
+            test_env::TEST_ENV,
+        },
         CanisterAckMessageContent, CanisterOutputMessage, CanisterWsGetMessagesResult, ClientKey,
         WebsocketServiceMessageContent,
     };
 
-    use crate::utils::{
-        certification::{is_message_body_valid, is_valid_certificate},
-        messages::{
-            decode_websocket_service_message_content, get_websocket_message_from_canister_message,
-        },
-        test_env::TEST_ENV,
-    };
-
-    pub fn check_ack_message_result(
+    pub(crate) fn check_ack_message_result(
         res: &CanisterWsGetMessagesResult,
         receiver_client_key: &ClientKey,
         expected_ack_sequence_number: u64,

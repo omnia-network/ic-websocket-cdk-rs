@@ -905,7 +905,11 @@ dependencies = [
  "ic-cdk",
  "ic-cdk-macros",
  "ic-cdk-timers",
+ "ic-certificate-verification",
+ "ic-certification 1.2.0",
  "ic-certified-map",
+ "lazy_static",
+ "pocket-ic",
  "proptest",
  "rand",
  "ring 0.16.20",
@@ -958,22 +962,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a5bbe824c507c5da5956355e86a746d82e0e1464f65d862cc5e71da70e94b2c"
 dependencies = [
  "cfg-if",
-]
-
-[[package]]
-name = "integration-tests"
-version = "0.1.0"
-dependencies = [
- "candid",
- "ic-certificate-verification",
- "ic-certification 1.2.0",
- "ic-websocket-cdk",
- "lazy_static",
- "pocket-ic",
- "rand",
- "serde",
- "serde_cbor",
- "sha2 0.10.8",
 ]
 
 [[package]]

@@ -1,8 +1,8 @@
 use std::ops::Deref;
 
-use ic_websocket_cdk::CanisterWsSendResult;
+use crate::CanisterWsSendResult;
 
-use crate::utils::{
+use super::utils::{
     actor::{
         ws_open::call_ws_open_for_client_key_with_panic,
         ws_send::{call_ws_send, AppMessage},

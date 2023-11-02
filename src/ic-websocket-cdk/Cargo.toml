@@ -30,6 +30,10 @@ ic-agent = "0.25.0"
 proptest = "1.2.0"
 rand = { workspace = true }
 ring = "0.16.20"
+lazy_static = "1.4.0"
+pocket-ic = "1.0.0"
+ic-certificate-verification = "1.2.0"
+ic-certification = "1.2.0"
 
 [package.metadata.docs.rs]
 default-target = "wasm32-unknown-unknown"

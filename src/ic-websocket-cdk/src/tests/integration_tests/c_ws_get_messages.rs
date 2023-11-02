@@ -1,10 +1,10 @@
 use std::ops::Deref;
 
-use ic_websocket_cdk::{
+use crate::{
     CanisterOutputCertifiedMessages, CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult,
 };
 
-use crate::utils::{
+use super::utils::{
     actor::{
         ws_get_messages::call_ws_get_messages,
         ws_open::call_ws_open_for_client_key_with_panic,
@@ -215,17 +215,18 @@ fn test_5_registered_gateway_can_poll_messages_after_restart() {
 mod helpers {
     use std::ops::Deref;
 
-    use candid::decode_one;
-    use ic_websocket_cdk::{CanisterOutputMessage, ClientKey};
-
-    use crate::utils::{
-        actor::ws_send::AppMessage,
-        certification::{is_message_body_valid, is_valid_certificate},
-        messages::decode_websocket_message,
-        test_env::TEST_ENV,
+    use crate::{
+        tests::integration_tests::utils::{
+            actor::ws_send::AppMessage,
+            certification::{is_message_body_valid, is_valid_certificate},
+            messages::decode_websocket_message,
+            test_env::TEST_ENV,
+        },
+        CanisterOutputMessage, ClientKey,
     };
+    use candid::decode_one;
 
-    pub fn verify_messages(
+    pub(crate) fn verify_messages(
         messages: &Vec<CanisterOutputMessage>,
         client_key: &ClientKey,
         cert: &[u8],

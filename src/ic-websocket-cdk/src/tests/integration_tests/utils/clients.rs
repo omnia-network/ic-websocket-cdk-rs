@@ -1,5 +1,5 @@
+use crate::ClientKey;
 use candid::Principal;
-use ic_websocket_cdk::ClientKey;
 use lazy_static::lazy_static;
 
 lazy_static! {
@@ -19,8 +19,8 @@ lazy_static! {
 }
 
 lazy_static! {
-    pub static ref CLIENT_1_KEY: ClientKey = generate_client_key(*CLIENT_1.deref());
-    pub static ref CLIENT_2_KEY: ClientKey = generate_client_key(*CLIENT_2.deref());
+    pub(crate) static ref CLIENT_1_KEY: ClientKey = generate_client_key(*CLIENT_1.deref());
+    pub(crate) static ref CLIENT_2_KEY: ClientKey = generate_client_key(*CLIENT_2.deref());
 }
 
 fn generate_client_key(client_principal: Principal) -> ClientKey {

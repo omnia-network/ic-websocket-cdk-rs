@@ -3,13 +3,11 @@
 set -e
 
 # unit tests
-cargo test -p ic-websocket-cdk
+cargo test --package ic-websocket-cdk --lib -- tests::unit_tests
 
 # integration tests
-cd src/integration-tests
-
 ./scripts/download-pocket-ic.sh
 
 ./scripts/build-test-canister.sh
 
-POCKET_IC_BIN=./bin/pocket-ic RUST_BACKTRACE=1 cargo test -p integration-tests -- --test-threads 1
+POCKET_IC_BIN=$(pwd)/bin/pocket-ic RUST_BACKTRACE=1 cargo test --package ic-websocket-cdk --lib -- tests::integration_tests --test-threads 1
