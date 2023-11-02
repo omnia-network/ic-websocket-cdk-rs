@@ -3,8 +3,8 @@
 !.vscode/settings.json
 
 target
-node_modules
-.dfx
-dist
 declarations
 .env
+
+# the binary file needed for tests
+pocket-ic

@@ -1,0 +1,23 @@
+type ClientPrincipal = principal;
+type ClientKey = record {
+  client_principal : ClientPrincipal;
+  client_nonce : nat64;
+};
+
+type CanisterOpenMessageContent = record {
+  client_key : ClientKey;
+};
+
+type CanisterAckMessageContent = record {
+  last_incoming_sequence_num : nat64;
+};
+
+type ClientKeepAliveMessageContent = record {
+  last_incoming_sequence_num : nat64;
+};
+
+type WebsocketServiceMessageContent = variant {
+  OpenMessage : CanisterOpenMessageContent;
+  AckMessage : CanisterAckMessageContent;
+  KeepAliveMessage : ClientKeepAliveMessageContent;
+};
