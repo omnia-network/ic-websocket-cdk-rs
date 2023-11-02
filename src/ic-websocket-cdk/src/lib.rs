@@ -567,15 +567,12 @@ pub(crate) struct CanisterAckMessageContent {
     pub last_incoming_sequence_num: u64,
 }
 
-/// Internal use only.
 #[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
 pub(crate) struct ClientKeepAliveMessageContent {
     pub last_incoming_sequence_num: u64,
 }
 
 /// A service message sent by the CDK to the client or vice versa.
-///
-/// Internal use only.
 #[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
 pub(crate) enum WebsocketServiceMessageContent {
     /// Message sent by the **canister** when a client opens a connection.
