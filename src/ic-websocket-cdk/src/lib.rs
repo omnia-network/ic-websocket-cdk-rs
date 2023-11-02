@@ -42,8 +42,8 @@ const INITIAL_CANISTER_SEQUENCE_NUM: u64 = 0;
 pub type ClientPrincipal = Principal;
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug, Hash)]
 pub(crate) struct ClientKey {
-    pub(crate) client_principal: ClientPrincipal,
-    pub(crate) client_nonce: u64,
+    pub client_principal: ClientPrincipal,
+    pub client_nonce: u64,
 }
 
 impl ClientKey {
