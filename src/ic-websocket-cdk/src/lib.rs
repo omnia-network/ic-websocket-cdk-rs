@@ -340,10 +340,18 @@ fn initialize_registered_gateways(gateways_principals: Vec<String>) {
         *p.borrow_mut() = Some(registered_gateways);
     });
     OUTGOING_MESSAGE_NONCE.with(|n| {
-        for gateway_principal in gateways_principals {
+        for gateway_principal in &gateways_principals {
             n.borrow_mut().insert(
                 Principal::from_text(gateway_principal).expect("invalid gateway principal"),
                 INITIAL_OUTGOING_MESSAGE_NONCE,
+            );
+        }
+    });
+    MESSAGES_FOR_GATEWAYS.with(|n| {
+        for gateway_principal in &gateways_principals {
+            n.borrow_mut().insert(
+                Principal::from_text(gateway_principal).expect("invalid gateway principal"),
+                VecDeque::new(),
             );
         }
     });
