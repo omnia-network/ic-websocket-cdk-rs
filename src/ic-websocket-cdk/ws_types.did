@@ -26,6 +26,7 @@ type CanisterOutputCertifiedMessages = record {
 
 type CanisterWsOpenArguments = record {
   client_nonce : nat64;
+  gateway_principal : principal;
 };
 
 type CanisterWsOpenResult = variant {

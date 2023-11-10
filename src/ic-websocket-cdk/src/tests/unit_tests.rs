@@ -249,19 +249,21 @@ proptest! {
     #[test]
     fn test_get_outgoing_message_nonce(test_nonce in any::<u64>()) {
         // Set up
-        OUTGOING_MESSAGE_NONCE.with(|n| *n.borrow_mut() = test_nonce);
+        let gateway_principal = test_utils::generate_random_principal();
+        OUTGOING_MESSAGE_NONCE.with(|n| n.borrow_mut().insert(gateway_principal, test_nonce));
 
-        let actual_nonce = get_outgoing_message_nonce();
+        let actual_nonce = get_outgoing_message_nonce(&gateway_principal);
         prop_assert_eq!(actual_nonce, test_nonce);
     }
 
     #[test]
     fn test_increment_outgoing_message_nonce(test_nonce in any::<u64>()) {
         // Set up
-        OUTGOING_MESSAGE_NONCE.with(|n| *n.borrow_mut() = test_nonce);
+        let gateway_principal = test_utils::generate_random_principal();
+        OUTGOING_MESSAGE_NONCE.with(|n| n.borrow_mut().insert(gateway_principal, test_nonce));
 
-        increment_outgoing_message_nonce();
-        prop_assert_eq!(get_outgoing_message_nonce(), test_nonce + 1);
+        increment_outgoing_message_nonce(&gateway_principal);
+        prop_assert_eq!(get_outgoing_message_nonce(&gateway_principal), test_nonce + 1);
     }
 
     #[test]

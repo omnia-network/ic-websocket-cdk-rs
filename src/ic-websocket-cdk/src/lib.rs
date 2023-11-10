@@ -48,7 +48,7 @@ pub(crate) struct ClientKey {
 
 impl ClientKey {
     /// Creates a new instance of ClientKey.
-    pub(crate) fn new(client_principal: ClientPrincipal, client_nonce: u64) -> Self {
+    fn new(client_principal: ClientPrincipal, client_nonce: u64) -> Self {
         Self {
             client_principal,
             client_nonce,
@@ -76,26 +76,26 @@ pub type CanisterWsSendResult = Result<(), String>;
 /// The arguments for [ws_open].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsOpenArguments {
-    pub(crate) client_nonce: u64,
+    client_nonce: u64,
     gateway_principal: Principal,
 }
 
 /// The arguments for [ws_close].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsCloseArguments {
-    pub(crate) client_key: ClientKey,
+    client_key: ClientKey,
 }
 
 /// The arguments for [ws_message].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsMessageArguments {
-    pub(crate) msg: WebsocketMessage,
+    msg: WebsocketMessage,
 }
 
 /// The arguments for [ws_get_messages].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsGetMessagesArguments {
-    pub(crate) nonce: u64,
+    nonce: u64,
 }
 
 /// Messages exchanged through the WebSocket.
@@ -123,20 +123,20 @@ impl WebsocketMessage {
 /// Element of the list of messages returned to the WS Gateway after polling.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct CanisterOutputMessage {
-    pub(crate) client_key: ClientKey, // The client that the gateway will forward the message to or that sent the message.
-    pub(crate) key: String,           // Key for certificate verification.
+    client_key: ClientKey, // The client that the gateway will forward the message to or that sent the message.
+    key: String,           // Key for certificate verification.
     #[serde(with = "serde_bytes")]
-    pub(crate) content: Vec<u8>, // The message to be relayed, that contains the application message.
+    content: Vec<u8>, // The message to be relayed, that contains the application message.
 }
 
 /// List of messages returned to the WS Gateway after polling.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct CanisterOutputCertifiedMessages {
-    pub(crate) messages: Vec<CanisterOutputMessage>, // List of messages.
+    messages: Vec<CanisterOutputMessage>, // List of messages.
     #[serde(with = "serde_bytes")]
-    pub(crate) cert: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
+    cert: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
     #[serde(with = "serde_bytes")]
-    pub(crate) tree: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
+    tree: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -211,7 +211,7 @@ thread_local! {
     /// Keeps track of the nonce which:
     /// - the WS Gateway uses to specify the first index of the certified messages to be returned when polling
     /// - the client uses as part of the path in the Merkle tree in order to verify the certificate of the messages relayed by the WS Gateway
-    /* flexible */ static OUTGOING_MESSAGE_NONCE: RefCell<u64> = RefCell::new(INITIAL_OUTGOING_MESSAGE_NONCE);
+    /* flexible */ static OUTGOING_MESSAGE_NONCE: RefCell<HashMap<Principal, u64>> = RefCell::new(HashMap::new());
     /// The parameters passed in the CDK initialization
     /* flexible */ static PARAMS: RefCell<WsInitParams> = RefCell::new(WsInitParams::default());
     /// The acknowledgement active timer.
@@ -249,7 +249,7 @@ fn reset_internal_state() {
         t.replace(RbTree::new());
     });
     MESSAGES_FOR_GATEWAYS.with(|m| *m.borrow_mut() = HashMap::new());
-    OUTGOING_MESSAGE_NONCE.with(|next_id| next_id.replace(INITIAL_OUTGOING_MESSAGE_NONCE));
+    OUTGOING_MESSAGE_NONCE.with(|m| *m.borrow_mut() = HashMap::new());
 }
 
 /// Resets the internal state of the IC WebSocket CDK.
@@ -261,12 +261,16 @@ pub fn wipe() {
     custom_print!("Internal state has been wiped!");
 }
 
-fn get_outgoing_message_nonce() -> u64 {
-    OUTGOING_MESSAGE_NONCE.with(|n| n.borrow().clone())
+fn get_outgoing_message_nonce(gateway_principal: &Principal) -> u64 {
+    OUTGOING_MESSAGE_NONCE.with(|n| n.borrow().get(gateway_principal).expect("TODO").clone())
 }
 
-fn increment_outgoing_message_nonce() {
-    OUTGOING_MESSAGE_NONCE.with(|n| n.replace_with(|&mut old| old + 1));
+fn increment_outgoing_message_nonce(gateway_principal: &Principal) {
+    OUTGOING_MESSAGE_NONCE.with(|n| {
+        let previous_nonce = *n.borrow().get(gateway_principal).expect("TODO");
+        n.borrow_mut()
+            .insert(*gateway_principal, previous_nonce + 1);
+    });
 }
 
 fn insert_client(client_key: ClientKey, new_client: RegisteredClient) {
@@ -334,6 +338,14 @@ fn initialize_registered_gateways(gateways_principals: Vec<String>) {
             })
             .collect();
         *p.borrow_mut() = Some(registered_gateways);
+    });
+    OUTGOING_MESSAGE_NONCE.with(|n| {
+        for gateway_principal in gateways_principals {
+            n.borrow_mut().insert(
+                Principal::from_text(gateway_principal).expect("invalid gateway principal"),
+                INITIAL_OUTGOING_MESSAGE_NONCE,
+            );
+        }
     });
 }
 
@@ -769,11 +781,11 @@ fn _ws_send(
 
     // the nonce in key is used by the WS Gateway to determine the message to start in the polling iteration
     // the key is also passed to the client in order to validate the body of the certified message
-    let outgoing_message_nonce = get_outgoing_message_nonce();
+    let outgoing_message_nonce = get_outgoing_message_nonce(&gateway_principal);
     let key = get_message_for_gateway_key(gateway_principal, outgoing_message_nonce);
 
     // increment the nonce for the next message
-    increment_outgoing_message_nonce();
+    increment_outgoing_message_nonce(&gateway_principal);
     // increment the sequence number for the next message to the client
     increment_outgoing_message_to_client_num(client_key)?;
 

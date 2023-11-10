@@ -25,8 +25,9 @@ pub struct TestEnv {
     root_ic_key: Vec<u8>,
 }
 
+type AuthorizedGateways = Vec<String>;
 /// (`gateway_principal`, `max_number_or_returned_messages`, `send_ack_interval_ms`, `send_ack_timeout_ms`)
-type CanisterInitArgs = (String, u64, u64, u64);
+type CanisterInitArgs = (AuthorizedGateways, u64, u64, u64);
 
 impl TestEnv {
     pub fn new() -> Self {
@@ -39,8 +40,10 @@ impl TestEnv {
         pic.add_cycles(canister_id, 1_000_000_000_000_000);
 
         let wasm_bytes = load_canister_wasm_from_bin("test_canister.wasm");
+
+        let authorized_gateways = vec![GATEWAY_1.to_string()];
         let arguments: CanisterInitArgs = (
-            GATEWAY_1.to_string(),
+            authorized_gateways,
             DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
             DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
             DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
