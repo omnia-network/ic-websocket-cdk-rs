@@ -8,7 +8,7 @@ mod test_utils {
 
     use super::{
         get_message_for_gateway_key, CanisterOutputMessage, ClientKey, RegisteredClient,
-        MESSAGES_FOR_GATEWAY,
+        MESSAGES_FOR_GATEWAYS,
     };
 
     fn generate_random_key_pair() -> Ed25519KeyPair {
@@ -27,7 +27,7 @@ mod test_utils {
     }
 
     pub(super) fn generate_random_registered_client() -> RegisteredClient {
-        RegisteredClient::new()
+        RegisteredClient::new(Principal::anonymous())
     }
 
     pub fn get_static_principal() -> Principal {
@@ -48,19 +48,22 @@ mod test_utils {
         gateway_principal: Principal,
         count: u64,
     ) {
-        MESSAGES_FOR_GATEWAY.with(|m| {
+        MESSAGES_FOR_GATEWAYS.with(|m| {
             for i in 0..count {
-                m.borrow_mut().push_back(CanisterOutputMessage {
-                    client_key: client_key.clone(),
-                    key: get_message_for_gateway_key(gateway_principal.clone(), i),
-                    content: vec![],
-                });
+                m.borrow_mut()
+                    .get_mut(&gateway_principal)
+                    .expect("TODO")
+                    .push_back(CanisterOutputMessage {
+                        client_key: client_key.clone(),
+                        key: get_message_for_gateway_key(gateway_principal.clone(), i),
+                        content: vec![],
+                    });
             }
         });
     }
 
     pub fn clean_messages_for_gateway() {
-        MESSAGES_FOR_GATEWAY.with(|m| m.borrow_mut().clear());
+        MESSAGES_FOR_GATEWAYS.with(|m| m.borrow_mut().clear());
     }
 }
 
@@ -68,7 +71,7 @@ mod test_utils {
 #[test]
 #[should_panic = "gateway should be initialized"]
 fn test_get_gateway_principal_not_set() {
-    get_registered_gateway_principal();
+    get_registered_gateways_principals();
 }
 
 #[test]
@@ -231,13 +234,13 @@ fn test_current_time() {
 proptest! {
     #[test]
     fn test_initialize_registered_gateway(test_gateway_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
-        initialize_registered_gateway(&test_gateway_principal.to_string());
+        initialize_registered_gateways(vec![test_gateway_principal.to_string()]);
 
-        REGISTERED_GATEWAY.with(|p| {
+        REGISTERED_GATEWAYS.with(|p| {
             let p = p.borrow();
             assert!(p.is_some());
             assert_eq!(
-                p.unwrap(),
+                p.to_owned().unwrap()[0],
                 RegisteredGateway::new(test_gateway_principal)
             );
         });
@@ -278,9 +281,9 @@ proptest! {
     #[test]
     fn test_get_gateway_principal(test_gateway_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
         // Set up
-        REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(test_gateway_principal.clone())));
+        REGISTERED_GATEWAYS.with(|p| *p.borrow_mut() = Some(vec![RegisteredGateway::new(test_gateway_principal.clone())]));
 
-        let actual_gateway_principal = get_registered_gateway_principal();
+        let actual_gateway_principal = get_registered_gateways_principals()[0];
         prop_assert_eq!(actual_gateway_principal, test_gateway_principal);
     }
 
@@ -478,7 +481,12 @@ proptest! {
     fn test_get_messages_for_gateway_range_empty(messages_count in any::<u64>().prop_map(|c| c % 1000)) {
         // Set up
         let gateway_principal = test_utils::generate_random_principal();
-        REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(gateway_principal.clone())));
+        REGISTERED_GATEWAYS.with(|p| *p.borrow_mut() = Some(vec![RegisteredGateway::new(gateway_principal.clone())]));
+        MESSAGES_FOR_GATEWAYS.with(|m| *m.borrow_mut() = {
+            let mut m = HashMap::new();
+            m.insert(gateway_principal.clone(), VecDeque::new());
+            m
+        });
 
         // Test
         // we ask for a random range of messages to check if it always returns the same range for empty messages
@@ -492,7 +500,12 @@ proptest! {
     #[test]
     fn test_get_messages_for_gateway_range_smaller_than_max(gateway_principal in any::<u8>().prop_map(|_| test_utils::get_static_principal())) {
         // Set up
-        REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(gateway_principal.clone())));
+        REGISTERED_GATEWAYS.with(|p| *p.borrow_mut() = Some(vec![RegisteredGateway::new(gateway_principal.clone())]));
+        MESSAGES_FOR_GATEWAYS.with(|m| *m.borrow_mut() = {
+            let mut m = HashMap::new();
+            m.insert(gateway_principal.clone(), VecDeque::new());
+            m
+        });
 
         let messages_count = 4;
         let test_client_key = test_utils::get_random_client_key();
@@ -520,7 +533,12 @@ proptest! {
                 ..Default::default()
             }
         });
-        REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(gateway_principal.clone())));
+        REGISTERED_GATEWAYS.with(|p| *p.borrow_mut() = Some(vec![RegisteredGateway::new(gateway_principal.clone())]));
+        MESSAGES_FOR_GATEWAYS.with(|m| *m.borrow_mut() = {
+            let mut m = HashMap::new();
+            m.insert(gateway_principal.clone(), VecDeque::new());
+            m
+        });
 
         let messages_count: u64 = (2 * max_number_of_returned_messages).try_into().unwrap();
         let test_client_key = test_utils::get_random_client_key();
@@ -553,7 +571,12 @@ proptest! {
                 ..Default::default()
             }
         });
-        REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(gateway_principal.clone())));
+        REGISTERED_GATEWAYS.with(|p| *p.borrow_mut() = Some(vec![RegisteredGateway::new(gateway_principal.clone())]));
+        MESSAGES_FOR_GATEWAYS.with(|m| *m.borrow_mut() = {
+            let mut m = HashMap::new();
+            m.insert(gateway_principal.clone(), VecDeque::new());
+            m
+        });
 
         let test_client_key = test_utils::get_random_client_key();
         test_utils::add_messages_for_gateway(test_client_key, gateway_principal, messages_count);
@@ -575,7 +598,12 @@ proptest! {
     #[test]
     fn test_get_messages_for_gateway(gateway_principal in any::<u8>().prop_map(|_| test_utils::get_static_principal()), messages_count in any::<u64>().prop_map(|c| c % 100)) {
         // Set up
-        REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(gateway_principal.clone())));
+        REGISTERED_GATEWAYS.with(|p| *p.borrow_mut() = Some(vec![RegisteredGateway::new(gateway_principal.clone())]));
+        MESSAGES_FOR_GATEWAYS.with(|m| *m.borrow_mut() = {
+            let mut m = HashMap::new();
+            m.insert(gateway_principal.clone(), VecDeque::new());
+            m
+        });
 
         let test_client_key = test_utils::get_random_client_key();
         test_utils::add_messages_for_gateway(test_client_key, gateway_principal, messages_count);
@@ -584,7 +612,7 @@ proptest! {
         // add one to test the out of range index
         for i in 0..messages_count + 1 {
             let (start_index, end_index) = get_messages_for_gateway_range(gateway_principal, i);
-            let messages = get_messages_for_gateway(start_index, end_index);
+            let messages = get_messages_for_gateway(gateway_principal, start_index, end_index);
 
             // check if the messages returned are the ones we expect
             for (j, message) in messages.iter().enumerate() {
@@ -600,14 +628,14 @@ proptest! {
     #[test]
     fn test_check_is_registered_gateway(test_gateway_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal())) {
         // Set up
-        REGISTERED_GATEWAY.with(|p| *p.borrow_mut() = Some(RegisteredGateway::new(test_gateway_principal.clone())));
+        REGISTERED_GATEWAYS.with(|p| *p.borrow_mut() = Some(vec![RegisteredGateway::new(test_gateway_principal.clone())]));
 
         let actual_result = check_is_registered_gateway(test_gateway_principal);
         prop_assert!(actual_result.is_ok());
 
         let other_principal = test_utils::generate_random_principal();
         let actual_result = check_is_registered_gateway(other_principal);
-        prop_assert_eq!(actual_result.err(), Some(String::from("caller is not the gateway that has been registered during CDK initialization")));
+        prop_assert_eq!(actual_result.err(), Some(String::from("caller is not one of the authorized gateways that have been registered during CDK initialization")));
     }
 
     #[test]

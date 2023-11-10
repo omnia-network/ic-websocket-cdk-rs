@@ -4,7 +4,12 @@ use pocket_ic::WasmResult;
 use super::test_env::TEST_ENV;
 
 pub mod ws_open {
-    use crate::{CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey};
+    use std::ops::Deref;
+
+    use crate::{
+        tests::integration_tests::utils::clients::GATEWAY_1, CanisterWsOpenArguments,
+        CanisterWsOpenResult, ClientKey,
+    };
 
     use super::*;
 
@@ -39,6 +44,7 @@ pub mod ws_open {
     pub(crate) fn call_ws_open_for_client_key_with_panic(client_key: &ClientKey) {
         let args = CanisterWsOpenArguments {
             client_nonce: client_key.client_nonce,
+            gateway_principal: GATEWAY_1.deref().to_owned(),
         };
         call_ws_open_with_panic(&client_key.client_principal, args);
     }

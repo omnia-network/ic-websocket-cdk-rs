@@ -12,7 +12,7 @@ mod canister;
 
 #[init]
 fn init(
-    gateway_principal: String,
+    gateway_principals: Vec<String>,
     max_number_of_returned_messages: usize,
     send_ack_interval_ms: u64,
     keep_alive_timeout_ms: u64,
@@ -25,7 +25,7 @@ fn init(
 
     let params = WsInitParams {
         handlers,
-        gateway_principal,
+        gateway_principals,
         max_number_of_returned_messages,
         send_ack_interval_ms,
         keep_alive_timeout_ms,
@@ -36,13 +36,13 @@ fn init(
 
 #[post_upgrade]
 fn post_upgrade(
-    gateway_principal: String,
+    gateway_principals: Vec<String>,
     max_number_of_returned_messages: usize,
     send_ack_interval_ms: u64,
     keep_alive_timeout_ms: u64,
 ) {
     init(
-        gateway_principal,
+        gateway_principals,
         max_number_of_returned_messages,
         send_ack_interval_ms,
         keep_alive_timeout_ms,
@@ -98,13 +98,13 @@ fn ws_send(client_principal: ClientPrincipal, messages: Vec<Vec<u8>>) -> Caniste
 // initialize the CDK again
 #[update]
 fn initialize(
-    gateway_principal: String,
+    gateway_principals: Vec<String>,
     max_number_of_returned_messages: usize,
     send_ack_interval_ms: u64,
     keep_alive_delay_ms: u64,
 ) {
     init(
-        gateway_principal,
+        gateway_principals,
         max_number_of_returned_messages,
         send_ack_interval_ms,
         keep_alive_delay_ms,

@@ -16,6 +16,7 @@ use super::utils::{
 fn test_1_fail_for_an_anonymous_client() {
     let args = CanisterWsOpenArguments {
         client_nonce: generate_random_client_nonce(),
+        gateway_principal: GATEWAY_1.deref().to_owned(),
     };
     let res = call_ws_open(&Principal::anonymous(), args);
     assert_eq!(
@@ -28,6 +29,7 @@ fn test_1_fail_for_an_anonymous_client() {
 fn test_2_fails_for_the_registered_gateway() {
     let args = CanisterWsOpenArguments {
         client_nonce: generate_random_client_nonce(),
+        gateway_principal: GATEWAY_1.deref().to_owned(),
     };
     let res = call_ws_open(GATEWAY_1.deref(), args);
     assert_eq!(
@@ -43,6 +45,7 @@ fn test_3_should_open_a_connection() {
     let client_1_key = CLIENT_1_KEY.deref();
     let args = CanisterWsOpenArguments {
         client_nonce: client_1_key.client_nonce,
+        gateway_principal: GATEWAY_1.deref().to_owned(),
     };
     let res = call_ws_open(CLIENT_1.deref(), args);
     assert_eq!(res, CanisterWsOpenResult::Ok(()));
@@ -73,6 +76,7 @@ fn test_4_fails_for_a_client_with_the_same_nonce() {
     let client_1_key = CLIENT_1_KEY.deref();
     let args = CanisterWsOpenArguments {
         client_nonce: client_1_key.client_nonce,
+        gateway_principal: GATEWAY_1.deref().to_owned(),
     };
     let res = call_ws_open(CLIENT_1.deref(), args);
     assert_eq!(
@@ -91,6 +95,7 @@ fn test_5_should_open_a_connection_for_the_same_client_with_a_different_nonce() 
     };
     let args = CanisterWsOpenArguments {
         client_nonce: client_key.client_nonce,
+        gateway_principal: GATEWAY_1.deref().to_owned(),
     };
     let res = call_ws_open(&client_key.client_principal, args);
     assert_eq!(res, CanisterWsOpenResult::Ok(()));
