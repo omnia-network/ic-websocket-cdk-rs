@@ -25,7 +25,7 @@ fn test_1_fails_if_gateway_is_not_registered() {
     assert_eq!(
         res,
         CanisterWsCloseResult::Err(String::from(
-            "caller is not the gateway that has been registered during CDK initialization",
+            "caller is not one of the authorized gateways that have been registered during CDK initialization",
         )),
     );
 }
