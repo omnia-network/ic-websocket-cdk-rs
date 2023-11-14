@@ -42,8 +42,8 @@ const INITIAL_CANISTER_SEQUENCE_NUM: u64 = 0;
 pub type ClientPrincipal = Principal;
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug, Hash)]
 pub(crate) struct ClientKey {
-    pub client_principal: ClientPrincipal,
-    pub client_nonce: u64,
+    client_principal: ClientPrincipal,
+    client_nonce: u64,
 }
 
 impl ClientKey {
@@ -101,12 +101,12 @@ pub struct CanisterWsGetMessagesArguments {
 /// Messages exchanged through the WebSocket.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub(crate) struct WebsocketMessage {
-    pub client_key: ClientKey, // The client that the gateway will forward the message to or that sent the message.
-    pub sequence_num: u64,     // Both ways, messages should arrive with sequence numbers 0, 1, 2...
-    pub timestamp: u64, // Timestamp of when the message was made for the recipient to inspect.
-    pub is_service_message: bool, // Whether the message is a service message sent by the CDK to the client or vice versa.
+    client_key: ClientKey, // The client that the gateway will forward the message to or that sent the message.
+    sequence_num: u64,     // Both ways, messages should arrive with sequence numbers 0, 1, 2...
+    timestamp: u64,        // Timestamp of when the message was made for the recipient to inspect.
+    is_service_message: bool, // Whether the message is a service message sent by the CDK to the client or vice versa.
     #[serde(with = "serde_bytes")]
-    pub content: Vec<u8>, // Application message encoded in binary.
+    content: Vec<u8>, // Application message encoded in binary.
 }
 
 impl WebsocketMessage {
@@ -614,17 +614,17 @@ fn get_handlers_from_params() -> WsHandlers {
 
 #[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
 pub(crate) struct CanisterOpenMessageContent {
-    pub client_key: ClientKey,
+    client_key: ClientKey,
 }
 
 #[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
 pub(crate) struct CanisterAckMessageContent {
-    pub last_incoming_sequence_num: u64,
+    last_incoming_sequence_num: u64,
 }
 
 #[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
 pub(crate) struct ClientKeepAliveMessageContent {
-    pub last_incoming_sequence_num: u64,
+    last_incoming_sequence_num: u64,
 }
 
 /// A service message sent by the CDK to the client or vice versa.
