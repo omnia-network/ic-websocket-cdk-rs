@@ -154,7 +154,7 @@ pub mod ws_get_messages {
 }
 
 pub mod ws_send {
-    use crate::CanisterWsSendResult;
+    use crate::{CanisterWsSendResult, ClientPrincipal};
     use candid::{encode_args, CandidType};
     use serde::{Deserialize, Serialize};
 
@@ -165,11 +165,11 @@ pub mod ws_send {
         pub text: String,
     }
 
-    /// (`Principal`, `Vec<Vec<u8>>`)
-    type WsSendArguments = (Principal, Vec<Vec<u8>>);
+    /// (`ClientPrincipal`, `Vec<Vec<u8>>`)
+    type WsSendArguments = (ClientPrincipal, Vec<Vec<u8>>);
 
     pub fn call_ws_send(
-        send_to_principal: &Principal,
+        send_to_principal: &ClientPrincipal,
         messages: Vec<AppMessage>,
     ) -> CanisterWsSendResult {
         let messages: Vec<Vec<u8>> = messages.iter().map(|m| encode_one(m).unwrap()).collect();
@@ -190,7 +190,7 @@ pub mod ws_send {
         }
     }
 
-    pub fn call_ws_send_with_panic(send_to_principal: &Principal, messages: Vec<AppMessage>) {
+    pub fn call_ws_send_with_panic(send_to_principal: &ClientPrincipal, messages: Vec<AppMessage>) {
         match call_ws_send(send_to_principal, messages) {
             CanisterWsSendResult::Ok(_) => {},
             CanisterWsSendResult::Err(err) => panic!("failed ws_send: {:?}", err),
