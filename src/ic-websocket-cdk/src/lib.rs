@@ -466,17 +466,12 @@ fn remove_client(client_key: &ClientKey) {
     });
 }
 
-fn get_message_for_gateway_key(gateway_principal: &Principal, nonce: u64) -> String {
+fn format_message_for_gateway_key(gateway_principal: &Principal, nonce: u64) -> String {
     gateway_principal.to_string() + "_" + &format!("{:0>20}", nonce.to_string())
 }
 
-fn get_messages_for_gateway_range(
-    gateway_principal: &Principal,
-    nonce: u64,
-) -> Result<(usize, usize), String> {
+fn get_messages_for_gateway_range(gateway_principal: &Principal, nonce: u64) -> (usize, usize) {
     let max_number_of_returned_messages = get_params().max_number_of_returned_messages;
-
-    check_is_registered_gateway(gateway_principal)?;
 
     MESSAGES_FOR_GATEWAYS.with(|h| {
         let h = h.borrow();
@@ -492,11 +487,11 @@ fn get_messages_for_gateway_range(
                 0
             };
 
-            return Ok((start_index, queue_len));
+            return (start_index, queue_len);
         }
 
         // smallest key used to determine the first message from the queue which has to be returned to the WS Gateway
-        let smallest_key = get_message_for_gateway_key(gateway_principal, nonce);
+        let smallest_key = format_message_for_gateway_key(gateway_principal, nonce);
         // partition the queue at the message which has the key with the nonce specified as argument to get_cert_messages
         let start_index = messages_queue.partition_point(|x| x.key < smallest_key);
         // message at index corresponding to end index is excluded
@@ -504,7 +499,7 @@ fn get_messages_for_gateway_range(
         if end_index - start_index > max_number_of_returned_messages {
             end_index = start_index + max_number_of_returned_messages;
         }
-        Ok((start_index, end_index))
+        (start_index, end_index)
     })
 }
 
@@ -512,9 +507,7 @@ fn get_messages_for_gateway(
     gateway_principal: &Principal,
     start_index: usize,
     end_index: usize,
-) -> Result<Vec<CanisterOutputMessage>, String> {
-    check_is_registered_gateway(gateway_principal)?;
-
+) -> Vec<CanisterOutputMessage> {
     MESSAGES_FOR_GATEWAYS.with(|h| {
         let mut messages: Vec<CanisterOutputMessage> = Vec::with_capacity(end_index - start_index);
         for index in start_index..end_index {
@@ -527,14 +520,14 @@ fn get_messages_for_gateway(
                     .clone(),
             );
         }
-        Ok(messages)
+        messages
     })
 }
 
 /// Gets the messages in [MESSAGES_FOR_GATEWAYS] starting from the one with the specified nonce
 fn get_cert_messages(gateway_principal: &Principal, nonce: u64) -> CanisterWsGetMessagesResult {
-    let (start_index, end_index) = get_messages_for_gateway_range(gateway_principal, nonce)?; // TODO: test error case
-    let messages = get_messages_for_gateway(gateway_principal, start_index, end_index)?; // TODO: test error case
+    let (start_index, end_index) = get_messages_for_gateway_range(gateway_principal, nonce);
+    let messages = get_messages_for_gateway(gateway_principal, start_index, end_index);
 
     if messages.is_empty() {
         return Ok(CanisterOutputCertifiedMessages {
@@ -811,11 +804,11 @@ fn _ws_send(
 
     // the nonce in key is used by the WS Gateway to determine the message to start in the polling iteration
     // the key is also passed to the client in order to validate the body of the certified message
-    let outgoing_message_nonce = get_outgoing_message_nonce(&gateway_principal)?; // TODO: test the error case
-    let message_key = get_message_for_gateway_key(&gateway_principal, outgoing_message_nonce);
+    let outgoing_message_nonce = get_outgoing_message_nonce(&gateway_principal)?; // we never hit the error case because we just checked that the gateway is registered
+    let message_key = format_message_for_gateway_key(&gateway_principal, outgoing_message_nonce);
 
     // increment the nonce for the next message
-    increment_outgoing_message_nonce(gateway_principal)?; // TODO: test the error case
+    increment_outgoing_message_nonce(gateway_principal)?; // we never hit the error case because we just checked that the gateway is registered
 
     // increment the sequence number for the next message to the client
     increment_outgoing_message_to_client_num(client_key)?;
