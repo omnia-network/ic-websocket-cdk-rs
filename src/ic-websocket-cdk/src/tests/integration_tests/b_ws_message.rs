@@ -1,5 +1,7 @@
 use std::ops::Deref;
 
+use candid::encode_one;
+
 use crate::{
     tests::common::generate_random_principal, CanisterAckMessageContent,
     CanisterWsMessageArguments, CanisterWsMessageResult, ClientKeepAliveMessageContent, ClientKey,
@@ -141,7 +143,12 @@ fn test_5_fails_if_client_sends_a_wrong_service_message() {
     let res = call_ws_message(
         &client_1_key.client_principal,
         CanisterWsMessageArguments {
-            msg: create_websocket_message(client_1_key, 1, Some(vec![1, 2, 3]), true),
+            msg: create_websocket_message(
+                client_1_key,
+                1,
+                Some(encode_one(vec![1, 2, 3]).unwrap()),
+                true,
+            ),
         },
     );
     match res {
