@@ -770,7 +770,7 @@ fn check_keep_alive_timer_callback(keep_alive_timeout_ms: u64) {
 fn handle_keep_alive_client_message(
     client_key: &ClientKey,
     _keep_alive_message: ClientKeepAliveMessageContent,
-) -> Result<(), String> {
+) {
     // TODO: delete messages from the queue that have been acknowledged by the client
 
     // update the last keep alive timestamp for the client
@@ -781,8 +781,6 @@ fn handle_keep_alive_client_message(
     {
         client_metadata.update_last_keep_alive_timestamp();
     }
-
-    Ok(())
 }
 
 /// Internal function used to put the messages in the outgoing messages queue and certify them.
@@ -851,7 +849,8 @@ fn handle_received_service_message(
             Err(String::from("Invalid received service message"))
         },
         WebsocketServiceMessageContent::KeepAliveMessage(keep_alive_message) => {
-            handle_keep_alive_client_message(client_key, keep_alive_message)
+            handle_keep_alive_client_message(client_key, keep_alive_message);
+            Ok(())
         },
     }
 }
