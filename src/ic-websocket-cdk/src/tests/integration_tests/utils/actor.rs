@@ -37,7 +37,9 @@ pub mod ws_open {
     }
 
     /// See [call_ws_open_with_panic].
-    pub(crate) fn call_ws_open_for_client_key_with_panic(client_key: &ClientKey) {
+    pub(in crate::tests::integration_tests) fn call_ws_open_for_client_key_with_panic(
+        client_key: &ClientKey,
+    ) {
         let args = CanisterWsOpenArguments {
             client_nonce: client_key.client_nonce,
             gateway_principal: GATEWAY_1.deref().to_owned(),
@@ -46,7 +48,7 @@ pub mod ws_open {
     }
 
     /// See [call_ws_open_with_panic].
-    pub(crate) fn call_ws_open_for_client_key_and_gateway_with_panic(
+    pub(in crate::tests::integration_tests) fn call_ws_open_for_client_key_and_gateway_with_panic(
         client_key: &ClientKey,
         gateway_principal: Principal,
     ) {

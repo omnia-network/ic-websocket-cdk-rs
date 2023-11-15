@@ -247,7 +247,7 @@ mod helpers {
     };
     use candid::decode_one;
 
-    pub(crate) fn verify_messages(
+    pub(super) fn verify_messages(
         messages: &Vec<CanisterOutputMessage>,
         client_key: &ClientKey,
         cert: &[u8],

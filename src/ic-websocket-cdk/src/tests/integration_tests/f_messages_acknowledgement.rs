@@ -208,7 +208,7 @@ mod helpers {
         CanisterWsGetMessagesResult, ClientKey, WebsocketServiceMessageContent,
     };
 
-    pub(crate) fn check_ack_message_result(
+    pub(super) fn check_ack_message_result(
         res: &CanisterWsGetMessagesResult,
         receiver_client_key: &ClientKey,
         expected_ack_sequence_number: u64,
