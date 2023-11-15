@@ -9,13 +9,13 @@ use super::utils::{
     actor::{ws_message::call_ws_message, ws_open::call_ws_open_for_client_key_with_panic},
     clients::{generate_random_client_nonce, CLIENT_1_KEY, CLIENT_2, CLIENT_2_KEY},
     messages::{create_websocket_message, encode_websocket_service_message_content},
-    test_env::TEST_ENV,
+    test_env::get_test_env,
 };
 
 #[test]
 fn test_1_fails_if_client_is_not_registered() {
     // first, reset the canister
-    TEST_ENV.reset_canister_with_default_params();
+    get_test_env().reset_canister_with_default_params();
     // second, open a connection for client 1
     call_ws_open_for_client_key_with_panic(CLIENT_1_KEY.deref());
 

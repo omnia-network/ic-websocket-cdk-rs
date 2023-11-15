@@ -1,7 +1,7 @@
 use candid::{decode_one, encode_one, Principal};
 use pocket_ic::WasmResult;
 
-use super::test_env::TEST_ENV;
+use super::test_env::get_test_env;
 
 pub mod ws_open {
     use std::ops::Deref;
@@ -16,14 +16,10 @@ pub mod ws_open {
     /// # Panics
     /// if the call returns a [WasmResult::Reject].
     pub fn call_ws_open(caller: &Principal, args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
-        let res = TEST_ENV
+        let canister_id = get_test_env().canister_id;
+        let res = get_test_env()
             .pic
-            .update_call(
-                TEST_ENV.canister_id,
-                *caller,
-                "ws_open",
-                encode_one(args).unwrap(),
-            )
+            .update_call(canister_id, *caller, "ws_open", encode_one(args).unwrap())
             .expect("Failed to call canister");
 
         match res {
@@ -48,6 +44,18 @@ pub mod ws_open {
         };
         call_ws_open_with_panic(&client_key.client_principal, args);
     }
+
+    /// See [call_ws_open_with_panic].
+    pub(crate) fn call_ws_open_for_client_key_and_gateway_with_panic(
+        client_key: &ClientKey,
+        gateway_principal: Principal,
+    ) {
+        let args = CanisterWsOpenArguments {
+            client_nonce: client_key.client_nonce,
+            gateway_principal,
+        };
+        call_ws_open_with_panic(&client_key.client_principal, args);
+    }
 }
 
 pub mod ws_message {
@@ -61,10 +69,11 @@ pub mod ws_message {
         caller: &Principal,
         args: CanisterWsMessageArguments,
     ) -> CanisterWsMessageResult {
-        let res = TEST_ENV
+        let canister_id = get_test_env().canister_id;
+        let res = get_test_env()
             .pic
             .update_call(
-                TEST_ENV.canister_id,
+                canister_id,
                 *caller,
                 "ws_message",
                 encode_one(args).unwrap(),
@@ -97,14 +106,10 @@ pub mod ws_close {
         caller: &Principal,
         args: CanisterWsCloseArguments,
     ) -> CanisterWsCloseResult {
-        let res = TEST_ENV
+        let canister_id = get_test_env().canister_id;
+        let res = get_test_env()
             .pic
-            .update_call(
-                TEST_ENV.canister_id,
-                *caller,
-                "ws_close",
-                encode_one(args).unwrap(),
-            )
+            .update_call(canister_id, *caller, "ws_close", encode_one(args).unwrap())
             .expect("Failed to call canister");
 
         match res {
@@ -123,10 +128,11 @@ pub mod ws_get_messages {
         caller: &Principal,
         args: CanisterWsGetMessagesArguments,
     ) -> CanisterWsGetMessagesResult {
-        let res = TEST_ENV
+        let canister_id = get_test_env().canister_id;
+        let res = get_test_env()
             .pic
             .query_call(
-                TEST_ENV.canister_id,
+                canister_id,
                 *caller,
                 "ws_get_messages",
                 encode_one(args).unwrap(),
@@ -161,10 +167,11 @@ pub mod ws_send {
     ) -> CanisterWsSendResult {
         let messages: Vec<Vec<u8>> = messages.iter().map(|m| encode_one(m).unwrap()).collect();
         let args: WsSendArguments = (send_to_principal.clone(), messages);
-        let res = TEST_ENV
+        let canister_id = get_test_env().canister_id;
+        let res = get_test_env()
             .pic
             .update_call(
-                TEST_ENV.canister_id,
+                canister_id,
                 Principal::anonymous(),
                 "ws_send",
                 encode_args(args).unwrap(),

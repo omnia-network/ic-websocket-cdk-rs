@@ -13,13 +13,13 @@ use super::utils::{
     clients::{CLIENT_1_KEY, GATEWAY_1, GATEWAY_2},
     constants::{DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES, SEND_MESSAGES_COUNT},
     messages::get_next_polling_nonce_from_messages,
-    test_env::TEST_ENV,
+    test_env::get_test_env,
 };
 
 #[test]
 fn test_1_fails_if_a_non_registered_gateway_tries_to_get_messages() {
     // first, reset the canister
-    TEST_ENV.reset_canister_with_default_params();
+    get_test_env().reset_canister_with_default_params();
 
     let res = call_ws_get_messages(
         GATEWAY_2.deref(),
@@ -213,14 +213,12 @@ fn test_5_registered_gateway_can_poll_messages_after_restart() {
 }
 
 mod helpers {
-    use std::ops::Deref;
-
     use crate::{
         tests::integration_tests::utils::{
             actor::ws_send::AppMessage,
             certification::{is_message_body_valid, is_valid_certificate},
             messages::decode_websocket_message,
-            test_env::TEST_ENV,
+            test_env::get_test_env,
         },
         CanisterOutputMessage, ClientKey,
     };
@@ -261,7 +259,10 @@ mod helpers {
         let websocket_message = decode_websocket_message(&message.content);
         assert_eq!(websocket_message.client_key, *client_key);
         assert_eq!(websocket_message.sequence_num, *expected_sequence_number);
-        assert_eq!(websocket_message.timestamp, TEST_ENV.get_canister_time());
+        assert_eq!(
+            websocket_message.timestamp,
+            get_test_env().get_canister_time()
+        );
         assert_eq!(websocket_message.is_service_message, false);
         let decoded_content: AppMessage = decode_one(&websocket_message.content).unwrap();
         assert_eq!(
@@ -272,7 +273,7 @@ mod helpers {
         );
 
         // check the certification
-        assert!(is_valid_certificate(TEST_ENV.deref(), cert, tree,));
+        assert!(is_valid_certificate(&get_test_env(), cert, tree,));
         assert!(is_message_body_valid(&message.key, &message.content, tree));
     }
 }
