@@ -55,7 +55,7 @@ mod test_utils {
                     .expect("TODO")
                     .push_back(CanisterOutputMessage {
                         client_key: client_key.clone(),
-                        key: get_message_for_gateway_key(gateway_principal.clone(), i),
+                        key: get_message_for_gateway_key(&gateway_principal, i),
                         content: vec![],
                     });
             }
@@ -69,7 +69,7 @@ mod test_utils {
 
 // we don't need to proptest get_gateway_principal if principal is not set, as it just panics
 #[test]
-#[should_panic = "gateway should be initialized"]
+#[should_panic = "gateways map should be initialized"]
 fn test_get_gateway_principal_not_set() {
     get_registered_gateways_principals();
 }
@@ -252,7 +252,9 @@ proptest! {
         let gateway_principal = test_utils::generate_random_principal();
         OUTGOING_MESSAGE_NONCE.with(|n| n.borrow_mut().insert(gateway_principal, test_nonce));
 
-        let actual_nonce = get_outgoing_message_nonce(&gateway_principal);
+        let res = get_outgoing_message_nonce(&gateway_principal);
+        prop_assert!(res.is_ok());
+        let actual_nonce = res.unwrap();
         prop_assert_eq!(actual_nonce, test_nonce);
     }
 
@@ -262,8 +264,11 @@ proptest! {
         let gateway_principal = test_utils::generate_random_principal();
         OUTGOING_MESSAGE_NONCE.with(|n| n.borrow_mut().insert(gateway_principal, test_nonce));
 
-        increment_outgoing_message_nonce(&gateway_principal);
-        prop_assert_eq!(get_outgoing_message_nonce(&gateway_principal), test_nonce + 1);
+        let res = increment_outgoing_message_nonce(gateway_principal);
+        prop_assert!(res.is_ok());
+        let res = get_outgoing_message_nonce(&gateway_principal);
+        prop_assert!(res.is_ok());
+        prop_assert_eq!(res.unwrap(), test_nonce + 1);
     }
 
     #[test]
@@ -407,7 +412,7 @@ proptest! {
             map.borrow_mut().insert(test_client_key.clone(), test_num);
         });
 
-        let increment_result = increment_expected_incoming_message_from_client_num(&test_client_key);
+        let increment_result = increment_expected_incoming_message_from_client_num(test_client_key.clone());
         prop_assert!(increment_result.is_ok());
 
         let actual_result = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
@@ -475,7 +480,7 @@ proptest! {
 
     #[test]
     fn test_get_message_for_gateway_key(test_gateway_principal in any::<u8>().prop_map(|_| test_utils::generate_random_principal()), test_nonce in any::<u64>()) {
-        let actual_result = get_message_for_gateway_key(test_gateway_principal.clone(), test_nonce);
+        let actual_result = get_message_for_gateway_key(&test_gateway_principal, test_nonce);
         prop_assert_eq!(actual_result, test_gateway_principal.to_string() + "_" + &format!("{:0>20}", test_nonce.to_string()));
     }
 
@@ -493,7 +498,9 @@ proptest! {
         // Test
         // we ask for a random range of messages to check if it always returns the same range for empty messages
         for i in 0..messages_count {
-            let (start_index, end_index) = get_messages_for_gateway_range(gateway_principal, i);
+            let res = get_messages_for_gateway_range(&gateway_principal, i);
+            prop_assert!(res.is_ok());
+            let (start_index, end_index) = res.unwrap();
             prop_assert_eq!(start_index, 0);
             prop_assert_eq!(end_index, 0);
         }
@@ -517,7 +524,9 @@ proptest! {
         // messages are just 4, so we don't exceed the max number of returned messages
         // add one to test the out of range index
         for i in 0..messages_count + 1 {
-            let (start_index, end_index) = get_messages_for_gateway_range(gateway_principal, i);
+            let res = get_messages_for_gateway_range(&gateway_principal, i);
+            prop_assert!(res.is_ok());
+            let (start_index, end_index) = res.unwrap();
             prop_assert_eq!(start_index, i as usize);
             prop_assert_eq!(end_index, messages_count as usize);
         }
@@ -550,7 +559,9 @@ proptest! {
         // messages are now 2 * MAX_NUMBER_OF_RETURNED_MESSAGES
         // the case in which the start index is 0 is tested in test_get_messages_for_gateway_range_initial_nonce
         for i in 1..messages_count + 1 {
-            let (start_index, end_index) = get_messages_for_gateway_range(gateway_principal, i);
+            let res = get_messages_for_gateway_range(&gateway_principal, i);
+            prop_assert!(res.is_ok());
+            let (start_index, end_index) = res.unwrap();
             let expected_end_index = if (i as usize) + max_number_of_returned_messages > messages_count as usize {
                 messages_count as usize
             } else {
@@ -584,7 +595,9 @@ proptest! {
         test_utils::add_messages_for_gateway(test_client_key, gateway_principal, messages_count);
 
         // Test
-        let (start_index, end_index) = get_messages_for_gateway_range(gateway_principal, 0);
+        let res = get_messages_for_gateway_range(&gateway_principal, 0);
+        prop_assert!(res.is_ok());
+        let (start_index, end_index) = res.unwrap();
         let expected_start_index = if (messages_count as usize) > max_number_of_returned_messages {
             (messages_count as usize) - max_number_of_returned_messages
         } else {
@@ -613,12 +626,16 @@ proptest! {
         // Test
         // add one to test the out of range index
         for i in 0..messages_count + 1 {
-            let (start_index, end_index) = get_messages_for_gateway_range(gateway_principal, i);
-            let messages = get_messages_for_gateway(gateway_principal, start_index, end_index);
+            let res = get_messages_for_gateway_range(&gateway_principal, i);
+            prop_assert!(res.is_ok());
+            let (start_index, end_index) = res.unwrap();
+            let res = get_messages_for_gateway(&gateway_principal, start_index, end_index);
+            prop_assert!(res.is_ok());
+            let messages = res.unwrap();
 
             // check if the messages returned are the ones we expect
             for (j, message) in messages.iter().enumerate() {
-                let expected_key = get_message_for_gateway_key(gateway_principal.clone(), (start_index + j) as u64);
+                let expected_key = get_message_for_gateway_key(&gateway_principal, (start_index + j) as u64);
                 prop_assert_eq!(&message.key, &expected_key);
             }
         }
@@ -632,12 +649,12 @@ proptest! {
         // Set up
         REGISTERED_GATEWAYS.with(|p| *p.borrow_mut() = Some(vec![RegisteredGateway::new(test_gateway_principal.clone())]));
 
-        let actual_result = check_is_registered_gateway(test_gateway_principal);
+        let actual_result = check_is_registered_gateway(&test_gateway_principal);
         prop_assert!(actual_result.is_ok());
 
         let other_principal = test_utils::generate_random_principal();
-        let actual_result = check_is_registered_gateway(other_principal);
-        prop_assert_eq!(actual_result.err(), Some(String::from("caller is not one of the authorized gateways that have been registered during CDK initialization")));
+        let actual_result = check_is_registered_gateway(&other_principal);
+        prop_assert_eq!(actual_result.err(), Some(String::from("principal is not one of the authorized gateways that have been registered during CDK initialization")));
     }
 
     #[test]
