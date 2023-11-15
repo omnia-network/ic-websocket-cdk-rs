@@ -573,6 +573,6 @@ proptest! {
         };
 
         let serialized_message = websocket_message.cbor_serialize();
-        assert!(serialized_message.is_ok()); // not so useful as a test
+        prop_assert!(serialized_message.is_ok()); // not so useful as a test
     }
 }

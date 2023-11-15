@@ -144,7 +144,7 @@ pub mod ws_get_messages {
                 "ws_get_messages",
                 encode_one(args).unwrap(),
             )
-            .expect("Failed to call counter canister");
+            .expect("Failed to call canister");
 
         match res {
             WasmResult::Reply(bytes) => decode_one(&bytes).unwrap(),
@@ -183,7 +183,7 @@ pub mod ws_send {
                 "ws_send",
                 encode_args(args).unwrap(),
             )
-            .expect("Failed to call counter canister");
+            .expect("Failed to call canister");
         match res {
             WasmResult::Reply(bytes) => decode_one(&bytes).unwrap(),
             _ => panic!("Expected reply"),
