@@ -77,7 +77,7 @@ pub type CanisterWsSendResult = Result<(), String>;
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsOpenArguments {
     client_nonce: u64,
-    gateway_principal: Principal,
+    gateway_principal: GatewayPrincipal,
 }
 
 /// The arguments for [ws_close].
@@ -139,31 +139,37 @@ pub struct CanisterOutputCertifiedMessages {
     tree: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+type GatewayPrincipal = Principal;
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 /// Contains data about the registered WS Gateway.
 struct RegisteredGateway {
-    /// The principal of the gateway.
-    gateway_principal: Principal,
+    /// The queue of the messages that the gateway can poll.
+    messages_queue: VecDeque<CanisterOutputMessage>,
+    /// Keeps track of the nonce which:
+    /// - the WS Gateway uses to specify the first index of the certified messages to be returned when polling
+    /// - the client uses as part of the path in the Merkle tree in order to verify the certificate of the messages relayed by the WS Gateway
+    outgoing_message_nonce: u64,
 }
 
 impl RegisteredGateway {
     /// Creates a new instance of RegisteredGateway.
-    fn new(gateway_principal: Principal) -> Self {
-        Self { gateway_principal }
+    fn new() -> Self {
+        Self {
+            messages_queue: VecDeque::new(),
+            outgoing_message_nonce: INITIAL_OUTGOING_MESSAGE_NONCE,
+        }
     }
 
-    /// Creates a new instance of RegisteredGateway from a text representation of its principal.
-    fn from_text_principal(gateway_principal_text: &str) -> Self {
-        Self::new(
-            Principal::from_text(gateway_principal_text).expect(&format!(
-                "invalid gateway principal {gateway_principal_text}"
-            )),
-        )
+    /// Resets the messages and nonce to the initial values.
+    fn reset(&mut self) {
+        self.messages_queue.clear();
+        self.outgoing_message_nonce = INITIAL_OUTGOING_MESSAGE_NONCE;
     }
 
-    /// Gets the gateway principal.
-    fn get_principal(&self) -> &Principal {
-        &self.gateway_principal
+    /// Increments the outgoing message nonce by 1.
+    fn increment_nonce(&mut self) {
+        self.outgoing_message_nonce += 1;
     }
 }
 
@@ -182,12 +188,12 @@ fn get_current_time() -> u64 {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct RegisteredClient {
     last_keep_alive_timestamp: u64,
-    gateway_principal: Principal,
+    gateway_principal: GatewayPrincipal,
 }
 
 impl RegisteredClient {
     /// Creates a new instance of RegisteredClient.
-    fn new(gateway_principal: Principal) -> Self {
+    fn new(gateway_principal: GatewayPrincipal) -> Self {
         Self {
             last_keep_alive_timestamp: get_current_time(),
             gateway_principal,
@@ -219,13 +225,7 @@ thread_local! {
     /// Keeps track of the Merkle tree used for certified queries
     /* flexible */ static CERT_TREE: RefCell<RbTree<String, ICHash>> = RefCell::new(RbTree::new());
     /// Keeps track of the principals of the WS Gateways that poll the canister
-    /* flexible */ static REGISTERED_GATEWAYS: RefCell<Option<Vec<RegisteredGateway>>> = RefCell::new(None);
-    /// Keeps track of the messages that have to be sent to each authorized WS Gateway
-    /* flexible */ static MESSAGES_FOR_GATEWAYS: RefCell<HashMap<Principal, VecDeque<CanisterOutputMessage>>> = RefCell::new(HashMap::new());
-    /// Keeps track of the nonce which:
-    /// - the WS Gateway uses to specify the first index of the certified messages to be returned when polling
-    /// - the client uses as part of the path in the Merkle tree in order to verify the certificate of the messages relayed by the WS Gateway
-    /* flexible */ static OUTGOING_MESSAGE_NONCE: RefCell<HashMap<Principal, u64>> = RefCell::new(HashMap::new());
+    /* flexible */ static REGISTERED_GATEWAYS: RefCell<HashMap<GatewayPrincipal, RegisteredGateway>> = RefCell::new(HashMap::new());
     /// The parameters passed in the CDK initialization
     /* flexible */ static PARAMS: RefCell<WsInitParams> = RefCell::new(WsInitParams::default());
     /// The acknowledgement active timer.
@@ -262,8 +262,11 @@ fn reset_internal_state() {
     CERT_TREE.with(|t| {
         t.replace(RbTree::new());
     });
-    MESSAGES_FOR_GATEWAYS.with(|m| *m.borrow_mut() = HashMap::new());
-    OUTGOING_MESSAGE_NONCE.with(|m| *m.borrow_mut() = HashMap::new());
+    REGISTERED_GATEWAYS.with(|map| {
+        for g in map.borrow_mut().values_mut() {
+            g.reset();
+        }
+    });
 }
 
 /// Resets the internal state of the IC WebSocket CDK.
@@ -275,23 +278,18 @@ pub fn wipe() {
     custom_print!("Internal state has been wiped!");
 }
 
-fn get_outgoing_message_nonce(gateway_principal: &Principal) -> Result<u64, String> {
-    OUTGOING_MESSAGE_NONCE.with(|n| {
-        n.borrow()
-            .get(gateway_principal)
-            .cloned()
-            .ok_or(String::from(
-                "gateway doesn't have an outgoing message nonce",
-            ))
-    })
+fn get_outgoing_message_nonce(gateway_principal: &GatewayPrincipal) -> Result<u64, String> {
+    let registered_gateway = get_registered_gateway(gateway_principal)?;
+    Ok(registered_gateway.outgoing_message_nonce)
 }
 
-fn increment_outgoing_message_nonce(gateway_principal: Principal) -> Result<(), String> {
-    let previous_nonce = get_outgoing_message_nonce(&gateway_principal)?;
-    OUTGOING_MESSAGE_NONCE.with(|n| {
-        n.borrow_mut().insert(gateway_principal, previous_nonce + 1);
+fn increment_outgoing_message_nonce(gateway_principal: &GatewayPrincipal) {
+    REGISTERED_GATEWAYS.with(|map| {
+        map.borrow_mut()
+            .get_mut(gateway_principal)
+            .unwrap() // we should always have a registered gateway at this point
+            .increment_nonce();
     });
-    Ok(())
 }
 
 fn insert_client(client_key: ClientKey, new_client: RegisteredClient) {
@@ -331,7 +329,7 @@ fn check_registered_client(client_key: &ClientKey) -> Result<(), String> {
     Ok(())
 }
 
-fn get_gateway_principal_from_registered_client(client_key: &ClientKey) -> Principal {
+fn get_gateway_principal_from_registered_client(client_key: &ClientKey) -> GatewayPrincipal {
     REGISTERED_CLIENTS.with(|map| {
         map.borrow()
             .get(client_key)
@@ -347,37 +345,27 @@ fn add_client_to_wait_for_keep_alive(client_key: &ClientKey) {
 }
 
 fn initialize_registered_gateways(gateways_principals: Vec<String>) {
-    let registered_gateways: Vec<RegisteredGateway> = gateways_principals
-        .iter()
-        .map(|s| RegisteredGateway::from_text_principal(s))
-        .collect();
-
-    REGISTERED_GATEWAYS.with(|p| *p.borrow_mut() = Some(registered_gateways.clone()));
-
-    for registered_gateway in registered_gateways.iter() {
-        OUTGOING_MESSAGE_NONCE.with(|n| {
-            let mut n = n.borrow_mut();
-            n.insert(
-                *registered_gateway.get_principal(),
-                INITIAL_OUTGOING_MESSAGE_NONCE,
-            );
-        });
-
-        MESSAGES_FOR_GATEWAYS.with(|n| {
-            let mut n = n.borrow_mut();
-            n.insert(*registered_gateway.get_principal(), VecDeque::new());
+    for gateway_principal_text in gateways_principals.iter() {
+        let gateway_principal = Principal::from_text(gateway_principal_text).expect(&format!(
+            "invalid gateway principal {gateway_principal_text}"
+        ));
+        REGISTERED_GATEWAYS.with(|map| {
+            map.borrow_mut()
+                .insert(gateway_principal, RegisteredGateway::new())
         });
     }
 }
 
-fn get_registered_gateways_principals() -> Vec<Principal> {
-    REGISTERED_GATEWAYS.with(|g| {
-        g.borrow()
-            .as_ref()
-            .expect("gateways map should be initialized")
-            .iter()
-            .map(|registered_gateway| *registered_gateway.get_principal())
-            .collect()
+fn get_registered_gateway(
+    gateway_principal: &GatewayPrincipal,
+) -> Result<RegisteredGateway, String> {
+    REGISTERED_GATEWAYS.with(|map| {
+        map.borrow()
+            .get(gateway_principal)
+            .cloned()
+            .ok_or(String::from(format!(
+                "no gateway registered with principal {gateway_principal}"
+            )))
     })
 }
 
@@ -466,16 +454,20 @@ fn remove_client(client_key: &ClientKey) {
     });
 }
 
-fn format_message_for_gateway_key(gateway_principal: &Principal, nonce: u64) -> String {
+fn format_message_for_gateway_key(gateway_principal: &GatewayPrincipal, nonce: u64) -> String {
     gateway_principal.to_string() + "_" + &format!("{:0>20}", nonce.to_string())
 }
 
-fn get_messages_for_gateway_range(gateway_principal: &Principal, nonce: u64) -> (usize, usize) {
+fn get_messages_for_gateway_range(
+    gateway_principal: &GatewayPrincipal,
+    nonce: u64,
+) -> (usize, usize) {
     let max_number_of_returned_messages = get_params().max_number_of_returned_messages;
 
-    MESSAGES_FOR_GATEWAYS.with(|h| {
-        let h = h.borrow();
-        let messages_queue = h.get(gateway_principal).unwrap(); // the value exists because we just checked that the gateway is registered
+    REGISTERED_GATEWAYS.with(|map| {
+        let map = map.borrow();
+        let messages_queue = &map.get(gateway_principal).unwrap().messages_queue; // the value exists because we just checked that the gateway is registered
+
         let queue_len = messages_queue.len();
 
         if nonce == 0 && queue_len > 0 {
@@ -504,17 +496,18 @@ fn get_messages_for_gateway_range(gateway_principal: &Principal, nonce: u64) -> 
 }
 
 fn get_messages_for_gateway(
-    gateway_principal: &Principal,
+    gateway_principal: &GatewayPrincipal,
     start_index: usize,
     end_index: usize,
 ) -> Vec<CanisterOutputMessage> {
-    MESSAGES_FOR_GATEWAYS.with(|h| {
+    REGISTERED_GATEWAYS.with(|map| {
+        let map = map.borrow();
+        let messages_queue = &map.get(gateway_principal).unwrap().messages_queue; // the value exists because we just checked that the gateway is registered
+
         let mut messages: Vec<CanisterOutputMessage> = Vec::with_capacity(end_index - start_index);
         for index in start_index..end_index {
             messages.push(
-                h.borrow()
-                    .get(&gateway_principal)
-                    .unwrap() // the value exists because we just checked that the gateway is registered
+                messages_queue
                     .get(index)
                     .unwrap() // the value exists because this function is called only after partitioning the queue
                     .clone(),
@@ -525,7 +518,10 @@ fn get_messages_for_gateway(
 }
 
 /// Gets the messages in [MESSAGES_FOR_GATEWAYS] starting from the one with the specified nonce
-fn get_cert_messages(gateway_principal: &Principal, nonce: u64) -> CanisterWsGetMessagesResult {
+fn get_cert_messages(
+    gateway_principal: &GatewayPrincipal,
+    nonce: u64,
+) -> CanisterWsGetMessagesResult {
     let (start_index, end_index) = get_messages_for_gateway_range(gateway_principal, nonce);
     let messages = get_messages_for_gateway(gateway_principal, start_index, end_index);
 
@@ -549,7 +545,7 @@ fn get_cert_messages(gateway_principal: &Principal, nonce: u64) -> CanisterWsGet
 }
 
 fn is_registered_gateway(principal: &Principal) -> bool {
-    get_registered_gateways_principals().contains(principal)
+    REGISTERED_GATEWAYS.with(|map| map.borrow().contains_key(principal))
 }
 
 /// Checks if the principal of the authorized WS Gateways that have been registered during the initialization of the CDK
@@ -808,7 +804,7 @@ fn _ws_send(
     let message_key = format_message_for_gateway_key(&gateway_principal, outgoing_message_nonce);
 
     // increment the nonce for the next message
-    increment_outgoing_message_nonce(gateway_principal)?; // we never hit the error case because we just checked that the gateway is registered
+    increment_outgoing_message_nonce(&gateway_principal);
 
     // increment the sequence number for the next message to the client
     increment_outgoing_message_to_client_num(client_key)?;
@@ -827,13 +823,14 @@ fn _ws_send(
     // certify data
     put_cert_for_message(message_key.clone(), &message_content);
 
-    MESSAGES_FOR_GATEWAYS.with(|h| {
+    REGISTERED_GATEWAYS.with(|map| {
         // messages in the queue are inserted with contiguous and increasing nonces
         // (from beginning to end of the queue) as ws_send is called sequentially, the nonce
         // is incremented by one in each call, and the message is pushed at the end of the queue
-        h.borrow_mut()
+        map.borrow_mut()
             .get_mut(&gateway_principal)
             .unwrap() // the value exists because we just checked that the gateway is registered
+            .messages_queue
             .push_back(CanisterOutputMessage {
                 client_key: client_key.clone(),
                 content: message_content,
