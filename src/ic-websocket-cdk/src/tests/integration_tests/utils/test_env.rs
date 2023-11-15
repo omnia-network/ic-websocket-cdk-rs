@@ -1,4 +1,5 @@
 use std::{
+    path::PathBuf,
     sync::{Mutex, MutexGuard},
     time::{Duration, SystemTime},
 };
@@ -13,7 +14,7 @@ use super::{
         DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS, DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
         DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
     },
-    wasm::load_canister_wasm_from_bin,
+    wasm::{load_canister_wasm_from_bin, load_canister_wasm_from_path},
 };
 
 lazy_static! {
@@ -46,7 +47,10 @@ impl TestEnv {
         let canister_id = pic.create_canister(None);
         pic.add_cycles(canister_id, 1_000_000_000_000_000);
 
-        let wasm_bytes = load_canister_wasm_from_bin("test_canister.wasm");
+        let wasm_bytes = match std::env::var("TEST_CANISTER_WASM_PATH") {
+            Ok(path) => load_canister_wasm_from_path(&PathBuf::from(path)),
+            Err(_) => load_canister_wasm_from_bin("test_canister.wasm"),
+        };
 
         let authorized_gateways = vec![GATEWAY_1.to_string()];
         let arguments: CanisterInitArgs = (

@@ -18,8 +18,6 @@ pub fn bin_folder_path() -> PathBuf {
     file_path.pop();
     file_path.push("bin");
     file_path
-    // println!("{:?}", std::env::current_dir());
-    // PathBuf::from("./bin")
 }
 
 /// Returns the current timestamp in nanoseconds.
