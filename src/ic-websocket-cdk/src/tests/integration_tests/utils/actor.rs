@@ -117,6 +117,13 @@ pub mod ws_close {
             _ => panic!("Expected reply"),
         }
     }
+
+    pub fn call_ws_close_with_panic(caller: &Principal, args: CanisterWsCloseArguments) {
+        match call_ws_close(caller, args) {
+            CanisterWsCloseResult::Ok(_) => {},
+            CanisterWsCloseResult::Err(err) => panic!("failed ws_close: {:?}", err),
+        }
+    }
 }
 
 pub mod ws_get_messages {
@@ -184,8 +191,7 @@ pub mod ws_send {
     }
 
     pub fn call_ws_send_with_panic(send_to_principal: &Principal, messages: Vec<AppMessage>) {
-        let res = call_ws_send(send_to_principal, messages);
-        match res {
+        match call_ws_send(send_to_principal, messages) {
             CanisterWsSendResult::Ok(_) => {},
             CanisterWsSendResult::Err(err) => panic!("failed ws_send: {:?}", err),
         }
