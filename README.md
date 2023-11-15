@@ -45,7 +45,7 @@ The **ic-websocket-cdk** library implementation can be found in the [src/ic-webs
 ### Testing
 
 There are two types of tests available:
-- **Unit tests**: tests for CDK functions, written in Rust and available in the [unit_tests.rs](./src/ic-websocket-cdk/src/tests/unit_tests.rs) file.
+- **Unit tests**: tests for CDK functions, written in Rust and available in the [unit_tests](./src/ic-websocket-cdk/src/tests/unit_tests/) folder.
 - **Integration tests**: for these tests the CDK is deployed to a [test canister](./src/test_canister/). These tests are written in Rust and use [PocketIC](https://github.com/dfinity/pocketic) under the hood. They are available in the [integration_tests](./src/ic-websocket-cdk/src/tests/integration_tests/) folder.
 
 There's a script that runs all the tests together, taking care of setting up the environment (Linux only!) and deploying the canister. To run the script, execute the following command:
