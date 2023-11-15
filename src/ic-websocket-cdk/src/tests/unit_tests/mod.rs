@@ -1,3 +1,4 @@
+use super::common;
 use crate::*;
 use proptest::prelude::*;
 
@@ -43,14 +44,14 @@ fn test_ws_handlers_are_called() {
     assert!(handlers.on_close.is_none());
 
     handlers.call_on_open(OnOpenCallbackArgs {
-        client_principal: utils::generate_random_principal(),
+        client_principal: common::generate_random_principal(),
     });
     handlers.call_on_message(OnMessageCallbackArgs {
-        client_principal: utils::generate_random_principal(),
+        client_principal: common::generate_random_principal(),
         message: vec![],
     });
     handlers.call_on_close(OnCloseCallbackArgs {
-        client_principal: utils::generate_random_principal(),
+        client_principal: common::generate_random_principal(),
     });
 
     // test that the handlers are not called if they are not initialized
@@ -96,14 +97,14 @@ fn test_ws_handlers_are_called() {
     assert!(handlers.on_close.is_some());
 
     handlers.call_on_open(OnOpenCallbackArgs {
-        client_principal: utils::generate_random_principal(),
+        client_principal: common::generate_random_principal(),
     });
     handlers.call_on_message(OnMessageCallbackArgs {
-        client_principal: utils::generate_random_principal(),
+        client_principal: common::generate_random_principal(),
         message: vec![],
     });
     handlers.call_on_close(OnCloseCallbackArgs {
-        client_principal: utils::generate_random_principal(),
+        client_principal: common::generate_random_principal(),
     });
 
     // test that the handlers are called if they are initialized
@@ -135,20 +136,20 @@ fn test_ws_handlers_panic_is_handled() {
 
     let res = panic::catch_unwind(|| {
         handlers.call_on_open(OnOpenCallbackArgs {
-            client_principal: utils::generate_random_principal(),
+            client_principal: common::generate_random_principal(),
         });
     });
     assert!(res.is_ok());
     let res = panic::catch_unwind(|| {
         handlers.call_on_message(OnMessageCallbackArgs {
-            client_principal: utils::generate_random_principal(),
+            client_principal: common::generate_random_principal(),
             message: vec![],
         });
     });
     assert!(res.is_ok());
     let res = panic::catch_unwind(|| {
         handlers.call_on_close(OnCloseCallbackArgs {
-            client_principal: utils::generate_random_principal(),
+            client_principal: common::generate_random_principal(),
         });
     });
     assert!(res.is_ok());
@@ -162,7 +163,7 @@ fn test_current_time() {
 
 proptest! {
     #[test]
-    fn test_initialize_registered_gateways(test_gateway_principal in any::<u8>().prop_map(|_| utils::generate_random_principal())) {
+    fn test_initialize_registered_gateways(test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
         initialize_registered_gateways(vec![test_gateway_principal.to_string()]);
 
         let map = REGISTERED_GATEWAYS.with(|map| map.borrow().clone());
@@ -184,7 +185,7 @@ proptest! {
     #[test]
     fn test_get_outgoing_message_nonce(test_nonce in any::<u64>()) {
         // Set up
-        let gateway_principal = utils::generate_random_principal();
+        let gateway_principal = common::generate_random_principal();
         REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway { outgoing_message_nonce: test_nonce, ..Default::default() }));
 
         let res = get_outgoing_message_nonce(&gateway_principal);
@@ -192,7 +193,7 @@ proptest! {
     }
 
     #[test]
-    fn test_get_outgoing_message_nonce_nonexistent(test_gateway_principal in any::<u8>().prop_map(|_| utils::generate_random_principal())) {
+    fn test_get_outgoing_message_nonce_nonexistent(test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
         let res = get_outgoing_message_nonce(&test_gateway_principal);
         prop_assert_eq!(res.err(), Some(String::from(format!("no gateway registered with principal {test_gateway_principal}"))));
     }
@@ -200,7 +201,7 @@ proptest! {
     #[test]
     fn test_increment_outgoing_message_nonce(test_nonce in any::<u64>()) {
         // Set up
-        let gateway_principal = utils::generate_random_principal();
+        let gateway_principal = common::generate_random_principal();
         REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway { outgoing_message_nonce: test_nonce, ..Default::default() }));
 
         increment_outgoing_message_nonce(&gateway_principal);
@@ -209,7 +210,7 @@ proptest! {
     }
 
     #[test]
-    fn test_insert_client(test_client_key in any::<u8>().prop_map(|_| utils::get_random_client_key())) {
+    fn test_insert_client(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key())) {
         // Set up
         let registered_client = utils::generate_random_registered_client();
 
@@ -223,7 +224,7 @@ proptest! {
     }
 
     #[test]
-    fn test_get_registered_gateway(test_gateway_principal in any::<u8>().prop_map(|_| utils::generate_random_principal())) {
+    fn test_get_registered_gateway(test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
         // Set up
         REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(test_gateway_principal, RegisteredGateway::new()));
 
@@ -232,19 +233,19 @@ proptest! {
     }
 
     #[test]
-    fn test_get_registered_gateway_nonexistent(test_gateway_principal in any::<u8>().prop_map(|_| utils::generate_random_principal())) {
+    fn test_get_registered_gateway_nonexistent(test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
         let res = get_registered_gateway(&test_gateway_principal);
         prop_assert_eq!(res.err(), Some(String::from(format!("no gateway registered with principal {test_gateway_principal}"))));
     }
 
     #[test]
-    fn test_is_client_registered_empty(test_client_key in any::<u8>().prop_map(|_| utils::get_random_client_key())) {
+    fn test_is_client_registered_empty(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key())) {
         let actual_result = is_client_registered(&test_client_key);
         prop_assert_eq!(actual_result, false);
     }
 
     #[test]
-    fn test_is_client_registered(test_client_key in any::<u8>().prop_map(|_| utils::get_random_client_key())) {
+    fn test_is_client_registered(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key())) {
         // Set up
         REGISTERED_CLIENTS.with(|map| {
             map.borrow_mut().insert(test_client_key.clone(), utils::generate_random_registered_client());
@@ -255,7 +256,7 @@ proptest! {
     }
 
     #[test]
-    fn test_get_client_key_from_principal_empty(test_client_principal in any::<u8>().prop_map(|_| utils::generate_random_principal())) {
+    fn test_get_client_key_from_principal_empty(test_client_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
         let actual_result = get_client_key_from_principal(&test_client_principal);
         prop_assert_eq!(actual_result.err(), Some(String::from(format!(
             "client with principal {} doesn't have an open connection",
@@ -264,7 +265,7 @@ proptest! {
     }
 
     #[test]
-    fn test_get_client_key_from_principal(test_client_key in any::<u8>().prop_map(|_| utils::get_random_client_key())) {
+    fn test_get_client_key_from_principal(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key())) {
         // Set up
         CURRENT_CLIENT_KEY_MAP.with(|map| {
             map.borrow_mut().insert(test_client_key.client_principal, test_client_key.clone());
@@ -275,13 +276,13 @@ proptest! {
     }
 
     #[test]
-    fn test_check_registered_client_empty(test_client_key in any::<u8>().prop_map(|_| utils::get_random_client_key())) {
+    fn test_check_registered_client_empty(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key())) {
         let actual_result = check_registered_client(&test_client_key);
         prop_assert_eq!(actual_result.err(), Some(format!("client with key {} doesn't have an open connection", test_client_key)));
     }
 
     #[test]
-    fn test_check_registered_client(test_client_key in any::<u8>().prop_map(|_| utils::get_random_client_key())) {
+    fn test_check_registered_client(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key())) {
         // Set up
         REGISTERED_CLIENTS.with(|map| {
             map.borrow_mut().insert(test_client_key.clone(), utils::generate_random_registered_client());
@@ -289,13 +290,13 @@ proptest! {
 
         let actual_result = check_registered_client(&test_client_key);
         prop_assert!(actual_result.is_ok());
-        let non_existing_client_key = utils::get_random_client_key();
+        let non_existing_client_key = common::get_random_client_key();
         let actual_result = check_registered_client(&non_existing_client_key);
         prop_assert_eq!(actual_result.err(), Some(format!("client with key {} doesn't have an open connection", non_existing_client_key)));
     }
 
     #[test]
-    fn test_init_outgoing_message_to_client_num(test_client_key in any::<u8>().prop_map(|_| utils::get_random_client_key())) {
+    fn test_init_outgoing_message_to_client_num(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key())) {
         init_outgoing_message_to_client_num(test_client_key.clone());
 
         let actual_result = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
@@ -303,7 +304,7 @@ proptest! {
     }
 
     #[test]
-    fn test_increment_outgoing_message_to_client_num(test_client_key in any::<u8>().prop_map(|_| utils::get_random_client_key()), test_num in any::<u64>()) {
+    fn test_increment_outgoing_message_to_client_num(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key()), test_num in any::<u64>()) {
         // Set up
         OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
             map.borrow_mut().insert(test_client_key.clone(), test_num);
@@ -317,7 +318,7 @@ proptest! {
     }
 
     #[test]
-    fn test_get_outgoing_message_to_client_num(test_client_key in any::<u8>().prop_map(|_| utils::get_random_client_key()), test_num in any::<u64>()) {
+    fn test_get_outgoing_message_to_client_num(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key()), test_num in any::<u64>()) {
         // Set up
         OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
             map.borrow_mut().insert(test_client_key.clone(), test_num);
@@ -329,7 +330,7 @@ proptest! {
     }
 
     #[test]
-    fn test_init_expected_incoming_message_from_client_num(test_client_key in any::<u8>().prop_map(|_| utils::get_random_client_key())) {
+    fn test_init_expected_incoming_message_from_client_num(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key())) {
         init_expected_incoming_message_from_client_num(test_client_key.clone());
 
         let actual_result = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).unwrap().clone());
@@ -337,7 +338,7 @@ proptest! {
     }
 
     #[test]
-    fn test_get_expected_incoming_message_from_client_num(test_client_key in any::<u8>().prop_map(|_| utils::get_random_client_key()), test_num in any::<u64>()) {
+    fn test_get_expected_incoming_message_from_client_num(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key()), test_num in any::<u64>()) {
         // Set up
         INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
             map.borrow_mut().insert(test_client_key.clone(), test_num);
@@ -349,7 +350,7 @@ proptest! {
     }
 
     #[test]
-    fn test_increment_expected_incoming_message_from_client_num(test_client_key in any::<u8>().prop_map(|_| utils::get_random_client_key()), test_num in any::<u64>()) {
+    fn test_increment_expected_incoming_message_from_client_num(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key()), test_num in any::<u64>()) {
         // Set up
         INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
             map.borrow_mut().insert(test_client_key.clone(), test_num);
@@ -363,7 +364,7 @@ proptest! {
     }
 
     #[test]
-    fn test_add_client_to_wait_for_keep_alive(test_client_key in any::<u8>().prop_map(|_| utils::get_random_client_key())) {
+    fn test_add_client_to_wait_for_keep_alive(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key())) {
         add_client_to_wait_for_keep_alive(&test_client_key);
 
         let actual_result = CLIENTS_WAITING_FOR_KEEP_ALIVE.with(|map| map.borrow().get(&test_client_key).is_some());
@@ -371,7 +372,7 @@ proptest! {
     }
 
     #[test]
-    fn test_add_client(test_client_key in any::<u8>().prop_map(|_| utils::get_random_client_key())) {
+    fn test_add_client(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key())) {
         let registered_client = utils::generate_random_registered_client();
 
         // Test
@@ -391,7 +392,7 @@ proptest! {
     }
 
     #[test]
-    fn test_remove_client(test_client_key in any::<u8>().prop_map(|_| utils::get_random_client_key())) {
+    fn test_remove_client(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key())) {
         // Set up
         CURRENT_CLIENT_KEY_MAP.with(|map| {
             map.borrow_mut().insert(test_client_key.client_principal.clone(), test_client_key.clone());
@@ -422,7 +423,7 @@ proptest! {
     }
 
     #[test]
-    fn test_format_message_for_gateway_key(test_gateway_principal in any::<u8>().prop_map(|_| utils::generate_random_principal()), test_nonce in any::<u64>()) {
+    fn test_format_message_for_gateway_key(test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal()), test_nonce in any::<u64>()) {
         let actual_result = format_message_for_gateway_key(&test_gateway_principal, test_nonce);
         prop_assert_eq!(actual_result, test_gateway_principal.to_string() + "_" + &format!("{:0>20}", test_nonce.to_string()));
     }
@@ -431,7 +432,7 @@ proptest! {
     fn test_get_messages_for_gateway_range_empty(messages_count in 0..1000u64) {
         // Set up
         utils::initialize_params();
-        let gateway_principal = utils::generate_random_principal();
+        let gateway_principal = common::generate_random_principal();
         REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway::new()));
 
         // Test
@@ -444,13 +445,13 @@ proptest! {
     }
 
     #[test]
-    fn test_get_messages_for_gateway_range_smaller_than_max(gateway_principal in any::<u8>().prop_map(|_| utils::get_static_principal())) {
+    fn test_get_messages_for_gateway_range_smaller_than_max(gateway_principal in any::<u8>().prop_map(|_| common::get_static_principal())) {
         // Set up
         utils::initialize_params();
         REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway::new()));
 
         let messages_count = 4;
-        let test_client_key = utils::get_random_client_key();
+        let test_client_key = common::get_random_client_key();
         utils::add_messages_for_gateway(test_client_key, &gateway_principal, messages_count);
 
         // Test
@@ -467,7 +468,7 @@ proptest! {
     }
 
     #[test]
-    fn test_get_messages_for_gateway_range_larger_than_max(gateway_principal in any::<u8>().prop_map(|_| utils::get_static_principal()), max_number_of_returned_messages in 0..1000usize) {
+    fn test_get_messages_for_gateway_range_larger_than_max(gateway_principal in any::<u8>().prop_map(|_| common::get_static_principal()), max_number_of_returned_messages in 0..1000usize) {
         // Set up
         set_params(WsInitParams {
             max_number_of_returned_messages,
@@ -476,7 +477,7 @@ proptest! {
         REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway::new()));
 
         let messages_count: u64 = (2 * max_number_of_returned_messages).try_into().unwrap();
-        let test_client_key = utils::get_random_client_key();
+        let test_client_key = common::get_random_client_key();
         utils::add_messages_for_gateway(test_client_key, &gateway_principal, messages_count);
 
         // Test
@@ -498,7 +499,7 @@ proptest! {
     }
 
     #[test]
-    fn test_get_messages_for_gateway_initial_nonce(gateway_principal in any::<u8>().prop_map(|_| utils::get_static_principal()), messages_count in 0..100u64, max_number_of_returned_messages in 0..1000usize) {
+    fn test_get_messages_for_gateway_initial_nonce(gateway_principal in any::<u8>().prop_map(|_| common::get_static_principal()), messages_count in 0..100u64, max_number_of_returned_messages in 0..1000usize) {
         // Set up
         set_params(WsInitParams {
             max_number_of_returned_messages,
@@ -506,7 +507,7 @@ proptest! {
         });
         REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway::new()));
 
-        let test_client_key = utils::get_random_client_key();
+        let test_client_key = common::get_random_client_key();
         utils::add_messages_for_gateway(test_client_key, &gateway_principal, messages_count);
 
         // Test
@@ -524,11 +525,11 @@ proptest! {
     }
 
     #[test]
-    fn test_get_messages_for_gateway(gateway_principal in any::<u8>().prop_map(|_| utils::get_static_principal()), messages_count in 0..100u64) {
+    fn test_get_messages_for_gateway(gateway_principal in any::<u8>().prop_map(|_| common::get_static_principal()), messages_count in 0..100u64) {
         // Set up
         REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway::new()));
 
-        let test_client_key = utils::get_random_client_key();
+        let test_client_key = common::get_random_client_key();
         utils::add_messages_for_gateway(test_client_key, &gateway_principal, messages_count);
 
         // Test
@@ -549,14 +550,14 @@ proptest! {
     }
 
     #[test]
-    fn test_check_is_registered_gateway(test_gateway_principal in any::<u8>().prop_map(|_| utils::generate_random_principal())) {
+    fn test_check_is_registered_gateway(test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
         // Set up
         REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(test_gateway_principal, RegisteredGateway::new()));
 
         let actual_result = check_is_registered_gateway(&test_gateway_principal);
         prop_assert!(actual_result.is_ok());
 
-        let other_principal = utils::generate_random_principal();
+        let other_principal = common::generate_random_principal();
         let actual_result = check_is_registered_gateway(&other_principal);
         prop_assert_eq!(actual_result.err(), Some(String::from("principal is not one of the authorized gateways that have been registered during CDK initialization")));
     }
@@ -565,7 +566,7 @@ proptest! {
     fn test_serialize_websocket_message(test_msg_bytes in any::<Vec<u8>>(), test_sequence_num in any::<u64>(), test_timestamp in any::<u64>()) {
         // TODO: add more tests, in which we check the serialized message
         let websocket_message = WebsocketMessage {
-            client_key: utils::get_random_client_key(),
+            client_key: common::get_random_client_key(),
             sequence_num: test_sequence_num,
             timestamp: test_timestamp,
             is_service_message: false,

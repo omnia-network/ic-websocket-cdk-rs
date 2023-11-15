@@ -1,3 +1,4 @@
+use proptest::prelude::*;
 use std::ops::Deref;
 
 use crate::{
@@ -9,7 +10,7 @@ use candid::Principal;
 
 use super::utils::{
     actor::{ws_get_messages::call_ws_get_messages, ws_open::call_ws_open},
-    clients::{generate_random_client_nonce, CLIENT_1, CLIENT_1_KEY, GATEWAY_1},
+    clients::{generate_random_client_nonce, CLIENT_1_KEY, GATEWAY_1},
     messages::get_service_message_content_from_canister_message,
 };
 
@@ -48,7 +49,7 @@ fn test_3_should_open_a_connection() {
         client_nonce: client_1_key.client_nonce,
         gateway_principal: GATEWAY_1.deref().to_owned(),
     };
-    let res = call_ws_open(CLIENT_1.deref(), args);
+    let res = call_ws_open(&client_1_key.client_principal, args);
     assert_eq!(res, CanisterWsOpenResult::Ok(()));
 
     let msgs = call_ws_get_messages(
@@ -79,7 +80,7 @@ fn test_4_fails_for_a_client_with_the_same_nonce() {
         client_nonce: client_1_key.client_nonce,
         gateway_principal: GATEWAY_1.deref().to_owned(),
     };
-    let res = call_ws_open(CLIENT_1.deref(), args);
+    let res = call_ws_open(&client_1_key.client_principal, args);
     assert_eq!(
         res,
         CanisterWsOpenResult::Err(String::from(format!(
@@ -88,41 +89,43 @@ fn test_4_fails_for_a_client_with_the_same_nonce() {
     );
 }
 
-#[test]
-fn test_5_should_open_a_connection_for_the_same_client_with_a_different_nonce() {
-    let client_key = ClientKey {
-        client_principal: CLIENT_1_KEY.deref().client_principal,
-        client_nonce: generate_random_client_nonce(),
-    };
-    let args = CanisterWsOpenArguments {
-        client_nonce: client_key.client_nonce,
-        gateway_principal: GATEWAY_1.deref().to_owned(),
-    };
-    let res = call_ws_open(&client_key.client_principal, args);
-    assert_eq!(res, CanisterWsOpenResult::Ok(()));
+proptest! {
+    #[test]
+    fn test_5_should_open_a_connection_for_the_same_client_with_a_different_nonce(test_client_nonce in any::<u64>().prop_map(|_| generate_random_client_nonce())) {
+        let client_key = ClientKey {
+            client_principal: CLIENT_1_KEY.deref().client_principal,
+            client_nonce: test_client_nonce,
+        };
+        let args = CanisterWsOpenArguments {
+            client_nonce: client_key.client_nonce,
+            gateway_principal: GATEWAY_1.deref().to_owned(),
+        };
+        let res = call_ws_open(&client_key.client_principal, args);
+        assert_eq!(res, CanisterWsOpenResult::Ok(()));
 
-    let msgs = call_ws_get_messages(
-        GATEWAY_1.deref(),
-        CanisterWsGetMessagesArguments { nonce: 0 },
-    );
+        let msgs = call_ws_get_messages(
+            GATEWAY_1.deref(),
+            CanisterWsGetMessagesArguments { nonce: 0 },
+        );
 
-    match msgs {
-        CanisterWsGetMessagesResult::Ok(messages) => {
-            let service_message_for_client = messages
-                .messages
-                .iter()
-                .filter(|msg| msg.client_key == client_key)
-                .collect::<Vec<&CanisterOutputMessage>>()[0];
+        match msgs {
+            CanisterWsGetMessagesResult::Ok(messages) => {
+                let service_message_for_client = messages
+                    .messages
+                    .iter()
+                    .filter(|msg| msg.client_key == client_key)
+                    .collect::<Vec<&CanisterOutputMessage>>()[0];
 
-            let open_message =
-                get_service_message_content_from_canister_message(service_message_for_client);
-            match open_message {
-                WebsocketServiceMessageContent::OpenMessage(open_message) => {
-                    assert_eq!(open_message.client_key, client_key);
-                },
-                _ => panic!("Expected OpenMessage"),
-            }
-        },
-        _ => panic!("Expected Ok result"),
+                let open_message =
+                    get_service_message_content_from_canister_message(service_message_for_client);
+                match open_message {
+                    WebsocketServiceMessageContent::OpenMessage(open_message) => {
+                        assert_eq!(open_message.client_key, client_key);
+                    },
+                    _ => panic!("Expected OpenMessage"),
+                }
+            },
+            _ => panic!("Expected Ok result"),
+        }
     }
 }

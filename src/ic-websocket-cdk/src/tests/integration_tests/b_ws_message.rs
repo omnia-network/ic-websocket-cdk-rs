@@ -1,13 +1,14 @@
 use std::ops::Deref;
 
 use crate::{
-    CanisterAckMessageContent, CanisterWsMessageArguments, CanisterWsMessageResult,
-    ClientKeepAliveMessageContent, ClientKey, WebsocketServiceMessageContent,
+    tests::common::generate_random_principal, CanisterAckMessageContent,
+    CanisterWsMessageArguments, CanisterWsMessageResult, ClientKeepAliveMessageContent, ClientKey,
+    WebsocketServiceMessageContent,
 };
 
 use super::utils::{
     actor::{ws_message::call_ws_message, ws_open::call_ws_open_for_client_key_with_panic},
-    clients::{generate_random_client_nonce, CLIENT_1_KEY, CLIENT_2, CLIENT_2_KEY},
+    clients::{generate_random_client_nonce, CLIENT_1_KEY, CLIENT_2_KEY},
     messages::{create_websocket_message, encode_websocket_service_message_content},
     test_env::get_test_env,
 };
@@ -46,7 +47,7 @@ fn test_2_fails_if_client_sends_a_message_with_a_different_client_key() {
         CanisterWsMessageArguments {
             msg: create_websocket_message(
                 &ClientKey {
-                    client_principal: *CLIENT_2.deref(),
+                    client_principal: generate_random_principal(),
                     ..client_1_key.clone()
                 },
                 0,
