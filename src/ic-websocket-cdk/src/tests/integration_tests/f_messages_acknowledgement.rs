@@ -1,9 +1,9 @@
 use std::ops::Deref;
 
 use crate::{
-    CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult, CanisterWsMessageArguments,
-    CanisterWsMessageResult, CanisterWsSendResult, ClientKeepAliveMessageContent,
-    WebsocketServiceMessageContent,
+    CanisterOutputCertifiedMessages, CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult,
+    CanisterWsMessageArguments, CanisterWsMessageResult, CanisterWsSendResult,
+    ClientKeepAliveMessageContent, WebsocketServiceMessageContent,
 };
 
 use super::utils::{
@@ -30,8 +30,8 @@ fn test_1_client_should_receive_ack_messages() {
         CanisterWsGetMessagesArguments { nonce: 1 }, // skip the service open message
     );
     match res {
-        CanisterWsGetMessagesResult::Ok(messages) => {
-            assert_eq!(messages.messages.len(), 0);
+        CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, .. }) => {
+            assert_eq!(messages.len(), 0);
         },
         _ => panic!("unexpected result"),
     }
@@ -164,8 +164,8 @@ fn test_4_client_is_not_removed_if_it_connects_while_canister_is_waiting_for_kee
         CanisterWsGetMessagesArguments { nonce: 1 }, // skip the service open message
     );
     match res {
-        CanisterWsGetMessagesResult::Ok(messages) => {
-            assert_eq!(messages.messages.len(), 0);
+        CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, .. }) => {
+            assert_eq!(messages.len(), 0);
         },
         _ => panic!("unexpected result"),
     }
@@ -204,8 +204,8 @@ mod helpers {
             },
             test_env::get_test_env,
         },
-        CanisterAckMessageContent, CanisterOutputMessage, CanisterWsGetMessagesResult, ClientKey,
-        WebsocketServiceMessageContent,
+        CanisterAckMessageContent, CanisterOutputCertifiedMessages, CanisterOutputMessage,
+        CanisterWsGetMessagesResult, ClientKey, WebsocketServiceMessageContent,
     };
 
     pub(crate) fn check_ack_message_result(
@@ -215,24 +215,24 @@ mod helpers {
         expected_websocket_message_sequence_number: u64,
     ) {
         match res {
-            CanisterWsGetMessagesResult::Ok(messages) => {
-                assert_eq!(messages.messages.len(), 1);
-                let ack_message = messages.messages.first().unwrap();
+            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages {
+                messages,
+                cert,
+                tree,
+            }) => {
+                assert_eq!(messages.len(), 1);
+                let ack_message = messages.first().unwrap();
                 check_ack_message_in_messages(
                     ack_message,
                     receiver_client_key,
                     expected_ack_sequence_number,
                     expected_websocket_message_sequence_number,
                 );
-                assert!(is_valid_certificate(
-                    &get_test_env(),
-                    &messages.cert,
-                    &messages.tree,
-                ));
+                assert!(is_valid_certificate(&get_test_env(), &cert, &tree,));
                 assert!(is_message_body_valid(
                     &ack_message.key,
                     &ack_message.content,
-                    &messages.tree
+                    &tree
                 ));
             },
             _ => panic!("unexpected result"),

@@ -1,8 +1,9 @@
 use std::ops::Deref;
 
 use crate::{
-    CanisterOutputMessage, CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult,
-    CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey, WebsocketServiceMessageContent,
+    CanisterOutputCertifiedMessages, CanisterOutputMessage, CanisterWsGetMessagesArguments,
+    CanisterWsGetMessagesResult, CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey,
+    WebsocketServiceMessageContent,
 };
 use candid::Principal;
 
@@ -56,8 +57,8 @@ fn test_3_should_open_a_connection() {
     );
 
     match msgs {
-        CanisterWsGetMessagesResult::Ok(messages) => {
-            let first_message = &messages.messages[0];
+        CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, .. }) => {
+            let first_message = &messages[0];
             assert_eq!(first_message.client_key, *client_1_key);
             let open_message = get_service_message_content_from_canister_message(first_message);
             match open_message {
