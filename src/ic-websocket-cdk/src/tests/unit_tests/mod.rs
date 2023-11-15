@@ -428,7 +428,7 @@ proptest! {
     }
 
     #[test]
-    fn test_get_messages_for_gateway_range_empty(messages_count in any::<u64>().prop_map(|c| c % 1000)) {
+    fn test_get_messages_for_gateway_range_empty(messages_count in 0..1000u64) {
         // Set up
         utils::initialize_params();
         let gateway_principal = utils::generate_random_principal();
@@ -467,7 +467,7 @@ proptest! {
     }
 
     #[test]
-    fn test_get_messages_for_gateway_range_larger_than_max(gateway_principal in any::<u8>().prop_map(|_| utils::get_static_principal()), max_number_of_returned_messages in any::<usize>().prop_map(|c| c % 1000)) {
+    fn test_get_messages_for_gateway_range_larger_than_max(gateway_principal in any::<u8>().prop_map(|_| utils::get_static_principal()), max_number_of_returned_messages in 0..1000usize) {
         // Set up
         set_params(WsInitParams {
             max_number_of_returned_messages,
@@ -498,7 +498,7 @@ proptest! {
     }
 
     #[test]
-    fn test_get_messages_for_gateway_initial_nonce(gateway_principal in any::<u8>().prop_map(|_| utils::get_static_principal()), messages_count in any::<u64>().prop_map(|c| c % 100), max_number_of_returned_messages in any::<usize>().prop_map(|c| c % 1000)) {
+    fn test_get_messages_for_gateway_initial_nonce(gateway_principal in any::<u8>().prop_map(|_| utils::get_static_principal()), messages_count in 0..100u64, max_number_of_returned_messages in 0..1000usize) {
         // Set up
         set_params(WsInitParams {
             max_number_of_returned_messages,
@@ -524,7 +524,7 @@ proptest! {
     }
 
     #[test]
-    fn test_get_messages_for_gateway(gateway_principal in any::<u8>().prop_map(|_| utils::get_static_principal()), messages_count in any::<u64>().prop_map(|c| c % 100)) {
+    fn test_get_messages_for_gateway(gateway_principal in any::<u8>().prop_map(|_| utils::get_static_principal()), messages_count in 0..100u64) {
         // Set up
         REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway::new()));
 
