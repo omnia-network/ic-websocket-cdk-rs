@@ -51,7 +51,7 @@ There are two types of tests available:
 There's a script that runs all the tests together, taking care of setting up the environment (Linux only!) and deploying the canister. To run the script, execute the following command:
 
 ```bash
-./scripts/test_canister.sh
+./scripts/test.sh
 ```
 
 > If you're on **macOS**, you have to manually download the PocketIC binary ([guide](https://github.com/dfinity/pocketic#download)) and place it in the [bin](./bin/) folder.
