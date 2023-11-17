@@ -1013,7 +1013,7 @@ impl Default for WsInitParams {
     }
 }
 
-/// Initialize the CDK by setting the callback handlers and the **principal** of the WS Gateway that
+/// Initialize the CDK by setting the callback handlers and the **principals** of the WS Gateways that
 /// will be polling the canister.
 ///
 /// **Note**: Resets the timers under the hood.
