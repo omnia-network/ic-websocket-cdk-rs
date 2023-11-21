@@ -1,6 +1,6 @@
 [package]
 name = "ic-websocket-cdk"
-version = "0.2.1"
+version = "0.3.0"
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
@@ -9,9 +9,7 @@ description = "IC Websocket Canister Development Kit"
 homepage = "https://docs.rs/ic-websocket-cdk"
 documentation = "https://docs.rs/ic-websocket-cdk"
 readme = "../../README.md"
-exclude = [
-  "**/*.did",
-]
+exclude = ["**/*.did"]
 
 [dependencies]
 candid = { workspace = true }
