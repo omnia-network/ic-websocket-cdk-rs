@@ -5,12 +5,13 @@ on:
   push:
     branches:
       - main
+  pull_request:
 
 jobs:
   unit-and-integration-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: "stable"
@@ -19,6 +20,9 @@ jobs:
           cache-on-failure: "true"
       - name: Run unit tests
         run: cargo test --package ic-websocket-cdk --lib -- tests::unit_tests
+      - name: Run doc tests
+        run: cargo test --package ic-websocket-cdk --doc
+      # the following steps are replicated in the scripts/test.sh file
       - name: Prepare environment for integration tests
         run: |
           rustup target add wasm32-unknown-unknown

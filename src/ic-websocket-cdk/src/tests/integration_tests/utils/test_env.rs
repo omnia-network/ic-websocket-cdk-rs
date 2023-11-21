@@ -1,4 +1,8 @@
-use std::time::{Duration, SystemTime};
+use std::{
+    path::PathBuf,
+    sync::{Mutex, MutexGuard},
+    time::{Duration, SystemTime},
+};
 
 use candid::Principal;
 use lazy_static::lazy_static;
@@ -10,11 +14,15 @@ use super::{
         DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS, DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
         DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
     },
-    wasm::load_canister_wasm_from_bin,
+    wasm::{load_canister_wasm_from_bin, load_canister_wasm_from_path},
 };
 
 lazy_static! {
-    pub static ref TEST_ENV: TestEnv = TestEnv::new();
+    pub static ref TEST_ENV: Mutex<TestEnv> = Mutex::new(TestEnv::new());
+}
+
+pub fn get_test_env<'a>() -> MutexGuard<'a, TestEnv> {
+    TEST_ENV.lock().unwrap()
 }
 
 pub struct TestEnv {
@@ -25,8 +33,9 @@ pub struct TestEnv {
     root_ic_key: Vec<u8>,
 }
 
+type AuthorizedGateways = Vec<String>;
 /// (`gateway_principal`, `max_number_or_returned_messages`, `send_ack_interval_ms`, `send_ack_timeout_ms`)
-type CanisterInitArgs = (String, u64, u64, u64);
+type CanisterInitArgs = (AuthorizedGateways, u64, u64, u64);
 
 impl TestEnv {
     pub fn new() -> Self {
@@ -38,9 +47,14 @@ impl TestEnv {
         let canister_id = pic.create_canister(None);
         pic.add_cycles(canister_id, 1_000_000_000_000_000);
 
-        let wasm_bytes = load_canister_wasm_from_bin("test_canister.wasm");
+        let wasm_bytes = match std::env::var("TEST_CANISTER_WASM_PATH") {
+            Ok(path) => load_canister_wasm_from_path(&PathBuf::from(path)),
+            Err(_) => load_canister_wasm_from_bin("test_canister.wasm"),
+        };
+
+        let authorized_gateways = vec![GATEWAY_1.to_string()];
         let arguments: CanisterInitArgs = (
-            GATEWAY_1.to_string(),
+            authorized_gateways,
             DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
             DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
             DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
@@ -64,13 +78,14 @@ impl TestEnv {
     }
 
     pub fn reset_canister(
-        &self,
+        &mut self,
+        authorized_gateways: AuthorizedGateways,
         max_number_or_returned_messages: u64,
         send_ack_interval_ms: u64,
         keep_alive_delay_ms: u64,
     ) {
         let arguments: CanisterInitArgs = (
-            self.canister_init_args.0.clone(),
+            authorized_gateways,
             max_number_or_returned_messages,
             send_ack_interval_ms,
             keep_alive_delay_ms,
@@ -78,20 +93,34 @@ impl TestEnv {
         let res = self.pic.reinstall_canister(
             self.canister_id,
             self.wasm_module.to_owned(),
-            candid::encode_args(arguments).unwrap(),
+            candid::encode_args(arguments.clone()).unwrap(),
             None,
         );
 
         match res {
-            Ok(_) => {},
+            Ok(_) => {
+                self.canister_init_args = arguments;
+            },
             Err(err) => {
                 panic!("Failed to reset canister: {:?}", err);
             },
         }
     }
 
-    pub fn reset_canister_with_default_params(&self) {
+    /// Resets the canister using the default parameters. See [reset_canister].
+    pub fn reset_canister_with_default_params(&mut self) {
         self.reset_canister(
+            self.canister_init_args.0.clone(),
+            DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
+            DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
+            DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
+        );
+    }
+
+    /// Resets the canister using the default parameters and the given gateways. See [reset_canister].
+    pub fn reset_canister_with_gateways(&mut self, gateways: AuthorizedGateways) {
+        self.reset_canister(
+            gateways,
             DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
             DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
             DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,

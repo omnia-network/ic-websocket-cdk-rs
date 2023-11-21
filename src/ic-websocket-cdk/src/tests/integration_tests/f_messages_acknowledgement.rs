@@ -1,9 +1,9 @@
 use std::ops::Deref;
 
 use crate::{
-    CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult, CanisterWsMessageArguments,
-    CanisterWsMessageResult, CanisterWsSendResult, ClientKeepAliveMessageContent,
-    WebsocketServiceMessageContent,
+    CanisterOutputCertifiedMessages, CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult,
+    CanisterWsMessageArguments, CanisterWsMessageResult, CanisterWsSendResult,
+    ClientKeepAliveMessageContent, WebsocketServiceMessageContent,
 };
 
 use super::utils::{
@@ -15,12 +15,12 @@ use super::utils::{
     clients::{CLIENT_1_KEY, GATEWAY_1},
     constants::{DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS, DEFAULT_TEST_SEND_ACK_INTERVAL_MS},
     messages::{create_websocket_message, encode_websocket_service_message_content},
-    test_env::TEST_ENV,
+    test_env::get_test_env,
 };
 
 #[test]
 fn test_1_client_should_receive_ack_messages() {
-    TEST_ENV.reset_canister_with_default_params();
+    get_test_env().reset_canister_with_default_params();
     // open a connection for client 1
     let client_1_key = CLIENT_1_KEY.deref();
     call_ws_open_for_client_key_with_panic(client_1_key);
@@ -30,8 +30,8 @@ fn test_1_client_should_receive_ack_messages() {
         CanisterWsGetMessagesArguments { nonce: 1 }, // skip the service open message
     );
     match res {
-        CanisterWsGetMessagesResult::Ok(messages) => {
-            assert_eq!(messages.messages.len(), 0);
+        CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, .. }) => {
+            assert_eq!(messages.len(), 0);
         },
         _ => panic!("unexpected result"),
     }
@@ -43,7 +43,7 @@ fn test_1_client_should_receive_ack_messages() {
         },
     );
     // advance the canister time to make sure the ack timer expires and an ack is sent
-    TEST_ENV.advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
+    get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
 
     let res = call_ws_get_messages(
         GATEWAY_1.deref(),
@@ -56,10 +56,10 @@ fn test_1_client_should_receive_ack_messages() {
 fn test_2_client_is_removed_if_keep_alive_timeout_is_reached() {
     let client_1_key = CLIENT_1_KEY.deref();
     // open a connection for client 1
-    TEST_ENV.reset_canister_with_default_params();
+    get_test_env().reset_canister_with_default_params();
     call_ws_open_for_client_key_with_panic(client_1_key);
     // advance the canister time to make sure the ack timer expires and an ack is sent
-    TEST_ENV.advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
+    get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
     // get messages to check if the ack message has been set
     let res = call_ws_get_messages(
         GATEWAY_1.deref(),
@@ -68,7 +68,7 @@ fn test_2_client_is_removed_if_keep_alive_timeout_is_reached() {
     helpers::check_ack_message_result(&res, client_1_key, 0, 2);
 
     // advance the canister time to make sure the keep alive timeout expires
-    TEST_ENV.advance_canister_time_ms(DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS);
+    get_test_env().advance_canister_time_ms(DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS);
 
     // to check if the client has been removed, we try to send the keep alive message late
     let res = call_ws_message(
@@ -100,11 +100,11 @@ fn test_2_client_is_removed_if_keep_alive_timeout_is_reached() {
 #[test]
 fn test_3_client_is_not_removed_if_it_sends_a_keep_alive_before_timeout() {
     let client_1_key = CLIENT_1_KEY.deref();
-    TEST_ENV.reset_canister_with_default_params();
+    get_test_env().reset_canister_with_default_params();
     // open a connection for client 1
     call_ws_open_for_client_key_with_panic(client_1_key);
     // advance the canister time to make sure the ack timer expires and an ack is sent
-    TEST_ENV.advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
+    get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
     // get messages to check if the ack message has been set
     let res = call_ws_get_messages(
         GATEWAY_1.deref(),
@@ -131,7 +131,7 @@ fn test_3_client_is_not_removed_if_it_sends_a_keep_alive_before_timeout() {
         },
     );
     // advance the canister time to make sure the keep alive timeout expires and the canister checks the keep alive
-    TEST_ENV.advance_canister_time_ms(DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS);
+    get_test_env().advance_canister_time_ms(DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS);
     // send a message to the canister to see the sequence number increasing in the ack message
     // and be sure that the client has not been removed
     call_ws_message_with_panic(
@@ -141,7 +141,7 @@ fn test_3_client_is_not_removed_if_it_sends_a_keep_alive_before_timeout() {
         },
     );
     // wait to receive the next ack message
-    TEST_ENV.advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
+    get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
     let res = call_ws_get_messages(
         GATEWAY_1.deref(),
         CanisterWsGetMessagesArguments { nonce: 2 }, // skip the service open message and the fist ack message
@@ -152,9 +152,9 @@ fn test_3_client_is_not_removed_if_it_sends_a_keep_alive_before_timeout() {
 #[test]
 fn test_4_client_is_not_removed_if_it_connects_while_canister_is_waiting_for_keep_alive() {
     let client_1_key = CLIENT_1_KEY.deref();
-    TEST_ENV.reset_canister_with_default_params();
+    get_test_env().reset_canister_with_default_params();
     // advance the canister time to make sure the ack timer expires and the canister started the keep alive timer
-    TEST_ENV.advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
+    get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
     // open a connection for client 1
     call_ws_open_for_client_key_with_panic(client_1_key);
 
@@ -164,8 +164,8 @@ fn test_4_client_is_not_removed_if_it_connects_while_canister_is_waiting_for_kee
         CanisterWsGetMessagesArguments { nonce: 1 }, // skip the service open message
     );
     match res {
-        CanisterWsGetMessagesResult::Ok(messages) => {
-            assert_eq!(messages.messages.len(), 0);
+        CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, .. }) => {
+            assert_eq!(messages.len(), 0);
         },
         _ => panic!("unexpected result"),
     }
@@ -181,9 +181,9 @@ fn test_4_client_is_not_removed_if_it_connects_while_canister_is_waiting_for_kee
     assert_eq!(res, CanisterWsMessageResult::Ok(()));
 
     // wait for the keep alive timeout to expire
-    TEST_ENV.advance_canister_time_ms(DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS);
+    get_test_env().advance_canister_time_ms(DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS);
     // wait for the canister to send the next ack
-    TEST_ENV.advance_canister_time_ms(
+    get_test_env().advance_canister_time_ms(
         DEFAULT_TEST_SEND_ACK_INTERVAL_MS - DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
     );
 
@@ -195,8 +195,6 @@ fn test_4_client_is_not_removed_if_it_connects_while_canister_is_waiting_for_kee
 }
 
 mod helpers {
-    use std::ops::Deref;
-
     use crate::{
         tests::integration_tests::utils::{
             certification::{is_message_body_valid, is_valid_certificate},
@@ -204,37 +202,37 @@ mod helpers {
                 decode_websocket_service_message_content,
                 get_websocket_message_from_canister_message,
             },
-            test_env::TEST_ENV,
+            test_env::get_test_env,
         },
-        CanisterAckMessageContent, CanisterOutputMessage, CanisterWsGetMessagesResult, ClientKey,
-        WebsocketServiceMessageContent,
+        CanisterAckMessageContent, CanisterOutputCertifiedMessages, CanisterOutputMessage,
+        CanisterWsGetMessagesResult, ClientKey, WebsocketServiceMessageContent,
     };
 
-    pub(crate) fn check_ack_message_result(
+    pub(super) fn check_ack_message_result(
         res: &CanisterWsGetMessagesResult,
         receiver_client_key: &ClientKey,
         expected_ack_sequence_number: u64,
         expected_websocket_message_sequence_number: u64,
     ) {
         match res {
-            CanisterWsGetMessagesResult::Ok(messages) => {
-                assert_eq!(messages.messages.len(), 1);
-                let ack_message = messages.messages.first().unwrap();
+            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages {
+                messages,
+                cert,
+                tree,
+            }) => {
+                assert_eq!(messages.len(), 1);
+                let ack_message = messages.first().unwrap();
                 check_ack_message_in_messages(
                     ack_message,
                     receiver_client_key,
                     expected_ack_sequence_number,
                     expected_websocket_message_sequence_number,
                 );
-                assert!(is_valid_certificate(
-                    TEST_ENV.deref(),
-                    &messages.cert,
-                    &messages.tree,
-                ));
+                assert!(is_valid_certificate(&get_test_env(), &cert, &tree,));
                 assert!(is_message_body_valid(
                     &ack_message.key,
                     &ack_message.content,
-                    &messages.tree
+                    &tree
                 ));
             },
             _ => panic!("unexpected result"),
@@ -254,7 +252,10 @@ mod helpers {
             websocket_message.sequence_num,
             expected_websocket_message_sequence_number
         );
-        assert_eq!(websocket_message.timestamp, TEST_ENV.get_canister_time());
+        assert_eq!(
+            websocket_message.timestamp,
+            get_test_env().get_canister_time()
+        );
         assert_eq!(
             decode_websocket_service_message_content(&websocket_message.content),
             WebsocketServiceMessageContent::AckMessage(CanisterAckMessageContent {

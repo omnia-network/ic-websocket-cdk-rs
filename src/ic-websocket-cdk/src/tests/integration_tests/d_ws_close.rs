@@ -5,13 +5,13 @@ use crate::{CanisterWsCloseArguments, CanisterWsCloseResult};
 use super::utils::{
     actor::{ws_close::call_ws_close, ws_open::call_ws_open_for_client_key_with_panic},
     clients::{CLIENT_1_KEY, CLIENT_2_KEY, GATEWAY_1, GATEWAY_2},
-    test_env::TEST_ENV,
+    test_env::get_test_env,
 };
 
 #[test]
 fn test_1_fails_if_gateway_is_not_registered() {
     // first, reset the canister
-    TEST_ENV.reset_canister_with_default_params();
+    get_test_env().reset_canister_with_default_params();
     // second, open a connection for client 1
     call_ws_open_for_client_key_with_panic(CLIENT_1_KEY.deref());
 
@@ -25,7 +25,7 @@ fn test_1_fails_if_gateway_is_not_registered() {
     assert_eq!(
         res,
         CanisterWsCloseResult::Err(String::from(
-            "caller is not the gateway that has been registered during CDK initialization",
+            "principal is not one of the authorized gateways that have been registered during CDK initialization",
         )),
     );
 }

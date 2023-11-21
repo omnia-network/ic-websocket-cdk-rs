@@ -1,21 +1,24 @@
 use std::ops::Deref;
 
+use candid::encode_one;
+
 use crate::{
-    CanisterAckMessageContent, CanisterWsMessageArguments, CanisterWsMessageResult,
-    ClientKeepAliveMessageContent, ClientKey, WebsocketServiceMessageContent,
+    tests::common::generate_random_principal, CanisterAckMessageContent,
+    CanisterWsMessageArguments, CanisterWsMessageResult, ClientKeepAliveMessageContent, ClientKey,
+    WebsocketServiceMessageContent,
 };
 
 use super::utils::{
     actor::{ws_message::call_ws_message, ws_open::call_ws_open_for_client_key_with_panic},
-    clients::{generate_random_client_nonce, CLIENT_1_KEY, CLIENT_2, CLIENT_2_KEY},
+    clients::{generate_random_client_nonce, CLIENT_1_KEY, CLIENT_2_KEY},
     messages::{create_websocket_message, encode_websocket_service_message_content},
-    test_env::TEST_ENV,
+    test_env::get_test_env,
 };
 
 #[test]
 fn test_1_fails_if_client_is_not_registered() {
     // first, reset the canister
-    TEST_ENV.reset_canister_with_default_params();
+    get_test_env().reset_canister_with_default_params();
     // second, open a connection for client 1
     call_ws_open_for_client_key_with_panic(CLIENT_1_KEY.deref());
 
@@ -46,7 +49,7 @@ fn test_2_fails_if_client_sends_a_message_with_a_different_client_key() {
         CanisterWsMessageArguments {
             msg: create_websocket_message(
                 &ClientKey {
-                    client_principal: *CLIENT_2.deref(),
+                    client_principal: generate_random_principal(),
                     ..client_1_key.clone()
                 },
                 0,
@@ -140,7 +143,12 @@ fn test_5_fails_if_client_sends_a_wrong_service_message() {
     let res = call_ws_message(
         &client_1_key.client_principal,
         CanisterWsMessageArguments {
-            msg: create_websocket_message(client_1_key, 1, Some(vec![1, 2, 3]), true),
+            msg: create_websocket_message(
+                client_1_key,
+                1,
+                Some(encode_one(vec![1, 2, 3]).unwrap()),
+                true,
+            ),
         },
     );
     match res {
