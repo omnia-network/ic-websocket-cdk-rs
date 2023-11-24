@@ -9,7 +9,6 @@ use lazy_static::lazy_static;
 use pocket_ic::PocketIc;
 
 use super::{
-    clients::GATEWAY_1,
     constants::{
         DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS, DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
         DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
@@ -33,9 +32,8 @@ pub struct TestEnv {
     root_ic_key: Vec<u8>,
 }
 
-type AuthorizedGateways = Vec<String>;
-/// (`gateway_principal`, `max_number_or_returned_messages`, `send_ack_interval_ms`, `send_ack_timeout_ms`)
-type CanisterInitArgs = (AuthorizedGateways, u64, u64, u64);
+/// (`max_number_or_returned_messages`, `send_ack_interval_ms`, `send_ack_timeout_ms`)
+type CanisterInitArgs = (u64, u64, u64);
 
 impl TestEnv {
     pub fn new() -> Self {
@@ -52,9 +50,7 @@ impl TestEnv {
             Err(_) => load_canister_wasm_from_bin("test_canister.wasm"),
         };
 
-        let authorized_gateways = vec![GATEWAY_1.to_string()];
         let arguments: CanisterInitArgs = (
-            authorized_gateways,
             DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
             DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
             DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
@@ -79,13 +75,11 @@ impl TestEnv {
 
     pub fn reset_canister(
         &mut self,
-        authorized_gateways: AuthorizedGateways,
         max_number_or_returned_messages: u64,
         send_ack_interval_ms: u64,
         keep_alive_delay_ms: u64,
     ) {
         let arguments: CanisterInitArgs = (
-            authorized_gateways,
             max_number_or_returned_messages,
             send_ack_interval_ms,
             keep_alive_delay_ms,
@@ -110,17 +104,6 @@ impl TestEnv {
     /// Resets the canister using the default parameters. See [reset_canister].
     pub fn reset_canister_with_default_params(&mut self) {
         self.reset_canister(
-            self.canister_init_args.0.clone(),
-            DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
-            DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
-            DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
-        );
-    }
-
-    /// Resets the canister using the default parameters and the given gateways. See [reset_canister].
-    pub fn reset_canister_with_gateways(&mut self, gateways: AuthorizedGateways) {
-        self.reset_canister(
-            gateways,
             DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
             DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
             DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,

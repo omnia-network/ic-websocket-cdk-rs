@@ -1,6 +1,8 @@
 use std::ops::Deref;
 
-use crate::{tests::integration_tests::utils::clients::CLIENT_2_KEY, CanisterWsSendResult};
+use crate::{
+    errors::WsError, tests::integration_tests::utils::clients::CLIENT_2_KEY, CanisterWsSendResult,
+};
 
 use super::utils::{
     actor::{
@@ -28,9 +30,12 @@ fn test_1_fails_if_sending_a_message_to_a_non_registered_client() {
     );
     assert_eq!(
         res,
-        CanisterWsSendResult::Err(String::from(format!(
-            "client with principal {client_2_principal} doesn't have an open connection"
-        ))),
+        CanisterWsSendResult::Err(
+            WsError::ClientPrincipalNotConnected {
+                client_principal: client_2_principal
+            }
+            .to_string()
+        ),
     );
 }
 

@@ -1,9 +1,9 @@
 use std::ops::Deref;
 
 use crate::{
-    CanisterOutputCertifiedMessages, CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult,
-    CanisterWsMessageArguments, CanisterWsMessageResult, CanisterWsSendResult,
-    ClientKeepAliveMessageContent, WebsocketServiceMessageContent,
+    errors::WsError, CanisterOutputCertifiedMessages, CanisterWsGetMessagesArguments,
+    CanisterWsGetMessagesResult, CanisterWsMessageArguments, CanisterWsMessageResult,
+    CanisterWsSendResult, ClientKeepAliveMessageContent, WebsocketServiceMessageContent,
 };
 
 use super::utils::{
@@ -90,10 +90,12 @@ fn test_2_client_is_removed_if_keep_alive_timeout_is_reached() {
     );
     assert_eq!(
         res,
-        CanisterWsSendResult::Err(String::from(format!(
-            "client with principal {} doesn't have an open connection",
-            client_1_key.client_principal
-        ))),
+        CanisterWsSendResult::Err(
+            WsError::ClientPrincipalNotConnected {
+                client_principal: &client_1_key.client_principal
+            }
+            .to_string()
+        ),
     );
 }
 

@@ -1,4 +1,4 @@
-use crate::ClientKey;
+use crate::{ClientKey, GatewayPrincipal};
 use candid::Principal;
 use lazy_static::lazy_static;
 
@@ -8,10 +8,10 @@ lazy_static! {
     pub(in crate::tests::integration_tests) static ref CLIENT_2_KEY: ClientKey =
         generate_client_key("zuh6g-qnmvg-vky2t-tnob7-h4xoj-ykrcx-jqjpi-cdf3k-23i3i-ykozs-fae");
     /// The gateway registered in the local PocketIc env
-    pub(in crate::tests::integration_tests) static ref GATEWAY_1: Principal =
+    pub(in crate::tests::integration_tests) static ref GATEWAY_1: GatewayPrincipal =
         Principal::from_text("i3gux-m3hwt-5mh2w-t7wwm-fwx5j-6z6ht-hxguo-t4rfw-qp24z-g5ivt-2qe")
             .unwrap();
-    pub(in crate::tests::integration_tests) static ref GATEWAY_2: Principal =
+    pub(in crate::tests::integration_tests) static ref GATEWAY_2: GatewayPrincipal =
         Principal::from_text("trj6m-u7l6v-zilnb-2hl6a-3jfz3-asri5-mkw3k-e2tpo-5emmk-6hqxb-uae")
             .unwrap();
 }

@@ -2,9 +2,9 @@ use proptest::prelude::*;
 use std::ops::Deref;
 
 use crate::{
-    CanisterOutputCertifiedMessages, CanisterOutputMessage, CanisterWsGetMessagesArguments,
-    CanisterWsGetMessagesResult, CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey,
-    WebsocketServiceMessageContent,
+    errors::WsError, CanisterOutputCertifiedMessages, CanisterOutputMessage,
+    CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult, CanisterWsOpenArguments,
+    CanisterWsOpenResult, ClientKey, WebsocketServiceMessageContent,
 };
 use candid::Principal;
 
@@ -23,27 +23,12 @@ fn test_1_fail_for_an_anonymous_client() {
     let res = call_ws_open(&Principal::anonymous(), args);
     assert_eq!(
         res,
-        CanisterWsOpenResult::Err(String::from("anonymous principal cannot open a connection")),
+        CanisterWsOpenResult::Err(WsError::AnonymousPrincipalNotAllowed.to_string()),
     );
 }
 
 #[test]
-fn test_2_fails_for_the_registered_gateway() {
-    let args = CanisterWsOpenArguments {
-        client_nonce: generate_random_client_nonce(),
-        gateway_principal: GATEWAY_1.deref().to_owned(),
-    };
-    let res = call_ws_open(GATEWAY_1.deref(), args);
-    assert_eq!(
-        res,
-        CanisterWsOpenResult::Err(String::from(
-            "caller is the registered gateway which can't open a connection for itself",
-        )),
-    );
-}
-
-#[test]
-fn test_3_should_open_a_connection() {
+fn test_2_should_open_a_connection() {
     let client_1_key = CLIENT_1_KEY.deref();
     let args = CanisterWsOpenArguments {
         client_nonce: client_1_key.client_nonce,
@@ -74,7 +59,7 @@ fn test_3_should_open_a_connection() {
 }
 
 #[test]
-fn test_4_fails_for_a_client_with_the_same_nonce() {
+fn test_3_fails_for_a_client_with_the_same_nonce() {
     let client_1_key = CLIENT_1_KEY.deref();
     let args = CanisterWsOpenArguments {
         client_nonce: client_1_key.client_nonce,
@@ -83,15 +68,18 @@ fn test_4_fails_for_a_client_with_the_same_nonce() {
     let res = call_ws_open(&client_1_key.client_principal, args);
     assert_eq!(
         res,
-        CanisterWsOpenResult::Err(String::from(format!(
-            "client with key {client_1_key} already has an open connection"
-        ))),
+        CanisterWsOpenResult::Err(
+            WsError::ClientKeyAlreadyConnected {
+                client_key: client_1_key
+            }
+            .to_string()
+        ),
     );
 }
 
 proptest! {
     #[test]
-    fn test_5_should_open_a_connection_for_the_same_client_with_a_different_nonce(test_client_nonce in any::<u64>().prop_map(|_| generate_random_client_nonce())) {
+    fn test_4_should_open_a_connection_for_the_same_client_with_a_different_nonce(test_client_nonce in any::<u64>().prop_map(|_| generate_random_client_nonce())) {
         let client_key = ClientKey {
             client_principal: CLIENT_1_KEY.deref().client_principal,
             client_nonce: test_client_nonce,

@@ -11,3 +11,17 @@ macro_rules! custom_print {
         }
     }
 }
+
+#[macro_export]
+macro_rules! custom_trap {
+    ($($arg:tt)*) => {
+        #[cfg(not(test))]
+        {
+            ic_cdk::trap($($arg)*);
+        }
+        #[cfg(test)]
+        {
+            panic!($($arg)*);
+        }
+    }
+}

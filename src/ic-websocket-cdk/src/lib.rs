@@ -1,8 +1,8 @@
 use candid::{decode_one, encode_one, CandidType, Principal};
+use errors::WsError;
 #[cfg(not(test))]
 use ic_cdk::api::time;
 use ic_cdk::api::{caller, data_certificate, set_certified_data};
-use ic_cdk::trap;
 use ic_cdk_timers::{clear_timer, set_timer, set_timer_interval, TimerId};
 use ic_certified_map::{labeled, labeled_hash, AsHashTree, Hash as ICHash, RbTree};
 use serde::{Deserialize, Serialize};
@@ -19,8 +19,9 @@ use std::{
     convert::AsRef,
 };
 
-mod logger;
+mod errors;
 mod tests;
+mod utils;
 
 /// The label used when constructing the certification tree.
 const LABEL_WEBSOCKET: &[u8] = b"websocket";
@@ -278,18 +279,43 @@ pub fn wipe() {
     custom_print!("Internal state has been wiped!");
 }
 
-fn get_outgoing_message_nonce(gateway_principal: &GatewayPrincipal) -> Result<u64, String> {
-    let registered_gateway = get_registered_gateway(gateway_principal)?;
-    Ok(registered_gateway.outgoing_message_nonce)
+fn register_gateway_if_not_present(gateway_principal: GatewayPrincipal) {
+    REGISTERED_GATEWAYS.with(|map| {
+        map.borrow_mut()
+            .entry(gateway_principal)
+            .or_insert_with(RegisteredGateway::new);
+    });
 }
 
-fn increment_outgoing_message_nonce(gateway_principal: &GatewayPrincipal) {
+fn get_registered_gateway(
+    gateway_principal: &GatewayPrincipal,
+) -> Result<RegisteredGateway, String> {
+    REGISTERED_GATEWAYS.with(|map| {
+        map.borrow()
+            .get(gateway_principal)
+            .ok_or_else(|| WsError::GatewayNotRegistered { gateway_principal }.to_string())
+            .cloned()
+    })
+}
+
+fn is_registered_gateway(principal: &Principal) -> bool {
+    get_registered_gateway(principal).is_ok()
+}
+
+fn get_outgoing_message_nonce(gateway_principal: &GatewayPrincipal) -> Result<u64, String> {
+    get_registered_gateway(gateway_principal).map(|g| g.outgoing_message_nonce)
+}
+
+fn increment_outgoing_message_nonce(gateway_principal: &GatewayPrincipal) -> Result<(), String> {
     REGISTERED_GATEWAYS.with(|map| {
         map.borrow_mut()
             .get_mut(gateway_principal)
-            .unwrap() // we should always have a registered gateway at this point
-            .increment_nonce();
-    });
+            .and_then(|g| {
+                g.increment_nonce();
+                Some(())
+            })
+            .ok_or_else(|| WsError::GatewayNotRegistered { gateway_principal }.to_string())
+    })
 }
 
 fn insert_client(client_key: ClientKey, new_client: RegisteredClient) {
@@ -302,8 +328,13 @@ fn insert_client(client_key: ClientKey, new_client: RegisteredClient) {
     });
 }
 
-fn is_client_registered(client_key: &ClientKey) -> bool {
-    REGISTERED_CLIENTS.with(|map| map.borrow().contains_key(client_key))
+fn get_registered_client(client_key: &ClientKey) -> Result<RegisteredClient, String> {
+    REGISTERED_CLIENTS.with(|map| {
+        map.borrow()
+            .get(client_key)
+            .ok_or_else(|| WsError::ClientKeyNotConnected { client_key }.to_string())
+            .cloned()
+    })
 }
 
 fn get_client_key_from_principal(client_principal: &ClientPrincipal) -> Result<ClientKey, String> {
@@ -311,30 +342,30 @@ fn get_client_key_from_principal(client_principal: &ClientPrincipal) -> Result<C
         map.borrow()
             .get(client_principal)
             .cloned()
-            .ok_or(String::from(format!(
-                "client with principal {} doesn't have an open connection",
-                client_principal
-            )))
+            .ok_or_else(|| WsError::ClientPrincipalNotConnected { client_principal }.to_string())
     })
 }
 
-fn check_registered_client(client_key: &ClientKey) -> Result<(), String> {
-    if !is_client_registered(client_key) {
-        return Err(String::from(format!(
-            "client with key {} doesn't have an open connection",
-            client_key
-        )));
-    }
-
-    Ok(())
+fn check_registered_client_exists(client_key: &ClientKey) -> Result<(), String> {
+    get_registered_client(client_key).map(|_| ())
 }
 
-fn get_gateway_principal_from_registered_client(client_key: &ClientKey) -> GatewayPrincipal {
-    REGISTERED_CLIENTS.with(|map| {
-        map.borrow()
-            .get(client_key)
-            .unwrap() // the value exists because we checked that the client is registered
+fn check_client_registered_to_gateway(
+    client_key: &ClientKey,
+    gateway_principal: &GatewayPrincipal,
+) -> Result<(), String> {
+    get_registered_client(client_key).and_then(|registered_client| {
+        registered_client
             .gateway_principal
+            .eq(gateway_principal)
+            .then_some(())
+            .ok_or_else(|| {
+                WsError::ClientNotRegisteredToGateway {
+                    client_key,
+                    gateway_principal,
+                }
+                .to_string()
+            })
     })
 }
 
@@ -342,31 +373,6 @@ fn add_client_to_wait_for_keep_alive(client_key: &ClientKey) {
     CLIENTS_WAITING_FOR_KEEP_ALIVE.with(|clients| {
         clients.borrow_mut().insert(client_key.clone());
     });
-}
-
-fn initialize_registered_gateways(gateways_principals: Vec<String>) {
-    for gateway_principal_text in gateways_principals.iter() {
-        let gateway_principal = Principal::from_text(gateway_principal_text).expect(&format!(
-            "invalid gateway principal {gateway_principal_text}"
-        ));
-        REGISTERED_GATEWAYS.with(|map| {
-            map.borrow_mut()
-                .insert(gateway_principal, RegisteredGateway::new())
-        });
-    }
-}
-
-fn get_registered_gateway(
-    gateway_principal: &GatewayPrincipal,
-) -> Result<RegisteredGateway, String> {
-    REGISTERED_GATEWAYS.with(|map| {
-        map.borrow()
-            .get(gateway_principal)
-            .cloned()
-            .ok_or(String::from(format!(
-                "no gateway registered with principal {gateway_principal}"
-            )))
-    })
 }
 
 fn init_outgoing_message_to_client_num(client_key: ClientKey) {
@@ -378,20 +384,20 @@ fn init_outgoing_message_to_client_num(client_key: ClientKey) {
 
 fn get_outgoing_message_to_client_num(client_key: &ClientKey) -> Result<u64, String> {
     OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
-        let map = map.borrow();
-        let num = *map.get(client_key).ok_or(String::from(
-            "outgoing message to client num not initialized for client",
-        ))?;
-        Ok(num)
+        map.borrow().get(client_key).cloned().ok_or_else(|| {
+            WsError::OutgoingMessageToClientNumNotInitialized { client_key }.to_string()
+        })
     })
 }
 
 fn increment_outgoing_message_to_client_num(client_key: &ClientKey) -> Result<(), String> {
-    let num = get_outgoing_message_to_client_num(client_key)?;
     OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
-        let mut map = map.borrow_mut();
-        map.insert(client_key.clone(), num + 1);
-        Ok(())
+        map.borrow_mut()
+            .get_mut(client_key)
+            .ok_or_else(|| {
+                WsError::OutgoingMessageToClientNumNotInitialized { client_key }.to_string()
+            })
+            .map(|n| *n += 1)
     })
 }
 
@@ -404,21 +410,23 @@ fn init_expected_incoming_message_from_client_num(client_key: ClientKey) {
 
 fn get_expected_incoming_message_from_client_num(client_key: &ClientKey) -> Result<u64, String> {
     INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
-        let num = *map.borrow().get(client_key).ok_or(String::from(
-            "expected incoming message num not initialized for client",
-        ))?;
-        Ok(num)
+        map.borrow().get(client_key).cloned().ok_or(
+            WsError::ExpectedIncomingMessageToClientNumNotInitialized { client_key }.to_string(),
+        )
     })
 }
 
 fn increment_expected_incoming_message_from_client_num(
-    client_key: ClientKey,
+    client_key: &ClientKey,
 ) -> Result<(), String> {
-    let num = get_expected_incoming_message_from_client_num(&client_key)?;
     INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
-        let mut map = map.borrow_mut();
-        map.insert(client_key, num + 1);
-        Ok(())
+        map.borrow_mut()
+            .get_mut(client_key)
+            .ok_or(
+                WsError::ExpectedIncomingMessageToClientNumNotInitialized { client_key }
+                    .to_string(),
+            )
+            .map(|n| *n += 1)
     })
 }
 
@@ -464,35 +472,34 @@ fn get_messages_for_gateway_range(
 ) -> (usize, usize) {
     let max_number_of_returned_messages = get_params().max_number_of_returned_messages;
 
-    REGISTERED_GATEWAYS.with(|map| {
-        let map = map.borrow();
-        let messages_queue = &map.get(gateway_principal).unwrap().messages_queue; // the value exists because we just checked that the gateway is registered
+    let messages_queue = get_registered_gateway(gateway_principal)
+        .unwrap() // the value exists because we just checked that the gateway is registered
+        .messages_queue;
 
-        let queue_len = messages_queue.len();
+    let queue_len = messages_queue.len();
 
-        if nonce == 0 && queue_len > 0 {
-            // this is the case in which the poller on the gateway restarted
-            // the range to return is end=(last index) and start=max(end - max_number_of_returned_messages, 0)
-            let start_index = if queue_len > max_number_of_returned_messages {
-                queue_len - max_number_of_returned_messages
-            } else {
-                0
-            };
+    if nonce == 0 && queue_len > 0 {
+        // this is the case in which the poller on the gateway restarted
+        // the range to return is end=(last index) and start=max(end - max_number_of_returned_messages, 0)
+        let start_index = if queue_len > max_number_of_returned_messages {
+            queue_len - max_number_of_returned_messages
+        } else {
+            0
+        };
 
-            return (start_index, queue_len);
-        }
+        return (start_index, queue_len);
+    }
 
-        // smallest key used to determine the first message from the queue which has to be returned to the WS Gateway
-        let smallest_key = format_message_for_gateway_key(gateway_principal, nonce);
-        // partition the queue at the message which has the key with the nonce specified as argument to get_cert_messages
-        let start_index = messages_queue.partition_point(|x| x.key < smallest_key);
-        // message at index corresponding to end index is excluded
-        let mut end_index = queue_len;
-        if end_index - start_index > max_number_of_returned_messages {
-            end_index = start_index + max_number_of_returned_messages;
-        }
-        (start_index, end_index)
-    })
+    // smallest key used to determine the first message from the queue which has to be returned to the WS Gateway
+    let smallest_key = format_message_for_gateway_key(gateway_principal, nonce);
+    // partition the queue at the message which has the key with the nonce specified as argument to get_cert_messages
+    let start_index = messages_queue.partition_point(|x| x.key < smallest_key);
+    // message at index corresponding to end index is excluded
+    let mut end_index = queue_len;
+    if end_index - start_index > max_number_of_returned_messages {
+        end_index = start_index + max_number_of_returned_messages;
+    }
+    (start_index, end_index)
 }
 
 fn get_messages_for_gateway(
@@ -500,21 +507,19 @@ fn get_messages_for_gateway(
     start_index: usize,
     end_index: usize,
 ) -> Vec<CanisterOutputMessage> {
-    REGISTERED_GATEWAYS.with(|map| {
-        let map = map.borrow();
-        let messages_queue = &map.get(gateway_principal).unwrap().messages_queue; // the value exists because we just checked that the gateway is registered
-
-        let mut messages: Vec<CanisterOutputMessage> = Vec::with_capacity(end_index - start_index);
-        for index in start_index..end_index {
-            messages.push(
-                messages_queue
-                    .get(index)
-                    .unwrap() // the value exists because this function is called only after partitioning the queue
-                    .clone(),
-            );
-        }
-        messages
-    })
+    let messages_queue = get_registered_gateway(gateway_principal)
+        .unwrap() // the value exists because we just checked that the gateway is registered
+        .messages_queue;
+    let mut messages: Vec<CanisterOutputMessage> = Vec::with_capacity(end_index - start_index);
+    for index in start_index..end_index {
+        messages.push(
+            messages_queue
+                .get(index)
+                .unwrap() // the value exists because this function is called only after partitioning the queue
+                .clone(),
+        );
+    }
+    messages
 }
 
 /// Gets the messages in [MESSAGES_FOR_GATEWAYS] starting from the one with the specified nonce
@@ -526,11 +531,7 @@ fn get_cert_messages(
     let messages = get_messages_for_gateway(gateway_principal, start_index, end_index);
 
     if messages.is_empty() {
-        return Ok(CanisterOutputCertifiedMessages {
-            messages,
-            cert: Vec::new(),
-            tree: Vec::new(),
-        });
+        return get_cert_messages_empty();
     }
 
     let first_key = messages.first().unwrap().key.clone();
@@ -544,18 +545,12 @@ fn get_cert_messages(
     })
 }
 
-fn is_registered_gateway(principal: &Principal) -> bool {
-    REGISTERED_GATEWAYS.with(|map| map.borrow().contains_key(principal))
-}
-
-/// Checks if the principal of the authorized WS Gateways that have been registered during the initialization of the CDK
-fn check_is_registered_gateway(principal: &Principal) -> Result<(), String> {
-    if !is_registered_gateway(principal) {
-        return Err(String::from(
-            "principal is not one of the authorized gateways that have been registered during CDK initialization",
-        ));
-    }
-    Ok(())
+fn get_cert_messages_empty() -> CanisterWsGetMessagesResult {
+    Ok(CanisterOutputCertifiedMessages {
+        messages: Vec::new(),
+        cert: Vec::new(),
+        tree: Vec::new(),
+    })
 }
 
 fn put_cert_for_message(key: String, value: &Vec<u8>) {
@@ -566,6 +561,24 @@ fn put_cert_for_message(key: String, value: &Vec<u8>) {
     });
 
     set_certified_data(&root_hash);
+}
+
+fn push_message_in_gateway_queue(
+    gateway_principal: &GatewayPrincipal,
+    message: CanisterOutputMessage,
+) -> Result<(), String> {
+    REGISTERED_GATEWAYS.with(|map| {
+        // messages in the queue are inserted with contiguous and increasing nonces
+        // (from beginning to end of the queue) as ws_send is called sequentially, the nonce
+        // is incremented by one in each call, and the message is pushed at the end of the queue
+        map.borrow_mut()
+            .get_mut(gateway_principal)
+            .and_then(|g| {
+                g.messages_queue.push_back(message);
+                Some(())
+            })
+            .ok_or_else(|| WsError::GatewayNotRegistered { gateway_principal }.to_string())
+    })
 }
 
 fn get_cert_for_range(first: &String, last: &String) -> (Vec<u8>, Vec<u8>) {
@@ -647,11 +660,7 @@ pub(crate) enum WebsocketServiceMessageContent {
 
 impl WebsocketServiceMessageContent {
     fn from_candid_bytes(bytes: &[u8]) -> Result<Self, String> {
-        decode_one(&bytes).map_err(|e| {
-            let mut err = String::from("Error decoding service message content: ");
-            err.push_str(&e.to_string());
-            err
-        })
+        decode_one(&bytes).map_err(|err| WsError::DecodeServiceMessageContent { err }.to_string())
     }
 }
 
@@ -789,20 +798,19 @@ fn _ws_send(
     msg_bytes: Vec<u8>,
     is_service_message: bool,
 ) -> CanisterWsSendResult {
-    // check if the client is registered
-    check_registered_client(client_key)?;
-
-    // get the principal of the gateway that the client is connected to
-    let gateway_principal = get_gateway_principal_from_registered_client(client_key);
-    check_is_registered_gateway(&gateway_principal)?;
+    // get the registered client if it exists
+    let registered_client = get_registered_client(client_key)?;
 
     // the nonce in key is used by the WS Gateway to determine the message to start in the polling iteration
     // the key is also passed to the client in order to validate the body of the certified message
-    let outgoing_message_nonce = get_outgoing_message_nonce(&gateway_principal)?; // we never hit the error case because we just checked that the gateway is registered
-    let message_key = format_message_for_gateway_key(&gateway_principal, outgoing_message_nonce);
+    let outgoing_message_nonce = get_outgoing_message_nonce(&registered_client.gateway_principal)?;
+    let message_key = format_message_for_gateway_key(
+        &registered_client.gateway_principal,
+        outgoing_message_nonce,
+    );
 
     // increment the nonce for the next message
-    increment_outgoing_message_nonce(&gateway_principal);
+    increment_outgoing_message_nonce(&registered_client.gateway_principal)?;
 
     // increment the sequence number for the next message to the client
     increment_outgoing_message_to_client_num(client_key)?;
@@ -821,21 +829,14 @@ fn _ws_send(
     // certify data
     put_cert_for_message(message_key.clone(), &message_content);
 
-    REGISTERED_GATEWAYS.with(|map| {
-        // messages in the queue are inserted with contiguous and increasing nonces
-        // (from beginning to end of the queue) as ws_send is called sequentially, the nonce
-        // is incremented by one in each call, and the message is pushed at the end of the queue
-        map.borrow_mut()
-            .get_mut(&gateway_principal)
-            .unwrap() // the value exists because we just checked that the gateway is registered
-            .messages_queue
-            .push_back(CanisterOutputMessage {
-                client_key: client_key.clone(),
-                content: message_content,
-                key: message_key,
-            });
-    });
-    Ok(())
+    push_message_in_gateway_queue(
+        &registered_client.gateway_principal,
+        CanisterOutputMessage {
+            client_key: client_key.clone(),
+            content: message_content,
+            key: message_key,
+        },
+    )
 }
 
 fn handle_received_service_message(
@@ -846,7 +847,7 @@ fn handle_received_service_message(
     match decoded {
         WebsocketServiceMessageContent::OpenMessage(_)
         | WebsocketServiceMessageContent::AckMessage(_) => {
-            Err(String::from("Invalid received service message"))
+            WsError::InvalidServiceMessage.to_string_result()
         },
         WebsocketServiceMessageContent::KeepAliveMessage(keep_alive_message) => {
             handle_keep_alive_client_message(client_key, keep_alive_message);
@@ -905,7 +906,7 @@ pub struct OnCloseCallbackArgs {
 type OnCloseCallback = fn(OnCloseCallbackArgs);
 
 /// Handlers initialized by the canister and triggered by the CDK.
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct WsHandlers {
     pub on_open: Option<OnOpenCallback>,
     pub on_message: Option<OnMessageCallback>,
@@ -955,8 +956,6 @@ impl WsHandlers {
 pub struct WsInitParams {
     /// The callback handlers for the WebSocket.
     pub handlers: WsHandlers,
-    /// The principals of the WS Gateways that are authorized to poll the canister.
-    pub gateway_principals: Vec<String>,
     /// The maximum number of messages to be returned in a polling iteration.
     /// Defaults to `10`.
     pub max_number_of_returned_messages: usize,
@@ -977,10 +976,9 @@ pub struct WsInitParams {
 
 impl WsInitParams {
     /// Creates a new instance of WsInitParams, with default interval values.
-    pub fn new(handlers: WsHandlers, gateway_principals: Vec<String>) -> Self {
+    pub fn new(handlers: WsHandlers) -> Self {
         Self {
             handlers,
-            gateway_principals,
             ..Default::default()
         }
     }
@@ -993,11 +991,31 @@ impl WsInitParams {
     /// `send_ack_interval_ms` must be greater than `keep_alive_timeout_ms`.
     ///
     /// # Traps
-    /// If `send_ack_interval_ms` < `keep_alive_timeout_ms`.
+    /// If `send_ack_interval_ms` <= `keep_alive_timeout_ms`.
     fn check_validity(&self) {
-        if self.keep_alive_timeout_ms > self.send_ack_interval_ms {
-            trap("send_ack_interval_ms must be greater than keep_alive_timeout_ms");
+        if self.keep_alive_timeout_ms >= self.send_ack_interval_ms {
+            custom_trap!("send_ack_interval_ms must be greater than keep_alive_timeout_ms");
         }
+    }
+
+    pub fn with_max_number_of_returned_messages(
+        mut self,
+        max_number_of_returned_messages: usize,
+    ) -> Self {
+        self.max_number_of_returned_messages = max_number_of_returned_messages;
+        self
+    }
+
+    pub fn with_send_ack_interval_ms(mut self, send_ack_interval_ms: u64) -> Self {
+        self.send_ack_interval_ms = send_ack_interval_ms;
+        self.check_validity();
+        self
+    }
+
+    pub fn with_keep_alive_timeout_ms(mut self, keep_alive_timeout_ms: u64) -> Self {
+        self.keep_alive_timeout_ms = keep_alive_timeout_ms;
+        self.check_validity();
+        self
     }
 }
 
@@ -1005,7 +1023,6 @@ impl Default for WsInitParams {
     fn default() -> Self {
         Self {
             handlers: WsHandlers::default(),
-            gateway_principals: Vec::new(),
             max_number_of_returned_messages: DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES,
             send_ack_interval_ms: DEFAULT_SEND_ACK_INTERVAL_MS,
             keep_alive_timeout_ms: DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS,
@@ -1027,9 +1044,6 @@ pub fn init(params: WsInitParams) {
     // set the handlers specified by the canister that the CDK uses to manage the IC WebSocket connection
     set_params(params.clone());
 
-    // set the principal of the (only) WS Gateway that will be polling the canister
-    initialize_registered_gateways(params.gateway_principals);
-
     // reset initial timers
     reset_timers();
 
@@ -1039,32 +1053,30 @@ pub fn init(params: WsInitParams) {
 
 /// Handles the WS connection open event sent by the client and relayed by the Gateway.
 pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
-    let client_principal = caller();
+    let caller = caller();
     // anonymous clients cannot open a connection
-    if client_principal == ClientPrincipal::anonymous() {
-        return Err(String::from("anonymous principal cannot open a connection"));
-    }
+    caller
+        .ne(&Principal::anonymous())
+        .then_some(())
+        .ok_or_else(|| WsError::AnonymousPrincipalNotAllowed.to_string())?;
 
-    // avoid gateway opening a connection for its own principal
-    if is_registered_gateway(&client_principal) {
-        return Err(String::from(
-            "caller is the registered gateway which can't open a connection for itself",
-        ));
-    }
-
-    let client_key = ClientKey::new(client_principal, args.client_nonce);
+    let client_key = ClientKey::new(caller, args.client_nonce);
     // check if client is not registered yet
-    if is_client_registered(&client_key) {
-        return Err(format!(
-            "client with key {} already has an open connection",
-            client_key,
-        ));
-    }
+    // by swapping the result of the check_registered_client_exists function
+    check_registered_client_exists(&client_key).map_or(Ok(()), |_| {
+        WsError::ClientKeyAlreadyConnected {
+            client_key: &client_key,
+        }
+        .to_string_result()
+    })?;
+
+    register_gateway_if_not_present(args.gateway_principal);
 
     // initialize client maps
     let new_client = RegisteredClient::new(args.gateway_principal);
     add_client(client_key.clone(), new_client);
 
+    // send the open message
     let open_message = CanisterOpenMessageContent {
         client_key: client_key.clone(),
     };
@@ -1072,18 +1084,22 @@ pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
     send_service_message_to_client(&client_key, &message)?;
 
     // call the on_open handler initialized in init()
-    get_handlers_from_params().call_on_open(OnOpenCallbackArgs { client_principal });
+    get_handlers_from_params().call_on_open(OnOpenCallbackArgs {
+        client_principal: client_key.client_principal,
+    });
 
     Ok(())
 }
 
 /// Handles the WS connection close event received from the WS Gateway.
 pub fn ws_close(args: CanisterWsCloseArguments) -> CanisterWsCloseResult {
-    // the caller must be the gateway that was registered during CDK initialization
-    check_is_registered_gateway(&caller())?;
+    let gateway_principal = caller();
 
     // check if client registered its principal by calling ws_open
-    check_registered_client(&args.client_key)?;
+    check_registered_client_exists(&args.client_key)?;
+
+    // check if the client is registered to the gateway that is closing the connection
+    check_client_registered_to_gateway(&args.client_key, &gateway_principal)?;
 
     remove_client(&args.client_key);
 
@@ -1133,26 +1149,33 @@ pub fn ws_message<T: CandidType + for<'a> Deserialize<'a>>(
     } = args.msg;
 
     // check if the client key is correct
-    if registered_client_key != client_key {
-        return Err(String::from(format!(
-            "client with principal {} has a different key than the one used in the message",
-            client_principal
-        )));
-    }
+    client_key
+        .eq(&registered_client_key)
+        .then_some(())
+        .ok_or_else(|| {
+            WsError::ClientKeyMessageMismatch {
+                client_key: &client_key,
+            }
+            .to_string()
+        })?;
 
     let expected_sequence_num = get_expected_incoming_message_from_client_num(&client_key)?;
 
     // check if the incoming message has the expected sequence number
-    if sequence_num != expected_sequence_num {
-        remove_client(&client_key);
-        return Err(String::from(
-            format!(
-                "incoming client's message does not have the expected sequence number. Expected: {expected_sequence_num}, actual: {sequence_num}. Client removed.",
-            ),
-        ));
-    }
+    sequence_num
+        .eq(&expected_sequence_num)
+        .then_some(())
+        .ok_or_else(|| {
+            remove_client(&client_key);
+
+            WsError::IncomingSequenceNumberWrong {
+                expected_sequence_num,
+                actual_sequence_num: sequence_num,
+            }
+            .to_string()
+        })?;
     // increase the expected sequence number by 1
-    increment_expected_incoming_message_from_client_num(client_key.clone())?;
+    increment_expected_incoming_message_from_client_num(&client_key)?;
 
     if is_service_message {
         return handle_received_service_message(&client_key, &content);
@@ -1170,7 +1193,9 @@ pub fn ws_message<T: CandidType + for<'a> Deserialize<'a>>(
 pub fn ws_get_messages(args: CanisterWsGetMessagesArguments) -> CanisterWsGetMessagesResult {
     // check if the caller of this method is the WS Gateway that has been set during the initialization of the SDK
     let gateway_principal = caller();
-    check_is_registered_gateway(&gateway_principal)?;
+    if !is_registered_gateway(&gateway_principal) {
+        return get_cert_messages_empty();
+    }
 
     get_cert_messages(&gateway_principal, args.nonce)
 }

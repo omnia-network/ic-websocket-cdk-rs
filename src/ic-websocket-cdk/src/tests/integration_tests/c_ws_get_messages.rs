@@ -18,7 +18,7 @@ use super::utils::{
 };
 
 #[test]
-fn test_1_fails_if_a_non_registered_gateway_tries_to_get_messages() {
+fn test_1_non_registered_gateway_should_receive_empty_messages() {
     // first, reset the canister
     get_test_env().reset_canister_with_default_params();
 
@@ -28,9 +28,11 @@ fn test_1_fails_if_a_non_registered_gateway_tries_to_get_messages() {
     );
     assert_eq!(
         res,
-        CanisterWsGetMessagesResult::Err(String::from(
-            "principal is not one of the authorized gateways that have been registered during CDK initialization",
-        )),
+        CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages {
+            messages: vec![],
+            cert: vec![],
+            tree: vec![],
+        }),
     );
 }
 

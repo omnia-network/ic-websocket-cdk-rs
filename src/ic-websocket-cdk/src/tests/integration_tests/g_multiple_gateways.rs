@@ -29,7 +29,7 @@ proptest! {
     ) {
         let first_gateway = &gateways[0];
         let second_gateway = &gateways[1];
-        get_test_env().reset_canister_with_gateways(gateways.iter().map(|g| g.to_string()).collect());
+        get_test_env().reset_canister_with_default_params();
         // open a connection for client
         call_ws_open_for_client_key_and_gateway_with_panic(&client_key, *first_gateway);
         // simulate canister sending messages to client
