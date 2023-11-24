@@ -170,19 +170,23 @@ fn test_ws_init_params() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic = "send_ack_interval_ms must be greater than keep_alive_timeout_ms"]
 fn test_ws_init_params_keep_alive_greater() {
-    WsInitParams::new(WsHandlers::default())
-        .with_keep_alive_timeout_ms(10)
-        .with_send_ack_interval_ms(5);
+    let params = WsInitParams::new(WsHandlers::default())
+        .with_send_ack_interval_ms(5)
+        .with_keep_alive_timeout_ms(10);
+
+    params.check_validity();
 }
 
 #[test]
-#[should_panic]
+#[should_panic = "send_ack_interval_ms must be greater than keep_alive_timeout_ms"]
 fn test_ws_init_params_keep_alive_equal() {
-    WsInitParams::new(WsHandlers::default())
-        .with_keep_alive_timeout_ms(10)
-        .with_send_ack_interval_ms(10);
+    let params = WsInitParams::new(WsHandlers::default())
+        .with_send_ack_interval_ms(10)
+        .with_keep_alive_timeout_ms(10);
+
+    params.check_validity();
 }
 
 #[test]

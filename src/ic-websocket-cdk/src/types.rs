@@ -368,13 +368,11 @@ impl WsInitParams {
 
     pub fn with_send_ack_interval_ms(mut self, send_ack_interval_ms: u64) -> Self {
         self.send_ack_interval_ms = send_ack_interval_ms;
-        self.check_validity();
         self
     }
 
     pub fn with_keep_alive_timeout_ms(mut self, keep_alive_timeout_ms: u64) -> Self {
         self.keep_alive_timeout_ms = keep_alive_timeout_ms;
-        self.check_validity();
         self
     }
 }
