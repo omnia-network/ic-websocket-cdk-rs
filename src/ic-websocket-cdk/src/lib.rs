@@ -38,13 +38,12 @@ const INITIAL_CLIENT_SEQUENCE_NUM: u64 = 1;
 /// The initial sequence number for outgoing messages.
 const INITIAL_CANISTER_SEQUENCE_NUM: u64 = 0;
 
-/// Initialize the CDK by setting the callback handlers and the **principals** of the WS Gateways that
-/// will be polling the canister.
+/// Initialize the CDK.
 ///
-/// **Note**: Resets the timers under the hood.
+/// **Note**: Restarts the acknowledgement timers under the hood.
 ///
 /// # Traps
-/// If the parameters are invalid. See [`WsInitParams::check_validity`] for more details.
+/// If the parameters are invalid.
 pub fn init(params: WsInitParams) {
     // check if the parameters are valid
     params.check_validity();
