@@ -3,7 +3,10 @@ use proptest::prelude::*;
 use crate::{
     tests::{
         common,
-        integration_tests::utils::messages::get_service_message_content_from_canister_message,
+        integration_tests::{
+            c_ws_get_messages::helpers,
+            utils::messages::get_service_message_content_from_canister_message,
+        },
     },
     CanisterOutputCertifiedMessages, CanisterWsCloseArguments, CanisterWsGetMessagesArguments,
     CanisterWsGetMessagesResult, GatewayPrincipal, WebsocketServiceMessageContent,
@@ -33,13 +36,14 @@ proptest! {
         // open a connection for client
         call_ws_open_for_client_key_and_gateway_with_panic(&client_key, *first_gateway);
         // simulate canister sending messages to client
+        let messages_to_send: Vec<AppMessage> = (1..=5)
+            .map(|i| AppMessage {
+                text: format!("test{}", i),
+            })
+            .collect();
         call_ws_send_with_panic(
             &client_key.client_principal,
-            (0..10)
-                .map(|i| AppMessage {
-                    text: format!("test{}", i),
-                })
-                .collect(),
+            messages_to_send.clone(),
         );
 
         // test
@@ -49,8 +53,19 @@ proptest! {
             CanisterWsGetMessagesArguments { nonce: 0 },
         );
         match res_gateway_1 {
-            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, .. }) => {
-                prop_assert_eq!(messages.len() as u64, 10 + 1); // +1 for the open service message
+            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, cert, tree }) => {
+                prop_assert_eq!(messages.len(), messages_to_send.len() + 1); // +1 for the open service message
+
+                let mut expected_sequence_number = 1; // the number is incremented before sending
+                let mut i = 0;
+                helpers::verify_messages(
+                    &messages,
+                    client_key,
+                    &cert,
+                    &tree,
+                    &mut expected_sequence_number,
+                    &mut i,
+                );
             },
             _ => panic!("unexpected result"),
         };
@@ -80,8 +95,20 @@ proptest! {
             second_gateway,
             CanisterWsGetMessagesArguments { nonce: 0 },
         );
+
         match res_gateway_2 {
-            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, .. }) => {
+            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, cert, tree }) => {
+                prop_assert_eq!(messages.len() as u64, 1);
+
+                helpers::verify_messages(
+                    &messages,
+                    client_key,
+                    &cert,
+                    &tree,
+                    &mut 1,
+                    &mut 0,
+                );
+
                 let first_message = &messages[0];
                 prop_assert_eq!(&first_message.client_key, client_key);
                 let open_message = get_service_message_content_from_canister_message(first_message);
@@ -95,22 +122,35 @@ proptest! {
             _ => panic!("unexpected result"),
         };
 
+        let messages_to_send: Vec<AppMessage> = (1..=5)
+            .map(|i| AppMessage {
+                text: format!("test{}", i),
+            })
+            .collect();
         // simulate canister sending other messages to client
         call_ws_send_with_panic(
             &client_key.client_principal,
-            (0..10)
-                .map(|i| AppMessage {
-                    text: format!("test{}", i + 10),
-                })
-                .collect(),
+            messages_to_send.clone(),
         );
         let res_gateway_2 = call_ws_get_messages(
             second_gateway,
             CanisterWsGetMessagesArguments { nonce: 0 },
         );
         match res_gateway_2 {
-            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, .. }) => {
-                prop_assert_eq!(messages.len() as u64, 10 + 1); // +1 for the open service message
+            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, cert, tree }) => {
+                prop_assert_eq!(messages.len(), messages_to_send.len() + 1); // +1 for the open service message
+
+                let mut expected_sequence_number_gw2 = 1; // the number is incremented before sending
+                let mut i_gw2 = 0;
+
+                helpers::verify_messages(
+                    &messages,
+                    client_key,
+                    &cert,
+                    &tree,
+                    &mut expected_sequence_number_gw2,
+                    &mut i_gw2,
+                )
             },
             _ => panic!("unexpected result"),
         };

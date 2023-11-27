@@ -80,17 +80,18 @@ proptest! {
         let client_1_key = CLIENT_1_KEY.deref();
         call_ws_open_for_client_key_with_panic(client_1_key);
         // third, send a batch of messages to the client
+        let messages_to_send: Vec<AppMessage> = (1..=test_send_messages_count)
+            .map(|i| AppMessage {
+                text: format!("test{}", i),
+            })
+            .collect();
         call_ws_send_with_panic(
             &client_1_key.client_principal,
-            (0..test_send_messages_count)
-                .map(|i| AppMessage {
-                    text: format!("test{}", i),
-                })
-                .collect(),
+            messages_to_send.clone(),
         );
 
         // now we can start testing
-        let messages_count = test_send_messages_count + 1; // +1 for the open service message
+        let messages_count = (messages_to_send.len() + 1) as u64; // +1 for the open service message
         for i in 0..messages_count {
             let res = call_ws_get_messages(
                 GATEWAY_1.deref(),
@@ -138,14 +139,12 @@ fn test_5_registered_gateway_can_receive_certified_messages() {
     let client_1_key = CLIENT_1_KEY.deref();
     call_ws_open_for_client_key_with_panic(client_1_key);
     // third, send a batch of messages to the client
-    call_ws_send_with_panic(
-        &client_1_key.client_principal,
-        (0..SEND_MESSAGES_COUNT)
-            .map(|i| AppMessage {
-                text: format!("test{}", i),
-            })
-            .collect(),
-    );
+    let messages_to_send: Vec<AppMessage> = (1..=SEND_MESSAGES_COUNT)
+        .map(|i| AppMessage {
+            text: format!("test{}", i),
+        })
+        .collect();
+    call_ws_send_with_panic(&client_1_key.client_principal, messages_to_send.clone());
 
     // first batch of messages
     match call_ws_get_messages(
@@ -162,8 +161,8 @@ fn test_5_registered_gateway_can_receive_certified_messages() {
                 DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES
             );
 
-            let mut expected_sequence_number = 2; // first is the service open message and the number is incremented before sending
-            let mut i = 0;
+            let mut expected_sequence_number = 2; // `2` because first one is the open service message and the seq number is incremented before sending on the canister
+            let mut i = 1;
             helpers::verify_messages(
                 &first_batch_messages,
                 client_1_key,
@@ -188,7 +187,8 @@ fn test_5_registered_gateway_can_receive_certified_messages() {
                 }) => {
                     assert_eq!(
                         second_batch_messages.len() as u64,
-                        SEND_MESSAGES_COUNT - DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES // remaining from SEND_MESSAGES_COUNT
+                        (messages_to_send.len() as u64)
+                            - DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES // remaining from SEND_MESSAGES_COUNT
                     );
 
                     helpers::verify_messages(
@@ -209,6 +209,19 @@ fn test_5_registered_gateway_can_receive_certified_messages() {
 
 #[test]
 fn test_6_registered_gateway_can_poll_messages_after_restart() {
+    // first, reset the canister
+    get_test_env().reset_canister_with_default_params();
+    // second, register client 1
+    let client_1_key = CLIENT_1_KEY.deref();
+    call_ws_open_for_client_key_with_panic(client_1_key);
+    // third, send a batch of messages to the client
+    let messages_to_send: Vec<AppMessage> = (1..=SEND_MESSAGES_COUNT)
+        .map(|i| AppMessage {
+            text: format!("test{}", i),
+        })
+        .collect();
+    call_ws_send_with_panic(&client_1_key.client_principal, messages_to_send.clone());
+
     let res = call_ws_get_messages(
         GATEWAY_1.deref(),
         CanisterWsGetMessagesArguments { nonce: 0 }, // start polling from the beginning, as if the gateway restarted
@@ -222,7 +235,7 @@ fn test_6_registered_gateway_can_poll_messages_after_restart() {
             // +1 for the service open message +1 because the seq num is incremented before sending
             let mut expected_sequence_number =
                 SEND_MESSAGES_COUNT - DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES + 1 + 1;
-            let mut i = SEND_MESSAGES_COUNT - DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES;
+            let mut i = SEND_MESSAGES_COUNT - DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES + 1;
 
             helpers::verify_messages(
                 &messages,
@@ -237,7 +250,7 @@ fn test_6_registered_gateway_can_poll_messages_after_restart() {
     };
 }
 
-mod helpers {
+pub(crate) mod helpers {
     use crate::{
         tests::integration_tests::utils::{
             actor::ws_send::AppMessage,
@@ -245,11 +258,12 @@ mod helpers {
             messages::decode_websocket_message,
             test_env::get_test_env,
         },
+        types::WebsocketServiceMessageContent,
         CanisterOutputMessage, ClientKey,
     };
     use candid::decode_one;
 
-    pub(super) fn verify_messages(
+    pub(crate) fn verify_messages(
         messages: &Vec<CanisterOutputMessage>,
         client_key: &ClientKey,
         cert: &[u8],
@@ -263,8 +277,8 @@ mod helpers {
                 client_key,
                 cert,
                 tree,
-                expected_sequence_number,
-                index,
+                *expected_sequence_number,
+                *index,
             );
 
             *expected_sequence_number += 1;
@@ -277,25 +291,39 @@ mod helpers {
         client_key: &ClientKey,
         cert: &[u8],
         tree: &[u8],
-        expected_sequence_number: &u64,
-        index: &u64,
+        expected_sequence_number: u64,
+        index: u64,
     ) {
         assert_eq!(message.client_key, *client_key);
         let websocket_message = decode_websocket_message(&message.content);
         assert_eq!(websocket_message.client_key, *client_key);
-        assert_eq!(websocket_message.sequence_num, *expected_sequence_number);
+        assert_eq!(websocket_message.sequence_num, expected_sequence_number);
         assert_eq!(
             websocket_message.timestamp,
             get_test_env().get_canister_time()
         );
-        assert_eq!(websocket_message.is_service_message, false);
-        let decoded_content: AppMessage = decode_one(&websocket_message.content).unwrap();
-        assert_eq!(
-            decoded_content,
-            AppMessage {
-                text: format!("test{}", index)
-            }
-        );
+
+        if websocket_message.is_service_message {
+            let decoded_content: WebsocketServiceMessageContent =
+                decode_one(&websocket_message.content).unwrap();
+            assert!(
+                matches!(
+                    decoded_content,
+                    WebsocketServiceMessageContent::AckMessage { .. }
+                ) || matches!(
+                    decoded_content,
+                    WebsocketServiceMessageContent::OpenMessage { .. }
+                )
+            );
+        } else {
+            let decoded_content: AppMessage = decode_one(&websocket_message.content).unwrap();
+            assert_eq!(
+                decoded_content,
+                AppMessage {
+                    text: format!("test{}", index),
+                }
+            );
+        }
 
         // check the certification
         assert!(is_valid_certificate(&get_test_env(), cert, tree,));

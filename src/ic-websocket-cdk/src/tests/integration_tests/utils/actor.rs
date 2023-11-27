@@ -162,7 +162,7 @@ pub mod ws_send {
 
     use super::*;
 
-    #[derive(CandidType, Debug, Serialize, Deserialize, PartialEq, Eq)]
+    #[derive(CandidType, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
     pub struct AppMessage {
         pub text: String,
     }

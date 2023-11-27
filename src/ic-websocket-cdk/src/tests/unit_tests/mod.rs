@@ -162,11 +162,11 @@ fn test_ws_init_params() {
 
     let params = WsInitParams::new(handlers.clone())
         .with_max_number_of_returned_messages(5)
-        .with_keep_alive_timeout_ms(2)
-        .with_send_ack_interval_ms(10);
+        .with_send_ack_interval_ms(10)
+        .with_keep_alive_timeout_ms(2);
     assert_eq!(params.max_number_of_returned_messages, 5);
-    assert_eq!(params.keep_alive_timeout_ms, 2);
     assert_eq!(params.send_ack_interval_ms, 10);
+    assert_eq!(params.keep_alive_timeout_ms, 2);
 }
 
 #[test]
