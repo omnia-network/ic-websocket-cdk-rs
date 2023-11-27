@@ -110,6 +110,24 @@ pub struct CanisterOutputCertifiedMessages {
     pub(crate) cert: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
     #[serde(with = "serde_bytes")]
     pub(crate) tree: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
+    pub(crate) is_end_of_queue: bool, // Whether the end of the messages queue has been reached.
+}
+
+impl CanisterOutputCertifiedMessages {
+    pub fn empty() -> Self {
+        Self {
+            messages: vec![],
+            cert: vec![],
+            tree: vec![],
+            is_end_of_queue: true,
+        }
+    }
+}
+
+pub(crate) struct MessagesForGatewayRange {
+    pub start_index: usize,
+    pub end_index: usize,
+    pub is_end_of_queue: bool,
 }
 
 pub(crate) type GatewayPrincipal = Principal;

@@ -33,6 +33,7 @@ fn test_1_non_registered_gateway_should_receive_empty_messages() {
             messages: vec![],
             cert: vec![],
             tree: vec![],
+            is_end_of_queue: true,
         }),
     );
 }
@@ -115,6 +116,7 @@ proptest! {
                 messages: vec![],
                 cert: vec![],
                 tree: vec![],
+                is_end_of_queue: true,
             })
         );
     }
@@ -144,11 +146,13 @@ fn test_4_registered_gateway_can_receive_certified_messages() {
             messages: first_batch_messages,
             cert: first_batch_cert,
             tree: first_batch_tree,
+            is_end_of_queue,
         }) => {
             assert_eq!(
                 first_batch_messages.len() as u64,
                 DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES
             );
+            assert_eq!(is_end_of_queue, false);
 
             let mut expected_sequence_number = 1; // `1` because the seq number is incremented before sending on the canister
             let mut i = 0;
@@ -173,6 +177,7 @@ fn test_4_registered_gateway_can_receive_certified_messages() {
                     messages: second_batch_messages,
                     cert: second_batch_cert,
                     tree: second_batch_tree,
+                    is_end_of_queue,
                 }) => {
                     assert_eq!(
                         second_batch_messages.len() as u64,
@@ -180,6 +185,7 @@ fn test_4_registered_gateway_can_receive_certified_messages() {
                         (messages_to_send.len() as u64) + 1
                             - DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES // remaining from SEND_MESSAGES_COUNT
                     );
+                    assert_eq!(is_end_of_queue, true);
 
                     helpers::verify_messages(
                         &second_batch_messages,

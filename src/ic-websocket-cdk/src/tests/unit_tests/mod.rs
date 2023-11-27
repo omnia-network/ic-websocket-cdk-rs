@@ -557,9 +557,14 @@ proptest! {
         // Test
         // we ask for a random range of messages to check if it always returns the same range for empty messages
         for i in 0..messages_count {
-            let (start_index, end_index) = get_messages_for_gateway_range(&gateway_principal, i);
+            let MessagesForGatewayRange {
+                start_index,
+                end_index,
+                is_end_of_queue,
+            } = get_messages_for_gateway_range(&gateway_principal, i);
             prop_assert_eq!(start_index, 0);
             prop_assert_eq!(end_index, 0);
+            prop_assert_eq!(is_end_of_queue, true);
         }
     }
 
@@ -577,9 +582,14 @@ proptest! {
         // messages are just 4, so we don't exceed the max number of returned messages
         // add one to test the out of range index
         for i in 0..messages_count + 1 {
-            let (start_index, end_index) = get_messages_for_gateway_range(&gateway_principal, i);
+            let MessagesForGatewayRange {
+                start_index,
+                end_index,
+                is_end_of_queue,
+            } = get_messages_for_gateway_range(&gateway_principal, i);
             prop_assert_eq!(start_index, i as usize);
             prop_assert_eq!(end_index, messages_count as usize);
+            prop_assert_eq!(is_end_of_queue, true);
         }
 
         // Clean up
@@ -603,7 +613,11 @@ proptest! {
         // messages are now 2 * MAX_NUMBER_OF_RETURNED_MESSAGES
         // the case in which the start index is 0 is tested in test_get_messages_for_gateway_range_initial_nonce
         for i in 1..messages_count + 1 {
-            let (start_index, end_index) = get_messages_for_gateway_range(&gateway_principal, i);
+            let MessagesForGatewayRange {
+                start_index,
+                end_index,
+                is_end_of_queue,
+            } = get_messages_for_gateway_range(&gateway_principal, i);
             let expected_end_index = if (i as usize) + max_number_of_returned_messages > messages_count as usize {
                 messages_count as usize
             } else {
@@ -611,6 +625,7 @@ proptest! {
             };
             prop_assert_eq!(start_index, i as usize);
             prop_assert_eq!(end_index, expected_end_index);
+            prop_assert_eq!(is_end_of_queue, expected_end_index == messages_count as usize);
         }
 
         // Clean up
@@ -630,7 +645,11 @@ proptest! {
         utils::add_messages_for_gateway(test_client_key, &gateway_principal, messages_count);
 
         // Test
-        let (start_index, end_index) = get_messages_for_gateway_range(&gateway_principal, 0);
+        let MessagesForGatewayRange {
+            start_index,
+            end_index,
+            is_end_of_queue,
+        } = get_messages_for_gateway_range(&gateway_principal, 0);
         let expected_end_index = if (messages_count as usize) > max_number_of_returned_messages {
             max_number_of_returned_messages
         } else {
@@ -638,6 +657,7 @@ proptest! {
         };
         prop_assert_eq!(start_index, 0);
         prop_assert_eq!(end_index, expected_end_index);
+        prop_assert_eq!(is_end_of_queue, expected_end_index == messages_count as usize);
 
         // Clean up
         utils::clean_messages_for_gateway(&gateway_principal);
@@ -654,7 +674,11 @@ proptest! {
         // Test
         // add one to test the out of range index
         for i in 0..messages_count + 1 {
-            let (start_index, end_index) = get_messages_for_gateway_range(&gateway_principal, i);
+            let MessagesForGatewayRange {
+                start_index,
+                end_index,
+                ..
+            } = get_messages_for_gateway_range(&gateway_principal, i);
             let messages = get_messages_for_gateway(&gateway_principal, start_index, end_index);
 
             // check if the messages returned are the ones we expect

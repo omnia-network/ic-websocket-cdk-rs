@@ -53,8 +53,9 @@ proptest! {
             CanisterWsGetMessagesArguments { nonce: 0 },
         );
         match res_gateway_1 {
-            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, cert, tree }) => {
+            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, cert, tree, is_end_of_queue }) => {
                 prop_assert_eq!(messages.len(), messages_to_send.len() + 1); // +1 for the open service message
+                prop_assert_eq!(is_end_of_queue, true);
 
                 let mut expected_sequence_number = 1; // the number is incremented before sending
                 let mut i = 0;
@@ -97,8 +98,9 @@ proptest! {
         );
 
         match res_gateway_2 {
-            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, cert, tree }) => {
+            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, cert, tree, is_end_of_queue }) => {
                 prop_assert_eq!(messages.len() as u64, 1);
+                prop_assert_eq!(is_end_of_queue, true);
 
                 helpers::verify_messages(
                     &messages,
@@ -137,8 +139,9 @@ proptest! {
             CanisterWsGetMessagesArguments { nonce: 0 },
         );
         match res_gateway_2 {
-            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, cert, tree }) => {
+            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, cert, tree, is_end_of_queue }) => {
                 prop_assert_eq!(messages.len(), messages_to_send.len() + 1); // +1 for the open service message
+                prop_assert_eq!(is_end_of_queue, true);
 
                 let mut expected_sequence_number_gw2 = 1; // the number is incremented before sending
                 let mut i_gw2 = 0;

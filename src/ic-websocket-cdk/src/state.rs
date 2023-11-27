@@ -276,7 +276,7 @@ pub(crate) fn format_message_for_gateway_key(
 pub(crate) fn get_messages_for_gateway_range(
     gateway_principal: &GatewayPrincipal,
     nonce: u64,
-) -> (usize, usize) {
+) -> MessagesForGatewayRange {
     let max_number_of_returned_messages = get_params().max_number_of_returned_messages;
 
     let messages_queue = get_registered_gateway(gateway_principal)
@@ -290,12 +290,18 @@ pub(crate) fn get_messages_for_gateway_range(
     // partition the queue at the message which has the key with the nonce specified as argument to get_cert_messages
     let start_index = messages_queue.partition_point(|x| x.key < smallest_key);
     // message at index corresponding to end index is excluded
-    let end_index = if queue_len - start_index > max_number_of_returned_messages {
-        start_index + max_number_of_returned_messages
+    let (end_index, is_end_of_queue) = if queue_len - start_index > max_number_of_returned_messages
+    {
+        (start_index + max_number_of_returned_messages, false)
     } else {
-        queue_len
+        (queue_len, true)
     };
-    (start_index, end_index)
+
+    MessagesForGatewayRange {
+        start_index,
+        end_index,
+        is_end_of_queue,
+    }
 }
 
 pub(crate) fn get_messages_for_gateway(
@@ -323,7 +329,11 @@ pub(crate) fn get_cert_messages(
     gateway_principal: &GatewayPrincipal,
     nonce: u64,
 ) -> CanisterWsGetMessagesResult {
-    let (start_index, end_index) = get_messages_for_gateway_range(gateway_principal, nonce);
+    let MessagesForGatewayRange {
+        start_index,
+        end_index,
+        is_end_of_queue,
+    } = get_messages_for_gateway_range(gateway_principal, nonce);
     let messages = get_messages_for_gateway(gateway_principal, start_index, end_index);
 
     if messages.is_empty() {
@@ -338,15 +348,12 @@ pub(crate) fn get_cert_messages(
         messages,
         cert,
         tree,
+        is_end_of_queue,
     })
 }
 
 pub(crate) fn get_cert_messages_empty() -> CanisterWsGetMessagesResult {
-    Ok(CanisterOutputCertifiedMessages {
-        messages: Vec::new(),
-        cert: Vec::new(),
-        tree: Vec::new(),
-    })
+    Ok(CanisterOutputCertifiedMessages::empty())
 }
 
 fn put_cert_for_message(key: String, value: &Vec<u8>) {

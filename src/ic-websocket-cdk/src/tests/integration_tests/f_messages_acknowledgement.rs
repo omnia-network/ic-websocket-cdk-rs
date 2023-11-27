@@ -221,6 +221,7 @@ mod helpers {
                 messages,
                 cert,
                 tree,
+                ..
             }) => {
                 assert_eq!(messages.len(), 1);
                 let ack_message = messages.first().unwrap();
