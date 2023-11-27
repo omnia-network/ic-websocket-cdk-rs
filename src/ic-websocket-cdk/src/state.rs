@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     errors::WsError, types::*, utils::get_current_time, INITIAL_CANISTER_SEQUENCE_NUM,
-    INITIAL_CLIENT_SEQUENCE_NUM, LABEL_WEBSOCKET,
+    INITIAL_CLIENT_SEQUENCE_NUM, LABEL_WEBSOCKET, MESSAGES_TO_DELETE,
 };
 
 thread_local! {
@@ -73,11 +73,28 @@ pub(crate) fn reset_internal_state() {
     });
 }
 
-pub(crate) fn register_gateway_if_not_present(gateway_principal: GatewayPrincipal) {
+/// Increments the clients connected count for the given gateway.
+/// If the gateway is not registered, a new entry is created with a clients connected count of 1.
+pub(crate) fn increment_gateway_clients_count(gateway_principal: GatewayPrincipal) {
     REGISTERED_GATEWAYS.with(|map| {
         map.borrow_mut()
             .entry(gateway_principal)
-            .or_insert_with(RegisteredGateway::new);
+            .or_insert_with(RegisteredGateway::new)
+            .increment_clients_count();
+    });
+}
+
+/// Decrements the clients connected count for the given gateway.
+/// If there are no more clients connected, the gateway is removed from the list of registered gateways.
+pub(crate) fn decrement_gateway_clients_count(gateway_principal: &GatewayPrincipal) {
+    REGISTERED_GATEWAYS.with(|map| {
+        let mut map = map.borrow_mut();
+        let g = map.get_mut(gateway_principal).unwrap(); // gateway must be registered at this point
+        let clients_count = g.decrement_clients_count();
+
+        if clients_count == 0 {
+            map.remove(gateway_principal);
+        }
     });
 }
 
@@ -236,11 +253,13 @@ pub(crate) fn increment_expected_incoming_message_from_client_num(
 
 pub(crate) fn add_client(client_key: ClientKey, new_client: RegisteredClient) {
     // insert the client in the map
-    insert_client(client_key.clone(), new_client);
+    insert_client(client_key.clone(), new_client.clone());
     // initialize incoming client's message sequence number to 1
     init_expected_incoming_message_from_client_num(client_key.clone());
     // initialize outgoing message sequence number to 0
     init_outgoing_message_to_client_num(client_key);
+
+    increment_gateway_clients_count(new_client.gateway_principal);
 }
 
 pub(crate) fn remove_client(client_key: &ClientKey) {
@@ -250,15 +269,16 @@ pub(crate) fn remove_client(client_key: &ClientKey) {
     CURRENT_CLIENT_KEY_MAP.with(|map| {
         map.borrow_mut().remove(&client_key.client_principal);
     });
-    REGISTERED_CLIENTS.with(|map| {
-        map.borrow_mut().remove(client_key);
-    });
     OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
         map.borrow_mut().remove(client_key);
     });
     INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
         map.borrow_mut().remove(client_key);
     });
+
+    let registered_client =
+        REGISTERED_CLIENTS.with(|map| map.borrow_mut().remove(client_key).unwrap());
+    decrement_gateway_clients_count(&registered_client.gateway_principal);
 
     let handlers = get_handlers_from_params();
     handlers.call_on_close(OnCloseCallbackArgs {
@@ -366,9 +386,11 @@ fn put_cert_for_message(key: String, value: &Vec<u8>) {
     set_certified_data(&root_hash);
 }
 
-fn push_message_in_gateway_queue(
+/// Adds the message to the gateway queue.
+pub(crate) fn push_message_in_gateway_queue(
     gateway_principal: &GatewayPrincipal,
     message: CanisterOutputMessage,
+    message_timestamp: u64,
 ) -> Result<(), String> {
     REGISTERED_GATEWAYS.with(|map| {
         // messages in the queue are inserted with contiguous and increasing nonces
@@ -376,12 +398,35 @@ fn push_message_in_gateway_queue(
         // is incremented by one in each call, and the message is pushed at the end of the queue
         map.borrow_mut()
             .get_mut(gateway_principal)
-            .and_then(|g| {
-                g.messages_queue.push_back(message);
-                Some(())
-            })
             .ok_or_else(|| WsError::GatewayNotRegistered { gateway_principal }.to_string())
+            .and_then(|g| {
+                g.add_message_to_queue(message, message_timestamp);
+                Ok(())
+            })
     })
+}
+
+/// Deletes the an amount of [MESSAGES_TO_DELETE] messages from the queue
+/// that are older than the ack interval.
+fn delete_old_messages_for_gateway(gateway_principal: &GatewayPrincipal) -> Result<(), String> {
+    let ack_interval_ms = get_params().send_ack_interval_ms;
+
+    let _deleted_messages_keys = REGISTERED_GATEWAYS.with(|map| {
+        map.borrow_mut()
+            .get_mut(gateway_principal)
+            .ok_or_else(|| WsError::GatewayNotRegistered { gateway_principal }.to_string())
+            .and_then(|g| Ok(g.delete_old_messages(MESSAGES_TO_DELETE, ack_interval_ms)))
+    })?;
+
+    #[cfg(not(test))]
+    // executing this in tests fails because the tree is an IC-specific implementation
+    CERT_TREE.with(|tree| {
+        for key in _deleted_messages_keys {
+            tree.borrow_mut().delete(key.as_ref());
+        }
+    });
+
+    Ok(())
 }
 
 fn get_cert_for_range(first: &String, last: &String) -> (Vec<u8>, Vec<u8>) {
@@ -474,10 +519,12 @@ pub(crate) fn _ws_send(
     // increment the sequence number for the next message to the client
     increment_outgoing_message_to_client_num(client_key)?;
 
+    let message_timestamp = get_current_time();
+
     let websocket_message = WebsocketMessage {
         client_key: client_key.clone(),
         sequence_num: get_outgoing_message_to_client_num(client_key)?,
-        timestamp: get_current_time(),
+        timestamp: message_timestamp,
         is_service_message,
         content: msg_bytes,
     };
@@ -488,6 +535,7 @@ pub(crate) fn _ws_send(
     // certify data
     put_cert_for_message(message_key.clone(), &message_content);
 
+    // push message in gateway queue
     push_message_in_gateway_queue(
         &registered_client.gateway_principal,
         CanisterOutputMessage {
@@ -495,5 +543,8 @@ pub(crate) fn _ws_send(
             content: message_content,
             key: message_key,
         },
-    )
+        message_timestamp,
+    )?;
+
+    delete_old_messages_for_gateway(&registered_client.gateway_principal)
 }

@@ -23,6 +23,7 @@ pub use types::{
 
 /// The label used when constructing the certification tree.
 const LABEL_WEBSOCKET: &[u8] = b"websocket";
+
 /// The default maximum number of messages returned by [ws_get_messages] at each poll.
 const DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES: usize = 10;
 /// The default interval at which to send acknowledgements to the client.
@@ -37,6 +38,9 @@ const INITIAL_OUTGOING_MESSAGE_NONCE: u64 = 0;
 const INITIAL_CLIENT_SEQUENCE_NUM: u64 = 1;
 /// The initial sequence number for outgoing messages.
 const INITIAL_CANISTER_SEQUENCE_NUM: u64 = 0;
+
+/// The number of messages to delete from the outgoing messages queue every time a new message is added.
+const MESSAGES_TO_DELETE: usize = 5;
 
 /// Initialize the CDK.
 ///
@@ -76,8 +80,6 @@ pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
         }
         .to_string_result()
     })?;
-
-    register_gateway_if_not_present(args.gateway_principal);
 
     // initialize client maps
     let new_client = RegisteredClient::new(args.gateway_principal);

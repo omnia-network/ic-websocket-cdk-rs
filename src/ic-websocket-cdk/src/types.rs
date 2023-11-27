@@ -1,13 +1,13 @@
-use std::{collections::VecDeque, fmt, panic};
+use std::{collections::VecDeque, fmt, panic, time::Duration};
 
 use candid::{decode_one, CandidType, Principal};
 use serde::{Deserialize, Serialize};
 use serde_cbor::Serializer;
 
 use crate::{
-    custom_print, custom_trap, errors::WsError, DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS,
-    DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES, DEFAULT_SEND_ACK_INTERVAL_MS,
-    INITIAL_OUTGOING_MESSAGE_NONCE,
+    custom_print, custom_trap, errors::WsError, utils::get_current_time,
+    DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS, DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES,
+    DEFAULT_SEND_ACK_INTERVAL_MS, INITIAL_OUTGOING_MESSAGE_NONCE,
 };
 
 pub type ClientPrincipal = Principal;
@@ -128,6 +128,11 @@ pub(crate) struct MessagesForGatewayRange {
     pub is_end_of_queue: bool,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct MessageToDelete {
+    timestamp: u64,
+}
+
 pub(crate) type GatewayPrincipal = Principal;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -135,10 +140,14 @@ pub(crate) type GatewayPrincipal = Principal;
 pub(crate) struct RegisteredGateway {
     /// The queue of the messages that the gateway can poll.
     pub(crate) messages_queue: VecDeque<CanisterOutputMessage>,
+    /// The queue of messages' keys to delete.
+    pub(crate) messages_to_delete: VecDeque<MessageToDelete>,
     /// Keeps track of the nonce which:
     /// - the WS Gateway uses to specify the first index of the certified messages to be returned when polling
     /// - the client uses as part of the path in the Merkle tree in order to verify the certificate of the messages relayed by the WS Gateway
     pub(crate) outgoing_message_nonce: u64,
+    /// The number of clients connected to this gateway.
+    pub(crate) connected_clients_count: u64,
 }
 
 impl RegisteredGateway {
@@ -146,13 +155,68 @@ impl RegisteredGateway {
     pub(crate) fn new() -> Self {
         Self {
             messages_queue: VecDeque::new(),
+            messages_to_delete: VecDeque::new(),
             outgoing_message_nonce: INITIAL_OUTGOING_MESSAGE_NONCE,
+            connected_clients_count: 0,
         }
     }
 
     /// Increments the outgoing message nonce by 1.
     pub(crate) fn increment_nonce(&mut self) {
         self.outgoing_message_nonce += 1;
+    }
+
+    /// Increments the connected clients count by 1.
+    pub(crate) fn increment_clients_count(&mut self) {
+        self.connected_clients_count += 1;
+    }
+
+    /// Decrements the connected clients count by 1, returning the new value.
+    pub(crate) fn decrement_clients_count(&mut self) -> u64 {
+        self.connected_clients_count -= 1;
+        self.connected_clients_count
+    }
+
+    /// Adds the message to the queue and its metadata to the `messages_to_delete` queue.
+    pub(crate) fn add_message_to_queue(
+        &mut self,
+        message: CanisterOutputMessage,
+        message_timestamp: u64,
+    ) {
+        self.messages_queue.push_back(message.clone());
+        self.messages_to_delete.push_back(MessageToDelete {
+            timestamp: message_timestamp,
+        });
+    }
+
+    /// Deletes the oldest `n` messages that are older than `message_max_age_ms` from the queue.
+    /// Returns the deleted messages keys.
+    pub(crate) fn delete_old_messages(&mut self, n: usize, message_max_age_ms: u64) -> Vec<String> {
+        let time = get_current_time();
+        let mut deleted_keys = vec![];
+
+        for _ in 0..n {
+            if let Some(message_to_delete) = self.messages_to_delete.front() {
+                if Duration::from_nanos(time - message_to_delete.timestamp)
+                    > Duration::from_millis(message_max_age_ms)
+                {
+                    // unwrap is safe because there is no case in which the messages_to_delete queue is populated
+                    // while the messages_queue is empty
+                    let deleted_message = self.messages_queue.pop_front().unwrap();
+                    deleted_keys.push(deleted_message.key.clone());
+                    self.messages_to_delete.pop_front();
+                } else {
+                    // In this case, no messages can be deleted because
+                    // they're all not older than `message_max_age_ms`.
+                    break;
+                }
+            } else {
+                // There are no messages in the queue. Shouldn't happen.
+                break;
+            }
+        }
+
+        deleted_keys
     }
 }
 

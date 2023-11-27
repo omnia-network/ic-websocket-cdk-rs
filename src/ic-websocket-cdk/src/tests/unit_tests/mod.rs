@@ -1,6 +1,7 @@
 use std::{cell::RefCell, panic};
 
 use super::common;
+use crate::utils::get_current_time;
 use crate::*;
 use proptest::prelude::*;
 
@@ -197,21 +198,48 @@ fn test_current_time() {
 
 proptest! {
     #[test]
-    fn test_register_gateway_if_not_present(test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
-        register_gateway_if_not_present(test_gateway_principal);
+    fn test_increment_gateway_clients_count_gateway_nonexistent(test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
+        increment_gateway_clients_count(test_gateway_principal);
 
         let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_gateway_principal).cloned()).unwrap();
-        prop_assert_eq!(registered_gateway, RegisteredGateway::new());
+        prop_assert_eq!(registered_gateway.connected_clients_count, 1);
+    }
 
-        // change the registered gateway and try to register one again
+    #[test]
+    fn test_increment_gateway_clients_count(test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
+        // Set up
+        REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(test_gateway_principal, RegisteredGateway::new()));
+
+        increment_gateway_clients_count(test_gateway_principal);
+
+        let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_gateway_principal).cloned()).unwrap();
+        prop_assert_eq!(registered_gateway.connected_clients_count, 1);
+
+        // change the registered gateway to see if its not replaced
         REGISTERED_GATEWAYS.with(|map| {
             map.borrow_mut().entry(test_gateway_principal).and_modify(|gw| gw.outgoing_message_nonce = 5);
         });
 
-        register_gateway_if_not_present(test_gateway_principal);
+        increment_gateway_clients_count(test_gateway_principal);
 
         let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_gateway_principal).cloned()).unwrap();
         prop_assert_eq!(registered_gateway.outgoing_message_nonce, 5);
+        prop_assert_eq!(registered_gateway.connected_clients_count, 2);
+    }
+
+    #[test]
+    fn test_decrement_gateway_clients_count(test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal()), test_connected_clients_count in (1..1000u64)) {
+        // Set up
+        REGISTERED_GATEWAYS.with(|n| {
+            let mut gw = RegisteredGateway::new();
+            gw.connected_clients_count = test_connected_clients_count;
+            n.borrow_mut().insert(test_gateway_principal, gw);
+        });
+
+        decrement_gateway_clients_count(&test_gateway_principal);
+
+        let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_gateway_principal).cloned()).unwrap();
+        prop_assert_eq!(registered_gateway.connected_clients_count, test_connected_clients_count - 1);
     }
 
     #[test]
@@ -492,6 +520,7 @@ proptest! {
 
     #[test]
     fn test_add_client(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key())) {
+        // Set up
         let test_registered_client = utils::generate_random_registered_client();
 
         // Test
@@ -501,13 +530,19 @@ proptest! {
         prop_assert_eq!(client_key, test_client_key.clone());
 
         let registered_client = REGISTERED_CLIENTS.with(|map| map.borrow().get(&test_client_key).cloned()).unwrap();
-        prop_assert_eq!(registered_client, test_registered_client);
+        prop_assert_eq!(registered_client, test_registered_client.clone());
 
         let client_seq_num = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).cloned()).unwrap();
         prop_assert_eq!(client_seq_num, INITIAL_CLIENT_SEQUENCE_NUM);
 
         let canister_seq_num = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).cloned()).unwrap();
         prop_assert_eq!(canister_seq_num, INITIAL_CANISTER_SEQUENCE_NUM);
+
+        let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_registered_client.gateway_principal).cloned()).unwrap();
+        prop_assert_eq!(registered_gateway.connected_clients_count, 1);
+
+        // Clean up
+        REGISTERED_GATEWAYS.with(|map| map.borrow_mut().clear());
     }
 
     #[test]
@@ -516,8 +551,15 @@ proptest! {
         CURRENT_CLIENT_KEY_MAP.with(|map| {
             map.borrow_mut().insert(test_client_key.client_principal.clone(), test_client_key.clone());
         });
+        let test_registered_client = utils::generate_random_registered_client();
         REGISTERED_CLIENTS.with(|map| {
-            map.borrow_mut().insert(test_client_key.clone(), utils::generate_random_registered_client());
+            map.borrow_mut().insert(test_client_key.clone(), test_registered_client.clone());
+        });
+        REGISTERED_GATEWAYS.with(|map| {
+            let mut gw = RegisteredGateway::new();
+            gw.connected_clients_count = 1;
+            map.borrow_mut()
+                .insert(test_registered_client.gateway_principal, gw);
         });
         INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
             map.borrow_mut().insert(test_client_key.clone(), INITIAL_CLIENT_SEQUENCE_NUM);
@@ -533,6 +575,9 @@ proptest! {
 
         let registered_client = REGISTERED_CLIENTS.with(|map| map.borrow().get(&test_client_key).cloned());
         prop_assert!(registered_client.is_none());
+
+        let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_registered_client.gateway_principal).cloned());
+        prop_assert!(registered_gateway.is_none());
 
         let incoming_seq_num = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).cloned());
         prop_assert!(incoming_seq_num.is_none());
@@ -706,4 +751,68 @@ proptest! {
         let serialized_message = websocket_message.cbor_serialize();
         prop_assert!(serialized_message.is_ok()); // not so useful as a test
     }
+
+    #[test]
+    fn test_push_message_in_gateway_queue_nonexistent_gateway(gateway_principal in any::<u8>().prop_map(|_| common::get_static_principal())) {
+        let test_client_key = common::get_random_client_key();
+        let res = push_message_in_gateway_queue(
+            &gateway_principal,
+            CanisterOutputMessage { client_key: test_client_key, key: String::from(""), content: vec![] },
+            0
+        );
+        prop_assert_eq!(
+            res.err(),
+            WsError::GatewayNotRegistered { gateway_principal: &gateway_principal }.to_string_result().err()
+        );
+    }
+
+    #[test]
+    fn test_push_message_in_gateway_queue(gateway_principal in any::<u8>().prop_map(|_| common::get_static_principal()), messages_count in 0..100usize) {
+        // Set up
+        REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway::new()));
+        let test_client_key = common::get_random_client_key();
+
+        // Test
+        for _ in 0..messages_count {
+            let res = push_message_in_gateway_queue(
+                &gateway_principal,
+                CanisterOutputMessage {
+                    // we don't care about the message here
+                    client_key: test_client_key.clone(),
+                    key: String::from(""),
+                    content: vec![],
+                },
+                0
+            );
+            prop_assert!(res.is_ok());
+        }
+
+        let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&gateway_principal).cloned()).unwrap();
+        prop_assert_eq!(registered_gateway.messages_queue.len(), messages_count);
+        prop_assert_eq!(registered_gateway.messages_to_delete.len(), messages_count);
+
+        // Clean up
+        utils::clean_messages_for_gateway(&gateway_principal);
+    }
+
+    // #[test]
+    // fn test_delete_messages_from_gateway_queue(gateway_principal in any::<u8>().prop_map(|_| common::get_static_principal()), messages_count in 0..100u64) {
+    //     // Set up
+    //     REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway::new()));
+    //     let test_client_key = common::get_random_client_key();
+
+    //     // Test
+    //     for _ in 0..messages_count {
+    //         push_message_in_gateway_queue(
+    //             &gateway_principal,
+    //             CanisterOutputMessage {
+    //                 // we don't care about the message here
+    //                 client_key: test_client_key.clone(),
+    //                 key: String::from(""),
+    //                 content: vec![],
+    //             },
+    //             0
+    //         ).unwrap();
+    //     }
+    // }
 }
