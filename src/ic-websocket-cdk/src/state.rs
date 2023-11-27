@@ -69,9 +69,7 @@ pub(crate) fn reset_internal_state() {
         t.replace(RbTree::new());
     });
     REGISTERED_GATEWAYS.with(|map| {
-        for g in map.borrow_mut().values_mut() {
-            g.reset();
-        }
+        map.borrow_mut().clear();
     });
 }
 

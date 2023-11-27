@@ -134,12 +134,6 @@ impl RegisteredGateway {
         }
     }
 
-    /// Resets the messages and nonce to the initial values.
-    pub(crate) fn reset(&mut self) {
-        self.messages_queue.clear();
-        self.outgoing_message_nonce = INITIAL_OUTGOING_MESSAGE_NONCE;
-    }
-
     /// Increments the outgoing message nonce by 1.
     pub(crate) fn increment_nonce(&mut self) {
         self.outgoing_message_nonce += 1;
