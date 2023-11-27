@@ -1,8 +1,6 @@
 use std::{collections::VecDeque, fmt, panic};
 
 use candid::{decode_one, CandidType, Principal};
-#[cfg(not(test))]
-use ic_cdk::api::time;
 use serde::{Deserialize, Serialize};
 use serde_cbor::Serializer;
 
@@ -155,17 +153,6 @@ impl RegisteredGateway {
     /// Increments the outgoing message nonce by 1.
     pub(crate) fn increment_nonce(&mut self) {
         self.outgoing_message_nonce += 1;
-    }
-}
-
-pub(crate) fn get_current_time() -> u64 {
-    #[cfg(test)]
-    {
-        0u64
-    }
-    #[cfg(not(test))]
-    {
-        time()
     }
 }
 

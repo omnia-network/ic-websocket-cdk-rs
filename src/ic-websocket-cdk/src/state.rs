@@ -13,8 +13,8 @@ use serde_cbor::Serializer;
 use sha2::{Digest, Sha256};
 
 use crate::{
-    errors::WsError, types::*, INITIAL_CANISTER_SEQUENCE_NUM, INITIAL_CLIENT_SEQUENCE_NUM,
-    LABEL_WEBSOCKET,
+    errors::WsError, types::*, utils::get_current_time, INITIAL_CANISTER_SEQUENCE_NUM,
+    INITIAL_CLIENT_SEQUENCE_NUM, LABEL_WEBSOCKET,
 };
 
 thread_local! {

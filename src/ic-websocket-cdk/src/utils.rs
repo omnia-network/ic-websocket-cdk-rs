@@ -1,3 +1,6 @@
+#[cfg(not(test))]
+use ic_cdk::api::time;
+
 #[macro_export]
 macro_rules! custom_print {
     ($($arg:tt)*) => {
@@ -23,5 +26,16 @@ macro_rules! custom_trap {
         {
             panic!($($arg)*);
         }
+    }
+}
+
+pub(crate) fn get_current_time() -> u64 {
+    #[cfg(test)]
+    {
+        0u64
+    }
+    #[cfg(not(test))]
+    {
+        time()
     }
 }
