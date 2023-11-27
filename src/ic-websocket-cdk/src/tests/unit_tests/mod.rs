@@ -631,13 +631,13 @@ proptest! {
 
         // Test
         let (start_index, end_index) = get_messages_for_gateway_range(&gateway_principal, 0);
-        let expected_start_index = if (messages_count as usize) > max_number_of_returned_messages {
-            (messages_count as usize) - max_number_of_returned_messages
+        let expected_end_index = if (messages_count as usize) > max_number_of_returned_messages {
+            max_number_of_returned_messages
         } else {
-            0
+            messages_count as usize
         };
-        prop_assert_eq!(start_index, expected_start_index);
-        prop_assert_eq!(end_index, messages_count as usize);
+        prop_assert_eq!(start_index, 0);
+        prop_assert_eq!(end_index, expected_end_index);
 
         // Clean up
         utils::clean_messages_for_gateway(&gateway_principal);

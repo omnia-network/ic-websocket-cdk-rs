@@ -2,6 +2,7 @@ use proptest::prelude::*;
 use std::ops::Deref;
 
 use crate::{
+    tests::integration_tests::utils::clients::generate_random_client_key,
     CanisterOutputCertifiedMessages, CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult,
 };
 
@@ -36,44 +37,31 @@ fn test_1_non_registered_gateway_should_receive_empty_messages() {
     );
 }
 
-#[test]
-fn test_2_registered_gateway_should_receive_empty_messages_if_no_messages_initial_nonce() {
-    let res = call_ws_get_messages(
-        GATEWAY_1.deref(),
-        CanisterWsGetMessagesArguments { nonce: 0 },
-    );
-    assert_eq!(
-        res,
-        CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages {
-            messages: vec![],
-            cert: vec![],
-            tree: vec![],
-        }),
-    );
-}
-
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(50))]
 
     #[test]
-    fn test_3_registered_gateway_should_receive_empty_messages_if_no_messages_are_available(test_nonce in any::<u64>()) {
-        // test also with a high nonce to make sure the indexes are calculated correctly in the canister
+    fn test_2_registered_gateway_should_receive_only_open_message_if_no_messages_sent_initial_nonce(ref test_client_key in any::<u64>().prop_map(|_| generate_random_client_key())) {
+        // first, reset the canister
+        get_test_env().reset_canister_with_default_params();
+
+        // second, register client 1
+        call_ws_open_for_client_key_with_panic(test_client_key);
+
         let res = call_ws_get_messages(
             GATEWAY_1.deref(),
-            CanisterWsGetMessagesArguments { nonce: test_nonce },
+            CanisterWsGetMessagesArguments { nonce: 0 },
         );
-        prop_assert_eq!(
-            res,
-            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages {
-                messages: vec![],
-                cert: vec![],
-                tree: vec![],
-            })
-        );
+        match res {
+            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, .. }) => {
+                prop_assert_eq!(messages.len(), 1); // we expect only the service message
+            },
+            _ => panic!("unexpected result"),
+        };
     }
 
     #[test]
-    fn test_4_registered_gateway_can_receive_correct_amount_of_messages(test_send_messages_count in 1..100u64) {
+    fn test_3_registered_gateway_can_receive_correct_amount_of_messages(test_send_messages_count in 1..100u64) {
         // first, reset the canister
         get_test_env().reset_canister_with_default_params();
         // second, register client 1
@@ -121,18 +109,19 @@ proptest! {
                 nonce: messages_count,
             },
         );
-        prop_assert!(matches!(res, CanisterWsGetMessagesResult::Ok(_)));
-        match res {
-            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, .. }) => {
-                prop_assert_eq!(messages.len(), 0);
-            },
-            _ => panic!("unexpected result"),
-        };
+        prop_assert_eq!(
+            res,
+            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages {
+                messages: vec![],
+                cert: vec![],
+                tree: vec![],
+            })
+        );
     }
 }
 
 #[test]
-fn test_5_registered_gateway_can_receive_certified_messages() {
+fn test_4_registered_gateway_can_receive_certified_messages() {
     // first, reset the canister
     get_test_env().reset_canister_with_default_params();
     // second, register client 1
@@ -149,7 +138,7 @@ fn test_5_registered_gateway_can_receive_certified_messages() {
     // first batch of messages
     match call_ws_get_messages(
         GATEWAY_1.deref(),
-        CanisterWsGetMessagesArguments { nonce: 1 }, // skip the case in which the gateway restarts polling from the beginning (tested below)
+        CanisterWsGetMessagesArguments { nonce: 0 },
     ) {
         CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages {
             messages: first_batch_messages,
@@ -161,8 +150,8 @@ fn test_5_registered_gateway_can_receive_certified_messages() {
                 DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES
             );
 
-            let mut expected_sequence_number = 2; // `2` because first one is the open service message and the seq number is incremented before sending on the canister
-            let mut i = 1;
+            let mut expected_sequence_number = 1; // `1` because the seq number is incremented before sending on the canister
+            let mut i = 0;
             helpers::verify_messages(
                 &first_batch_messages,
                 client_1_key,
@@ -187,7 +176,8 @@ fn test_5_registered_gateway_can_receive_certified_messages() {
                 }) => {
                     assert_eq!(
                         second_batch_messages.len() as u64,
-                        (messages_to_send.len() as u64)
+                        // +1 for the open service message
+                        (messages_to_send.len() as u64) + 1
                             - DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES // remaining from SEND_MESSAGES_COUNT
                     );
 
@@ -205,49 +195,6 @@ fn test_5_registered_gateway_can_receive_certified_messages() {
         },
         _ => panic!("unexpected result"),
     }
-}
-
-#[test]
-fn test_6_registered_gateway_can_poll_messages_after_restart() {
-    // first, reset the canister
-    get_test_env().reset_canister_with_default_params();
-    // second, register client 1
-    let client_1_key = CLIENT_1_KEY.deref();
-    call_ws_open_for_client_key_with_panic(client_1_key);
-    // third, send a batch of messages to the client
-    let messages_to_send: Vec<AppMessage> = (1..=SEND_MESSAGES_COUNT)
-        .map(|i| AppMessage {
-            text: format!("test{}", i),
-        })
-        .collect();
-    call_ws_send_with_panic(&client_1_key.client_principal, messages_to_send.clone());
-
-    let res = call_ws_get_messages(
-        GATEWAY_1.deref(),
-        CanisterWsGetMessagesArguments { nonce: 0 }, // start polling from the beginning, as if the gateway restarted
-    );
-    match res {
-        CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages {
-            messages,
-            cert,
-            tree,
-        }) => {
-            // +1 for the service open message +1 because the seq num is incremented before sending
-            let mut expected_sequence_number =
-                SEND_MESSAGES_COUNT - DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES + 1 + 1;
-            let mut i = SEND_MESSAGES_COUNT - DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES + 1;
-
-            helpers::verify_messages(
-                &messages,
-                CLIENT_1_KEY.deref(),
-                &cert,
-                &tree,
-                &mut expected_sequence_number,
-                &mut i,
-            );
-        },
-        _ => panic!("unexpected result"),
-    };
 }
 
 pub(crate) mod helpers {

@@ -287,27 +287,16 @@ pub(crate) fn get_messages_for_gateway_range(
 
     let queue_len = messages_queue.len();
 
-    if nonce == 0 && queue_len > 0 {
-        // this is the case in which the poller on the gateway restarted
-        // the range to return is end=(last index) and start=max(end - max_number_of_returned_messages, 0)
-        let start_index = if queue_len > max_number_of_returned_messages {
-            queue_len - max_number_of_returned_messages
-        } else {
-            0
-        };
-
-        return (start_index, queue_len);
-    }
-
     // smallest key used to determine the first message from the queue which has to be returned to the WS Gateway
     let smallest_key = format_message_for_gateway_key(gateway_principal, nonce);
     // partition the queue at the message which has the key with the nonce specified as argument to get_cert_messages
     let start_index = messages_queue.partition_point(|x| x.key < smallest_key);
     // message at index corresponding to end index is excluded
-    let mut end_index = queue_len;
-    if end_index - start_index > max_number_of_returned_messages {
-        end_index = start_index + max_number_of_returned_messages;
-    }
+    let end_index = if queue_len - start_index > max_number_of_returned_messages {
+        start_index + max_number_of_returned_messages
+    } else {
+        queue_len
+    };
     (start_index, end_index)
 }
 

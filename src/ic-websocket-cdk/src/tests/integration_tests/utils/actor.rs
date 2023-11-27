@@ -36,7 +36,7 @@ pub mod ws_open {
         }
     }
 
-    /// See [call_ws_open_with_panic].
+    /// See [call_ws_open_with_panic]. Uses [GATEWAY_1] as the gateway.
     pub(in crate::tests::integration_tests) fn call_ws_open_for_client_key_with_panic(
         client_key: &ClientKey,
     ) {
@@ -47,7 +47,7 @@ pub mod ws_open {
         call_ws_open_with_panic(&client_key.client_principal, args);
     }
 
-    /// See [call_ws_open_with_panic].
+    /// See [call_ws_open_with_panic]. Uses [GATEWAY_1] as the gateway.
     pub(in crate::tests::integration_tests) fn call_ws_open_for_client_key_and_gateway_with_panic(
         client_key: &ClientKey,
         gateway_principal: Principal,

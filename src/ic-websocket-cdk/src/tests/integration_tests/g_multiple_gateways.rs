@@ -69,7 +69,7 @@ proptest! {
             },
             _ => panic!("unexpected result"),
         };
-        // gateway 2 has no messages
+        // gateway 2 has no messages because it's not registered
         let res_gateway_2 = call_ws_get_messages(
             second_gateway,
             CanisterWsGetMessagesArguments { nonce: 0 },

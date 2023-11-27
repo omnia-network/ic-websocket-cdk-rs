@@ -2,9 +2,10 @@ use proptest::prelude::*;
 use std::ops::Deref;
 
 use crate::{
-    errors::WsError, CanisterOutputCertifiedMessages, CanisterOutputMessage,
-    CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult, CanisterWsOpenArguments,
-    CanisterWsOpenResult, ClientKey, WebsocketServiceMessageContent,
+    errors::WsError, tests::integration_tests::utils::test_env::get_test_env,
+    CanisterOutputCertifiedMessages, CanisterOutputMessage, CanisterWsGetMessagesArguments,
+    CanisterWsGetMessagesResult, CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey,
+    WebsocketServiceMessageContent, DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES,
 };
 use candid::Principal;
 
@@ -75,9 +76,15 @@ fn test_3_fails_for_a_client_with_the_same_nonce() {
             .to_string()
         ),
     );
+
+    // reset canister for the next test
+    get_test_env().reset_canister_with_default_params();
 }
 
 proptest! {
+    // avoid going over the max returned messages limit by using `DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES`
+    #![proptest_config(ProptestConfig::with_cases(DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES as u32))]
+
     #[test]
     fn test_4_should_open_a_connection_for_the_same_client_with_a_different_nonce(test_client_nonce in any::<u64>().prop_map(|_| generate_random_client_nonce())) {
         let client_key = ClientKey {
@@ -97,9 +104,8 @@ proptest! {
         );
 
         match msgs {
-            CanisterWsGetMessagesResult::Ok(messages) => {
+            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, .. }) => {
                 let service_message_for_client = messages
-                    .messages
                     .iter()
                     .filter(|msg| msg.client_key == client_key)
                     .collect::<Vec<&CanisterOutputMessage>>()[0];

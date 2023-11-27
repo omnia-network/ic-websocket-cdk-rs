@@ -1,6 +1,8 @@
 use crate::{ClientKey, GatewayPrincipal};
 use candid::Principal;
+use ic_agent::{identity::BasicIdentity, Identity};
 use lazy_static::lazy_static;
+use ring::signature::Ed25519KeyPair;
 
 lazy_static! {
     pub(in crate::tests::integration_tests) static ref CLIENT_1_KEY: ClientKey =
@@ -21,6 +23,17 @@ fn generate_client_key(client_principal_text: &str) -> ClientKey {
         Principal::from_text(client_principal_text).unwrap(),
         generate_random_client_nonce(),
     )
+}
+
+pub(in crate::tests::integration_tests) fn generate_random_client_key() -> ClientKey {
+    let rng = ring::rand::SystemRandom::new();
+    let key_pair = Ed25519KeyPair::generate_pkcs8(&rng)
+        .unwrap()
+        .as_ref()
+        .to_vec();
+    let identity = BasicIdentity::from_key_pair(Ed25519KeyPair::from_pkcs8(&key_pair).unwrap());
+
+    ClientKey::new(identity.sender().unwrap(), generate_random_client_nonce())
 }
 
 pub fn generate_random_client_nonce() -> u64 {
