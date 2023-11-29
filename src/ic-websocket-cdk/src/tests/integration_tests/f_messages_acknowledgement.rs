@@ -13,9 +13,10 @@ use super::utils::{
         ws_open::call_ws_open_for_client_key_with_panic,
     },
     clients::{CLIENT_1_KEY, GATEWAY_1},
-    constants::{DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS, DEFAULT_TEST_SEND_ACK_INTERVAL_MS},
     messages::{create_websocket_message, encode_websocket_service_message_content},
-    test_env::get_test_env,
+    test_env::{
+        get_test_env, DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS, DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
+    },
 };
 
 #[test]

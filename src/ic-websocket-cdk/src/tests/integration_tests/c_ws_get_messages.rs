@@ -2,7 +2,6 @@ use proptest::prelude::*;
 use std::ops::Deref;
 
 use crate::{
-    tests::integration_tests::utils::clients::generate_random_client_key,
     CanisterOutputCertifiedMessages, CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult,
 };
 
@@ -12,11 +11,15 @@ use super::utils::{
         ws_open::call_ws_open_for_client_key_with_panic,
         ws_send::{call_ws_send_with_panic, AppMessage},
     },
-    clients::{CLIENT_1_KEY, GATEWAY_1, GATEWAY_2},
-    constants::{DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES, SEND_MESSAGES_COUNT},
+    clients::{generate_random_client_key, CLIENT_1_KEY, GATEWAY_1, GATEWAY_2},
     messages::get_next_polling_nonce_from_messages,
-    test_env::get_test_env,
+    test_env::{get_test_env, DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES},
 };
+
+/// Add more messages than the max to check the indexes and limits.
+///
+/// Value: [DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES] + `2`
+pub const SEND_MESSAGES_COUNT: u64 = DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES + 2;
 
 #[test]
 fn test_1_non_registered_gateway_should_receive_empty_messages() {

@@ -8,13 +8,22 @@ use candid::Principal;
 use lazy_static::lazy_static;
 use pocket_ic::PocketIc;
 
-use super::{
-    constants::{
-        DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS, DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
-        DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
-    },
-    wasm::{load_canister_wasm_from_bin, load_canister_wasm_from_path},
-};
+use super::wasm::{load_canister_wasm_from_bin, load_canister_wasm_from_path};
+
+/// The maximum number of messages returned by the **ws_get_messages** method.
+pub const DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES: u64 = 20;
+
+/// The interval between sending acks from the canister.
+/// Set to a high value to make sure the canister doesn't reset the client while testing other functions.
+///
+/// Value: `300_000` = 5 minutes
+pub const DEFAULT_TEST_SEND_ACK_INTERVAL_MS: u64 = 300_000;
+
+/// The interval between keep alive checks in the canister.
+/// Set to a high value to make sure the canister doesn't reset the client while testing other functions.
+///
+/// Value: `120_000` (2 minutes)
+pub const DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS: u64 = 120_000;
 
 lazy_static! {
     pub static ref TEST_ENV: Mutex<TestEnv> = Mutex::new(TestEnv::new());
