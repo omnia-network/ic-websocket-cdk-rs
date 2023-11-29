@@ -1,13 +1,15 @@
 use std::ops::Deref;
 
-use crate::{
-    errors::WsError,
-    tests::integration_tests::utils::actor::ws_open::call_ws_open_for_client_key_and_gateway_with_panic,
-    CanisterWsCloseArguments, CanisterWsCloseResult,
-};
+use crate::{errors::WsError, CanisterWsCloseArguments, CanisterWsCloseResult};
 
 use super::utils::{
-    actor::{ws_close::call_ws_close, ws_open::call_ws_open_for_client_key_with_panic},
+    actor::{
+        ws_close::call_ws_close,
+        ws_open::{
+            call_ws_open_for_client_key_and_gateway_with_panic,
+            call_ws_open_for_client_key_with_panic,
+        },
+    },
     clients::{CLIENT_1_KEY, CLIENT_2_KEY, GATEWAY_1, GATEWAY_2},
     test_env::get_test_env,
 };

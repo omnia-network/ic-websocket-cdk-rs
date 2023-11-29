@@ -1,41 +1,46 @@
 use proptest::prelude::*;
 use std::ops::Deref;
 
-use crate::{CanisterOutputCertifiedMessages, CanisterWsGetMessagesArguments};
+use crate::{
+    tests::common, CanisterOutputCertifiedMessages, CanisterWsGetMessagesArguments,
+    MESSAGES_TO_DELETE_COUNT,
+};
 
 use super::utils::{
     actor::{
         ws_get_messages::call_ws_get_messages_with_panic,
-        ws_open::call_ws_open_for_client_key_with_panic,
-        ws_send::{call_ws_send_with_panic, AppMessage},
+        ws_open::call_ws_open_for_client_key_with_panic, ws_send::call_ws_send_with_panic,
     },
-    clients::{generate_random_client_key, CLIENT_1_KEY, GATEWAY_1, GATEWAY_2},
-    messages::get_next_polling_nonce_from_messages,
-    test_env::{get_test_env, DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES},
+    clients::{generate_random_client_key, CLIENT_1_KEY, GATEWAY_1},
+    messages::{get_next_polling_nonce_from_messages, verify_messages, AppMessage},
+    test_env::{
+        get_test_env, DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
+        DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES, DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
+    },
 };
-
-#[test]
-fn test_1_non_registered_gateway_should_receive_empty_messages() {
-    // first, reset the canister
-    get_test_env().reset_canister_with_default_params();
-
-    let res = call_ws_get_messages_with_panic(
-        GATEWAY_2.deref(),
-        CanisterWsGetMessagesArguments { nonce: 0 },
-    );
-    assert_eq!(
-        res,
-        CanisterOutputCertifiedMessages {
-            messages: vec![],
-            cert: vec![],
-            tree: vec![],
-            is_end_of_queue: true,
-        },
-    );
-}
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(50))]
+
+    #[test]
+    fn test_1_non_registered_gateway_should_receive_empty_messages(ref test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
+        // first, reset the canister
+        get_test_env().reset_canister_with_default_params();
+
+        let res = call_ws_get_messages_with_panic(
+            test_gateway_principal,
+            CanisterWsGetMessagesArguments { nonce: 0 },
+        );
+        assert_eq!(
+            res,
+            CanisterOutputCertifiedMessages {
+                messages: vec![],
+                cert: vec![],
+                tree: vec![],
+                is_end_of_queue: true,
+            },
+        );
+    }
 
     #[test]
     fn test_2_registered_gateway_should_receive_only_open_message_if_no_messages_sent_initial_nonce(ref test_client_key in any::<u64>().prop_map(|_| generate_random_client_key())) {
@@ -144,7 +149,7 @@ proptest! {
                     nonce: next_polling_nonce,
                 },
             );
-            helpers::verify_messages(
+            verify_messages(
                 &messages,
                 client_1_key,
                 &cert,
@@ -156,85 +161,58 @@ proptest! {
             next_polling_nonce = get_next_polling_nonce_from_messages(messages);
         }
     }
-}
 
-pub(crate) mod helpers {
-    use crate::{
-        tests::integration_tests::utils::{
-            actor::ws_send::AppMessage,
-            certification::{is_message_body_valid, is_valid_certificate},
-            messages::decode_websocket_message,
-            test_env::get_test_env,
-        },
-        types::WebsocketServiceMessageContent,
-        CanisterOutputMessage, ClientKey,
-    };
-    use candid::decode_one;
+    #[test]
+    fn test_5_messages_for_gateway_are_deleted_if_old(test_send_messages_count in 1..100usize) {
+        // first, reset the canister
+        get_test_env().reset_canister(
+            1_000, // avoid the queue size limit
+            DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
+            DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
+        );
+        // second, register client 1
+        let client_1_key = CLIENT_1_KEY.deref();
+        call_ws_open_for_client_key_with_panic(client_1_key);
+        // third, send a batch of messages to the client
+        let messages_to_send: Vec<AppMessage> = (1..=test_send_messages_count)
+            .map(|i| AppMessage {
+                text: format!("test{}", i),
+            })
+            .collect();
+        call_ws_send_with_panic(&client_1_key.client_principal, messages_to_send.clone());
 
-    pub(crate) fn verify_messages(
-        messages: &Vec<CanisterOutputMessage>,
-        client_key: &ClientKey,
-        cert: &[u8],
-        tree: &[u8],
-        expected_sequence_number: &mut u64,
-        index: &mut u64,
-    ) {
-        for message in messages.iter() {
-            verify_message(
-                message,
-                client_key,
-                cert,
-                tree,
-                *expected_sequence_number,
-                *index,
-            );
+        // advance canister time because the messages are deleted only
+        // if they're older than the send ack interval;
+        // this also makes the canister send an ack message
+        // and therefore delete the first batch of older messages
+        get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS + 1);
 
-            *expected_sequence_number += 1;
-            *index += 1;
-        }
-    }
-
-    fn verify_message(
-        message: &CanisterOutputMessage,
-        client_key: &ClientKey,
-        cert: &[u8],
-        tree: &[u8],
-        expected_sequence_number: u64,
-        index: u64,
-    ) {
-        assert_eq!(message.client_key, *client_key);
-        let websocket_message = decode_websocket_message(&message.content);
-        assert_eq!(websocket_message.client_key, *client_key);
-        assert_eq!(websocket_message.sequence_num, expected_sequence_number);
-        assert_eq!(
-            websocket_message.timestamp,
-            get_test_env().get_canister_time()
+        let CanisterOutputCertifiedMessages {
+            messages,
+            cert,
+            tree,
+            ..
+        } = call_ws_get_messages_with_panic(
+            GATEWAY_1.deref(),
+            CanisterWsGetMessagesArguments { nonce: 0 },
         );
 
-        if websocket_message.is_service_message {
-            let decoded_content: WebsocketServiceMessageContent =
-                decode_one(&websocket_message.content).unwrap();
-            assert!(
-                matches!(
-                    decoded_content,
-                    WebsocketServiceMessageContent::AckMessage { .. }
-                ) || matches!(
-                    decoded_content,
-                    WebsocketServiceMessageContent::OpenMessage { .. }
-                )
-            );
-        } else {
-            let decoded_content: AppMessage = decode_one(&websocket_message.content).unwrap();
-            assert_eq!(
-                decoded_content,
-                AppMessage {
-                    text: format!("test{}", index),
-                }
-            );
-        }
+        assert_eq!(
+            messages.len(),
+            // + 1 for the open service message
+            // + 1 for the ack message that is never deleted because it can't be older than the send ack interval
+            (test_send_messages_count + 1).saturating_sub(MESSAGES_TO_DELETE_COUNT) + 1,
+        );
 
-        // check the certification
-        assert!(is_valid_certificate(&get_test_env(), cert, tree,));
-        assert!(is_message_body_valid(&message.key, &message.content, tree));
+        // check that messages are still certified properly
+        verify_messages(
+            &messages,
+            client_1_key,
+            &cert,
+            &tree,
+            // we expect that MESSAGES_TO_DELETE_COUNT messages have already been deleted
+            &mut ((MESSAGES_TO_DELETE_COUNT as u64) + 1), // + 1 because the seq number is incremented before sending on the canister
+            &mut( MESSAGES_TO_DELETE_COUNT as u64),
+        );
     }
 }

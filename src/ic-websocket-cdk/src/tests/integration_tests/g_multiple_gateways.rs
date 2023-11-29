@@ -1,26 +1,17 @@
 use proptest::prelude::*;
 
 use crate::{
-    tests::{
-        common,
-        integration_tests::{
-            c_ws_get_messages::helpers,
-            utils::{
-                actor::ws_get_messages::call_ws_get_messages_with_panic,
-                messages::get_service_message_content_from_canister_message,
-            },
-        },
-    },
-    CanisterOutputCertifiedMessages, CanisterWsCloseArguments, CanisterWsGetMessagesArguments,
-    GatewayPrincipal, WebsocketServiceMessageContent,
+    tests::common, CanisterOutputCertifiedMessages, CanisterWsCloseArguments,
+    CanisterWsGetMessagesArguments, GatewayPrincipal, WebsocketServiceMessageContent,
 };
 
 use super::utils::{
     actor::{
-        ws_close::call_ws_close_with_panic,
+        ws_close::call_ws_close_with_panic, ws_get_messages::call_ws_get_messages_with_panic,
         ws_open::call_ws_open_for_client_key_and_gateway_with_panic,
-        ws_send::{call_ws_send_with_panic, AppMessage},
+        ws_send::call_ws_send_with_panic,
     },
+    messages::{get_service_message_content_from_canister_message, verify_messages, AppMessage},
     test_env::get_test_env,
 };
 
@@ -59,7 +50,7 @@ proptest! {
 
         let mut expected_sequence_number = 1; // the number is incremented before sending
         let mut i = 0;
-        helpers::verify_messages(
+        verify_messages(
             &messages,
             client_key,
             &cert,
@@ -92,7 +83,7 @@ proptest! {
         prop_assert_eq!(messages.len() as u64, 1);
         prop_assert_eq!(is_end_of_queue, true);
 
-        helpers::verify_messages(
+        verify_messages(
             &messages,
             client_key,
             &cert,
@@ -132,7 +123,7 @@ proptest! {
         let mut expected_sequence_number_gw2 = 1; // the number is incremented before sending
         let mut i_gw2 = 0;
 
-        helpers::verify_messages(
+        verify_messages(
             &messages,
             client_key,
             &cert,

@@ -1,19 +1,23 @@
 use std::ops::Deref;
 
 use crate::{
-    errors::WsError,
-    tests::integration_tests::utils::actor::ws_get_messages::call_ws_get_messages_with_panic,
-    CanisterOutputCertifiedMessages, CanisterWsGetMessagesArguments, CanisterWsMessageArguments,
-    CanisterWsSendResult, ClientKeepAliveMessageContent, WebsocketServiceMessageContent,
+    errors::WsError, CanisterOutputCertifiedMessages, CanisterWsGetMessagesArguments,
+    CanisterWsMessageArguments, CanisterWsSendResult, ClientKeepAliveMessageContent,
+    WebsocketServiceMessageContent,
 };
 
 use super::utils::{
     actor::{
+        ws_get_messages::call_ws_get_messages_with_panic,
         ws_message::{call_ws_message, call_ws_message_with_panic},
         ws_open::call_ws_open_for_client_key_with_panic,
     },
+    certification::{is_message_body_valid, is_valid_certificate},
     clients::{CLIENT_1_KEY, GATEWAY_1},
-    messages::{create_websocket_message, encode_websocket_service_message_content},
+    messages::{
+        create_websocket_message, decode_websocket_service_message_content,
+        encode_websocket_service_message_content, get_websocket_message_from_canister_message,
+    },
     test_env::{
         get_test_env, DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS, DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
     },
@@ -190,17 +194,11 @@ fn test_4_client_is_not_removed_if_it_connects_while_canister_is_waiting_for_kee
 
 mod helpers {
     use crate::{
-        tests::integration_tests::utils::{
-            certification::{is_message_body_valid, is_valid_certificate},
-            messages::{
-                decode_websocket_service_message_content,
-                get_websocket_message_from_canister_message,
-            },
-            test_env::get_test_env,
-        },
         CanisterAckMessageContent, CanisterOutputCertifiedMessages, CanisterOutputMessage,
         ClientKey, WebsocketServiceMessageContent,
     };
+
+    use super::*;
 
     pub(super) fn check_ack_message_result(
         res: &CanisterOutputCertifiedMessages,

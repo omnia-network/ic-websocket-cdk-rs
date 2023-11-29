@@ -2,20 +2,17 @@ use proptest::prelude::*;
 use std::ops::Deref;
 
 use crate::{
-    errors::WsError,
-    tests::integration_tests::utils::{
-        actor::ws_get_messages::call_ws_get_messages_with_panic, test_env::get_test_env,
-    },
-    CanisterOutputCertifiedMessages, CanisterOutputMessage, CanisterWsGetMessagesArguments,
-    CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey, WebsocketServiceMessageContent,
-    DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES,
+    errors::WsError, CanisterOutputCertifiedMessages, CanisterOutputMessage,
+    CanisterWsGetMessagesArguments, CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey,
+    WebsocketServiceMessageContent, DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES,
 };
 use candid::Principal;
 
 use super::utils::{
-    actor::ws_open::call_ws_open,
+    actor::{ws_get_messages::call_ws_get_messages_with_panic, ws_open::call_ws_open},
     clients::{generate_random_client_nonce, CLIENT_1_KEY, GATEWAY_1},
     messages::get_service_message_content_from_canister_message,
+    test_env::get_test_env,
 };
 
 #[test]

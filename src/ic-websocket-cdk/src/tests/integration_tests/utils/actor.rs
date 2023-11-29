@@ -1,15 +1,12 @@
 use candid::{decode_one, encode_one, Principal};
 use pocket_ic::WasmResult;
 
-use super::test_env::get_test_env;
+use super::{clients::GATEWAY_1, messages::AppMessage, test_env::get_test_env};
 
 pub mod ws_open {
     use std::ops::Deref;
 
-    use crate::{
-        tests::integration_tests::utils::clients::GATEWAY_1, CanisterWsOpenArguments,
-        CanisterWsOpenResult, ClientKey,
-    };
+    use crate::{CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey};
 
     use super::*;
 
@@ -186,22 +183,16 @@ pub mod ws_get_messages {
 
 pub mod ws_send {
     use crate::{CanisterWsSendResult, ClientPrincipal};
-    use candid::{encode_args, CandidType};
-    use serde::{Deserialize, Serialize};
+    use candid::encode_args;
 
     use super::*;
-
-    #[derive(CandidType, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-    pub struct AppMessage {
-        pub text: String,
-    }
 
     /// (`ClientPrincipal`, `Vec<Vec<u8>>`)
     type WsSendArguments = (ClientPrincipal, Vec<Vec<u8>>);
 
     /// # Panics
     /// if the call returns a [WasmResult::Reject].
-    pub fn call_ws_send(
+    pub(crate) fn call_ws_send(
         send_to_principal: &ClientPrincipal,
         messages: Vec<AppMessage>,
     ) -> CanisterWsSendResult {
@@ -227,7 +218,10 @@ pub mod ws_send {
     ///
     /// # Panics
     /// If [call_ws_send] panics or if the call returns an error variant.
-    pub fn call_ws_send_with_panic(send_to_principal: &ClientPrincipal, messages: Vec<AppMessage>) {
+    pub(crate) fn call_ws_send_with_panic(
+        send_to_principal: &ClientPrincipal,
+        messages: Vec<AppMessage>,
+    ) {
         match call_ws_send(send_to_principal, messages) {
             CanisterWsSendResult::Ok(_) => {},
             CanisterWsSendResult::Err(err) => panic!("failed ws_send: {:?}", err),
