@@ -204,15 +204,24 @@ proptest! {
             (test_send_messages_count + 1).saturating_sub(MESSAGES_TO_DELETE_COUNT) + 1,
         );
 
+        let first_received_message_seq_num = if test_send_messages_count < MESSAGES_TO_DELETE_COUNT {
+            // +1 for the open message
+            (test_send_messages_count + 1) as u64
+        } else {
+            MESSAGES_TO_DELETE_COUNT as u64
+        } + 1; // +1 because the seq number is incremented before sending on the canister
+
         // check that messages are still certified properly
+        // we expect that MESSAGES_TO_DELETE_COUNT messages have already been deleted
+        let mut expected_sequence_number = first_received_message_seq_num;
+        let mut i = first_received_message_seq_num - 1;
         verify_messages(
             &messages,
             client_1_key,
             &cert,
             &tree,
-            // we expect that MESSAGES_TO_DELETE_COUNT messages have already been deleted
-            &mut ((MESSAGES_TO_DELETE_COUNT as u64) + 1), // + 1 because the seq number is incremented before sending on the canister
-            &mut( MESSAGES_TO_DELETE_COUNT as u64),
+            &mut expected_sequence_number,
+            &mut i,
         );
     }
 }
