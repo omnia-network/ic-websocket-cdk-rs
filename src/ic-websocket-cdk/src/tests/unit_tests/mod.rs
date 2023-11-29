@@ -236,10 +236,17 @@ proptest! {
             n.borrow_mut().insert(test_gateway_principal, gw);
         });
 
-        decrement_gateway_clients_count(&test_gateway_principal);
+        // Test
+        let mut clients_count = test_connected_clients_count;
+        while clients_count > 0 {
+            let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_gateway_principal).cloned()).unwrap();
+            prop_assert_eq!(registered_gateway.connected_clients_count, clients_count);
+            decrement_gateway_clients_count(&test_gateway_principal);
+            clients_count -= 1;
+        }
 
-        let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_gateway_principal).cloned()).unwrap();
-        prop_assert_eq!(registered_gateway.connected_clients_count, test_connected_clients_count - 1);
+        let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_gateway_principal).cloned());
+        prop_assert!(registered_gateway.is_none());
     }
 
     #[test]
@@ -614,7 +621,7 @@ proptest! {
     }
 
     #[test]
-    fn test_get_messages_for_gateway_range_smaller_than_max(gateway_principal in any::<u8>().prop_map(|_| common::get_static_principal())) {
+    fn test_get_messages_for_gateway_range_smaller_than_max(gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
         // Set up
         utils::initialize_params();
         REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway::new()));
@@ -642,7 +649,7 @@ proptest! {
     }
 
     #[test]
-    fn test_get_messages_for_gateway_range_larger_than_max(gateway_principal in any::<u8>().prop_map(|_| common::get_static_principal()), max_number_of_returned_messages in 0..1000usize) {
+    fn test_get_messages_for_gateway_range_larger_than_max(gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal()), max_number_of_returned_messages in 0..1000usize) {
         // Set up
         set_params(WsInitParams {
             max_number_of_returned_messages,
@@ -678,7 +685,7 @@ proptest! {
     }
 
     #[test]
-    fn test_get_messages_for_gateway_initial_nonce(gateway_principal in any::<u8>().prop_map(|_| common::get_static_principal()), messages_count in 0..100u64, max_number_of_returned_messages in 0..1000usize) {
+    fn test_get_messages_for_gateway_initial_nonce(gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal()), messages_count in 0..100u64, max_number_of_returned_messages in 0..1000usize) {
         // Set up
         set_params(WsInitParams {
             max_number_of_returned_messages,
@@ -709,7 +716,7 @@ proptest! {
     }
 
     #[test]
-    fn test_get_messages_for_gateway(gateway_principal in any::<u8>().prop_map(|_| common::get_static_principal()), messages_count in 0..100u64) {
+    fn test_get_messages_for_gateway(gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal()), messages_count in 0..100u64) {
         // Set up
         REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway::new()));
 
@@ -753,7 +760,7 @@ proptest! {
     }
 
     #[test]
-    fn test_push_message_in_gateway_queue_nonexistent_gateway(gateway_principal in any::<u8>().prop_map(|_| common::get_static_principal())) {
+    fn test_push_message_in_gateway_queue_nonexistent_gateway(gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
         let test_client_key = common::get_random_client_key();
         let res = push_message_in_gateway_queue(
             &gateway_principal,
@@ -767,7 +774,7 @@ proptest! {
     }
 
     #[test]
-    fn test_push_message_in_gateway_queue(gateway_principal in any::<u8>().prop_map(|_| common::get_static_principal()), messages_count in 0..100usize) {
+    fn test_push_message_in_gateway_queue(gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal()), messages_count in 0..100usize) {
         // Set up
         REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway::new()));
         let test_client_key = common::get_random_client_key();
@@ -796,10 +803,7 @@ proptest! {
     }
 
     // #[test]
-    // fn test_delete_messages_from_gateway_queue(gateway_principal in any::<u8>().prop_map(|_| common::get_static_principal()), messages_count in 0..100u64) {
-    //     // Set up
-    //     REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway::new()));
-    //     let test_client_key = common::get_random_client_key();
+    // fn test_delete_old_messages_for_gateway_nonexistent_gateway(gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
 
     //     // Test
     //     for _ in 0..messages_count {
