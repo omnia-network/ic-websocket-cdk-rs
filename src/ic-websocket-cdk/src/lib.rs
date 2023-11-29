@@ -104,6 +104,9 @@ pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
 pub fn ws_close(args: CanisterWsCloseArguments) -> CanisterWsCloseResult {
     let gateway_principal = caller();
 
+    // check if the gateway is registered
+    check_is_gateway_registered(&gateway_principal)?;
+
     // check if client registered its principal by calling ws_open
     check_registered_client_exists(&args.client_key)?;
 

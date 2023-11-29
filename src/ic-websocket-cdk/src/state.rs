@@ -109,6 +109,12 @@ pub(crate) fn get_registered_gateway(
     })
 }
 
+pub(crate) fn check_is_gateway_registered(
+    gateway_principal: &GatewayPrincipal,
+) -> Result<(), String> {
+    get_registered_gateway(gateway_principal).map(|_| ())
+}
+
 pub(crate) fn is_registered_gateway(principal: &Principal) -> bool {
     get_registered_gateway(principal).is_ok()
 }

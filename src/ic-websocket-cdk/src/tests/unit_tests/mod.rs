@@ -285,6 +285,24 @@ proptest! {
     }
 
     #[test]
+    fn test_check_is_gateway_registered(test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
+        // Set up
+        REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(test_gateway_principal, RegisteredGateway::new()));
+
+        let res = check_is_gateway_registered(&test_gateway_principal);
+        prop_assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_check_is_gateway_registered_nonexistent(test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
+        let res = check_is_gateway_registered(&test_gateway_principal);
+        prop_assert_eq!(
+            res.err(),
+            WsError::GatewayNotRegistered { gateway_principal: &test_gateway_principal }.to_string_result().err()
+        );
+    }
+
+    #[test]
     fn test_get_outgoing_message_nonce(test_nonce in any::<u64>(), test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
         // Set up
         REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(test_gateway_principal, RegisteredGateway { outgoing_message_nonce: test_nonce, ..Default::default() }));
