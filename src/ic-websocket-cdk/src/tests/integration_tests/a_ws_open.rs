@@ -2,15 +2,18 @@ use proptest::prelude::*;
 use std::ops::Deref;
 
 use crate::{
-    errors::WsError, tests::integration_tests::utils::test_env::get_test_env,
+    errors::WsError,
+    tests::integration_tests::utils::{
+        actor::ws_get_messages::call_ws_get_messages_with_panic, test_env::get_test_env,
+    },
     CanisterOutputCertifiedMessages, CanisterOutputMessage, CanisterWsGetMessagesArguments,
-    CanisterWsGetMessagesResult, CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey,
-    WebsocketServiceMessageContent, DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES,
+    CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey, WebsocketServiceMessageContent,
+    DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES,
 };
 use candid::Principal;
 
 use super::utils::{
-    actor::{ws_get_messages::call_ws_get_messages, ws_open::call_ws_open},
+    actor::ws_open::call_ws_open,
     clients::{generate_random_client_nonce, CLIENT_1_KEY, GATEWAY_1},
     messages::get_service_message_content_from_canister_message,
 };
@@ -38,24 +41,19 @@ fn test_2_should_open_a_connection() {
     let res = call_ws_open(&client_1_key.client_principal, args);
     assert_eq!(res, CanisterWsOpenResult::Ok(()));
 
-    let msgs = call_ws_get_messages(
+    let CanisterOutputCertifiedMessages { messages, .. } = call_ws_get_messages_with_panic(
         GATEWAY_1.deref(),
         CanisterWsGetMessagesArguments { nonce: 0 },
     );
 
-    match msgs {
-        CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, .. }) => {
-            let first_message = &messages[0];
-            assert_eq!(first_message.client_key, *client_1_key);
-            let open_message = get_service_message_content_from_canister_message(first_message);
-            match open_message {
-                WebsocketServiceMessageContent::OpenMessage(open_message) => {
-                    assert_eq!(open_message.client_key, *client_1_key);
-                },
-                _ => panic!("Expected OpenMessage"),
-            }
+    let first_message = &messages[0];
+    assert_eq!(first_message.client_key, *client_1_key);
+    let open_message = get_service_message_content_from_canister_message(first_message);
+    match open_message {
+        WebsocketServiceMessageContent::OpenMessage(open_message) => {
+            assert_eq!(open_message.client_key, *client_1_key);
         },
-        _ => panic!("Expected Ok result"),
+        _ => panic!("Expected OpenMessage"),
     }
 }
 
@@ -98,28 +96,23 @@ proptest! {
         let res = call_ws_open(&client_key.client_principal, args);
         assert_eq!(res, CanisterWsOpenResult::Ok(()));
 
-        let msgs = call_ws_get_messages(
+        let CanisterOutputCertifiedMessages { messages, .. } = call_ws_get_messages_with_panic(
             GATEWAY_1.deref(),
             CanisterWsGetMessagesArguments { nonce: 0 },
         );
 
-        match msgs {
-            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, .. }) => {
-                let service_message_for_client = messages
-                    .iter()
-                    .filter(|msg| msg.client_key == client_key)
-                    .collect::<Vec<&CanisterOutputMessage>>()[0];
+        let service_message_for_client = messages
+            .iter()
+            .filter(|msg| msg.client_key == client_key)
+            .collect::<Vec<&CanisterOutputMessage>>()[0];
 
-                let open_message =
-                    get_service_message_content_from_canister_message(service_message_for_client);
-                match open_message {
-                    WebsocketServiceMessageContent::OpenMessage(open_message) => {
-                        assert_eq!(open_message.client_key, client_key);
-                    },
-                    _ => panic!("Expected OpenMessage"),
-                }
+        let open_message =
+            get_service_message_content_from_canister_message(service_message_for_client);
+        match open_message {
+            WebsocketServiceMessageContent::OpenMessage(open_message) => {
+                assert_eq!(open_message.client_key, client_key);
             },
-            _ => panic!("Expected Ok result"),
+            _ => panic!("Expected OpenMessage"),
         }
     }
 }

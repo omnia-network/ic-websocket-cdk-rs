@@ -160,12 +160,8 @@ fn test_5_fails_if_client_sends_a_wrong_service_message() {
             ),
         },
     );
-    match res {
-        CanisterWsMessageResult::Err(err) => {
-            assert!(err.starts_with("Error decoding service message content:"))
-        },
-        _ => panic!("unexpected result"),
-    };
+    let err = res.err().unwrap();
+    assert!(err.starts_with("Error decoding service message content:"));
 
     // fail with wrong service message variant
     let wrong_service_message =

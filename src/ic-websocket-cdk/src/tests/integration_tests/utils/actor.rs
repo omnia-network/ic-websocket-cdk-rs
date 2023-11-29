@@ -28,7 +28,10 @@ pub mod ws_open {
         }
     }
 
-    /// Same as [call_ws_open] but panics if the call returns an error variant.
+    /// Same as [call_ws_open].
+    ///
+    /// # Panics
+    /// If [call_ws_open] panics or if the call returns an error variant.
     fn call_ws_open_with_panic(caller: &Principal, args: CanisterWsOpenArguments) {
         match call_ws_open(caller, args) {
             CanisterWsOpenResult::Ok(_) => {},
@@ -88,7 +91,10 @@ pub mod ws_message {
         }
     }
 
-    /// Same as [call_ws_message] but panics if the call returns an error variant.
+    /// Same as [call_ws_message].
+    ///
+    /// # Panics
+    /// If [call_ws_message] panics or if the call returns an error variant.
     pub fn call_ws_message_with_panic(caller: &Principal, args: CanisterWsMessageArguments) {
         match call_ws_message(caller, args) {
             CanisterWsMessageResult::Ok(_) => {},
@@ -120,6 +126,10 @@ pub mod ws_close {
         }
     }
 
+    /// Same as [call_ws_close].
+    ///
+    /// # Panics
+    /// If [call_ws_close] panics or if the call returns an error variant.
     pub fn call_ws_close_with_panic(caller: &Principal, args: CanisterWsCloseArguments) {
         match call_ws_close(caller, args) {
             CanisterWsCloseResult::Ok(_) => {},
@@ -129,10 +139,15 @@ pub mod ws_close {
 }
 
 pub mod ws_get_messages {
-    use crate::{CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult};
+    use crate::{
+        types::CanisterOutputCertifiedMessages, CanisterWsGetMessagesArguments,
+        CanisterWsGetMessagesResult,
+    };
 
     use super::*;
 
+    /// # Panics
+    /// if the call returns a [WasmResult::Reject].
     pub fn call_ws_get_messages(
         caller: &Principal,
         args: CanisterWsGetMessagesArguments,
@@ -153,6 +168,20 @@ pub mod ws_get_messages {
             _ => panic!("Expected reply"),
         }
     }
+
+    /// Same as [call_ws_get_messages].
+    ///
+    /// # Panics
+    /// If [call_ws_get_messages] panics or if the call returns an error variant.
+    pub fn call_ws_get_messages_with_panic(
+        caller: &Principal,
+        args: CanisterWsGetMessagesArguments,
+    ) -> CanisterOutputCertifiedMessages {
+        match call_ws_get_messages(caller, args) {
+            CanisterWsGetMessagesResult::Ok(res) => res,
+            CanisterWsGetMessagesResult::Err(err) => panic!("failed ws_get_messages: {:?}", err),
+        }
+    }
 }
 
 pub mod ws_send {
@@ -170,6 +199,8 @@ pub mod ws_send {
     /// (`ClientPrincipal`, `Vec<Vec<u8>>`)
     type WsSendArguments = (ClientPrincipal, Vec<Vec<u8>>);
 
+    /// # Panics
+    /// if the call returns a [WasmResult::Reject].
     pub fn call_ws_send(
         send_to_principal: &ClientPrincipal,
         messages: Vec<AppMessage>,
@@ -192,6 +223,10 @@ pub mod ws_send {
         }
     }
 
+    /// Same as [call_ws_send].
+    ///
+    /// # Panics
+    /// If [call_ws_send] panics or if the call returns an error variant.
     pub fn call_ws_send_with_panic(send_to_principal: &ClientPrincipal, messages: Vec<AppMessage>) {
         match call_ws_send(send_to_principal, messages) {
             CanisterWsSendResult::Ok(_) => {},

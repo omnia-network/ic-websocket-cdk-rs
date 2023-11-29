@@ -1,13 +1,11 @@
 use proptest::prelude::*;
 use std::ops::Deref;
 
-use crate::{
-    CanisterOutputCertifiedMessages, CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult,
-};
+use crate::{CanisterOutputCertifiedMessages, CanisterWsGetMessagesArguments};
 
 use super::utils::{
     actor::{
-        ws_get_messages::call_ws_get_messages,
+        ws_get_messages::call_ws_get_messages_with_panic,
         ws_open::call_ws_open_for_client_key_with_panic,
         ws_send::{call_ws_send_with_panic, AppMessage},
     },
@@ -21,18 +19,18 @@ fn test_1_non_registered_gateway_should_receive_empty_messages() {
     // first, reset the canister
     get_test_env().reset_canister_with_default_params();
 
-    let res = call_ws_get_messages(
+    let res = call_ws_get_messages_with_panic(
         GATEWAY_2.deref(),
         CanisterWsGetMessagesArguments { nonce: 0 },
     );
     assert_eq!(
         res,
-        CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages {
+        CanisterOutputCertifiedMessages {
             messages: vec![],
             cert: vec![],
             tree: vec![],
             is_end_of_queue: true,
-        }),
+        },
     );
 }
 
@@ -47,16 +45,11 @@ proptest! {
         // second, register client 1
         call_ws_open_for_client_key_with_panic(test_client_key);
 
-        let res = call_ws_get_messages(
+        let CanisterOutputCertifiedMessages { messages, .. } = call_ws_get_messages_with_panic(
             GATEWAY_1.deref(),
             CanisterWsGetMessagesArguments { nonce: 0 },
         );
-        match res {
-            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, .. }) => {
-                prop_assert_eq!(messages.len(), 1); // we expect only the service message
-            },
-            _ => panic!("unexpected result"),
-        };
+        prop_assert_eq!(messages.len(), 1); // we expect only the service message
     }
 
     #[test]
@@ -80,35 +73,30 @@ proptest! {
         // now we can start testing
         let messages_count = (messages_to_send.len() + 1) as u64; // +1 for the open service message
         for i in 0..messages_count {
-            let res = call_ws_get_messages(
+            let CanisterOutputCertifiedMessages {
+                messages,
+                is_end_of_queue,
+                ..
+            } = call_ws_get_messages_with_panic(
                 GATEWAY_1.deref(),
                 CanisterWsGetMessagesArguments { nonce: i },
             );
-            match res {
-                CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages {
-                    messages,
-                    is_end_of_queue,
-                    ..
-                }) => {
-                    prop_assert_eq!(
-                        messages.len() as u64,
-                        if (messages_count - i) > DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES {
-                            DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES
-                        } else {
-                            messages_count - i
-                        }
-                    );
-                    prop_assert_eq!(
-                        is_end_of_queue,
-                        (messages_count - i) <= DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES
-                    );
-                },
-                _ => panic!("unexpected result"),
-            };
+            prop_assert_eq!(
+                messages.len() as u64,
+                if (messages_count - i) > DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES {
+                    DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES
+                } else {
+                    messages_count - i
+                }
+            );
+            prop_assert_eq!(
+                is_end_of_queue,
+                (messages_count - i) <= DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES
+            );
         }
 
         // try to get more messages than available
-        let res = call_ws_get_messages(
+        let res = call_ws_get_messages_with_panic(
             GATEWAY_1.deref(),
             CanisterWsGetMessagesArguments {
                 nonce: messages_count,
@@ -116,12 +104,12 @@ proptest! {
         );
         prop_assert_eq!(
             res,
-            CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages {
+            CanisterOutputCertifiedMessages {
                 messages: vec![],
                 cert: vec![],
                 tree: vec![],
                 is_end_of_queue: true,
-            })
+            }
         );
     }
 
@@ -145,32 +133,27 @@ proptest! {
         let mut i = 0;
 
         while next_polling_nonce <= test_send_messages_count {
-            let res = call_ws_get_messages(
+            let CanisterOutputCertifiedMessages {
+                messages,
+                cert,
+                tree,
+                ..
+            } = call_ws_get_messages_with_panic(
                 GATEWAY_1.deref(),
                 CanisterWsGetMessagesArguments {
                     nonce: next_polling_nonce,
                 },
             );
-            match res {
-                CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages {
-                    messages,
-                    cert,
-                    tree,
-                    ..
-                }) => {
-                    helpers::verify_messages(
-                        &messages,
-                        client_1_key,
-                        &cert,
-                        &tree,
-                        &mut expected_sequence_number,
-                        &mut i,
-                    );
+            helpers::verify_messages(
+                &messages,
+                client_1_key,
+                &cert,
+                &tree,
+                &mut expected_sequence_number,
+                &mut i,
+            );
 
-                    next_polling_nonce = get_next_polling_nonce_from_messages(messages);
-                },
-                _ => panic!("unexpected result"),
-            };
+            next_polling_nonce = get_next_polling_nonce_from_messages(messages);
         }
     }
 }
