@@ -192,8 +192,12 @@ fn test_ws_init_params_keep_alive_equal() {
 
 #[test]
 fn test_current_time() {
-    // test
-    assert_eq!(get_current_time(), 0u64);
+    use std::time::SystemTime;
+    let duration_since_epoch = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap();
+    let timestamp_nanos = duration_since_epoch.as_nanos() as u64;
+    assert!(get_current_time() >= timestamp_nanos);
 }
 
 proptest! {

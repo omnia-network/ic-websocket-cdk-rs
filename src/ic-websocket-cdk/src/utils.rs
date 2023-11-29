@@ -32,7 +32,12 @@ macro_rules! custom_trap {
 pub(crate) fn get_current_time() -> u64 {
     #[cfg(test)]
     {
-        0u64
+        use std::time::SystemTime;
+        let duration_since_epoch = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap();
+        let timestamp_nanos = duration_since_epoch.as_nanos();
+        timestamp_nanos as u64
     }
     #[cfg(not(test))]
     {
