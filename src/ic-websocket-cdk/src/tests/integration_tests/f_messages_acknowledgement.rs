@@ -2,8 +2,8 @@ use std::ops::Deref;
 
 use crate::{
     errors::WsError, CanisterOutputCertifiedMessages, CanisterWsGetMessagesArguments,
-    CanisterWsGetMessagesResult, CanisterWsMessageArguments, CanisterWsMessageResult,
-    CanisterWsSendResult, ClientKeepAliveMessageContent, WebsocketServiceMessageContent,
+    CanisterWsGetMessagesResult, CanisterWsMessageArguments, CanisterWsSendResult,
+    ClientKeepAliveMessageContent, WebsocketServiceMessageContent,
 };
 
 use super::utils::{
@@ -143,8 +143,10 @@ fn test_3_client_is_not_removed_if_it_sends_a_keep_alive_before_timeout() {
             msg: create_websocket_message(client_1_key, 2, None, false),
         },
     );
-    // wait to receive the next ack message
-    get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
+    // wait for the canister to send the next ack
+    get_test_env().advance_canister_time_ms(
+        DEFAULT_TEST_SEND_ACK_INTERVAL_MS - DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
+    );
     let res = call_ws_get_messages(
         GATEWAY_1.deref(),
         CanisterWsGetMessagesArguments { nonce: 2 }, // skip the service open message and the fist ack message
@@ -175,13 +177,12 @@ fn test_4_client_is_not_removed_if_it_connects_while_canister_is_waiting_for_kee
 
     // send a message to the canister to see the sequence number increasing in the ack message
     // and be sure that the client has not been removed
-    let res = call_ws_message(
+    call_ws_message_with_panic(
         &client_1_key.client_principal,
         CanisterWsMessageArguments {
             msg: create_websocket_message(client_1_key, 1, None, false),
         },
     );
-    assert_eq!(res, CanisterWsMessageResult::Ok(()));
 
     // wait for the keep alive timeout to expire
     get_test_env().advance_canister_time_ms(DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS);
@@ -232,11 +233,11 @@ mod helpers {
                     expected_ack_sequence_number,
                     expected_websocket_message_sequence_number,
                 );
-                assert!(is_valid_certificate(&get_test_env(), &cert, &tree,));
+                assert!(is_valid_certificate(&get_test_env(), &cert, &tree));
                 assert!(is_message_body_valid(
                     &ack_message.key,
                     &ack_message.content,
-                    &tree
+                    &tree,
                 ));
             },
             _ => panic!("unexpected result"),
