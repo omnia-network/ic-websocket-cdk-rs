@@ -806,21 +806,82 @@ proptest! {
         utils::clean_messages_for_gateway(&gateway_principal);
     }
 
-    // #[test]
-    // fn test_delete_old_messages_for_gateway_nonexistent_gateway(gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
+    #[test]
+    fn test_delete_old_messages_for_gateway_nonexistent_gateway(gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
+        let res = delete_old_messages_for_gateway(&gateway_principal);
+        prop_assert_eq!(
+            res.err(),
+            WsError::GatewayNotRegistered { gateway_principal: &gateway_principal }.to_string_result().err()
+        );
+    }
 
-    //     // Test
-    //     for _ in 0..messages_count {
-    //         push_message_in_gateway_queue(
-    //             &gateway_principal,
-    //             CanisterOutputMessage {
-    //                 // we don't care about the message here
-    //                 client_key: test_client_key.clone(),
-    //                 key: String::from(""),
-    //                 content: vec![],
-    //             },
-    //             0
-    //         ).unwrap();
-    //     }
-    // }
+    #[test]
+    fn test_delete_old_messages_for_gateway_queue_empty(gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
+        // Set up
+        REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway::new()));
+
+        // Test
+        let res = delete_old_messages_for_gateway(&gateway_principal);
+        prop_assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_delete_old_messages_for_gateway_queue(
+        gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal()),
+        old_messages_count in 0..100usize,
+        new_messages_count in 0..100usize,
+        test_ack_interval_ms in (1..100u64),
+    ) {
+        // Set up
+        PARAMS.with(|p|
+            *p.borrow_mut() = WsInitParams::new(WsHandlers::default())
+                .with_send_ack_interval_ms(test_ack_interval_ms)
+        );
+        REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway::new()));
+        let test_client_key = common::get_random_client_key();
+
+        let time = get_current_time();
+
+        for i in 0..old_messages_count {
+            // make sure that the message is older than the ack interval but also more recent than the previous
+            let message_timestamp = time - ((test_ack_interval_ms * 1_000_000) + ((old_messages_count - i) as u64));
+            push_message_in_gateway_queue(
+                &gateway_principal,
+                CanisterOutputMessage {
+                    // we don't care about the message here
+                    client_key: test_client_key.clone(),
+                    key: String::from(""),
+                    content: vec![],
+                },
+                message_timestamp
+            ).unwrap();
+        }
+
+        for i in 0..new_messages_count {
+            // make sure that the message is newer than the ack interval but also more recent than the previous
+            let message_timestamp = time - ((new_messages_count - i) as u64);
+            push_message_in_gateway_queue(
+                &gateway_principal,
+                CanisterOutputMessage {
+                    // we don't care about the message here
+                    client_key: test_client_key.clone(),
+                    key: String::from(""),
+                    content: vec![],
+                },
+                message_timestamp
+            ).unwrap();
+        }
+
+        // Test
+        delete_old_messages_for_gateway(&gateway_principal).unwrap();
+
+        let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&gateway_principal).cloned()).unwrap();
+        let expected_messages_left_count = new_messages_count + (if old_messages_count < MESSAGES_TO_DELETE_COUNT {
+            0
+        } else {
+            old_messages_count - MESSAGES_TO_DELETE_COUNT
+        });
+        prop_assert_eq!(registered_gateway.messages_queue.len(), expected_messages_left_count);
+        prop_assert_eq!(registered_gateway.messages_to_delete.len(), expected_messages_left_count);
+    }
 }

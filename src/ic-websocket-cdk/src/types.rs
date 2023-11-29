@@ -190,6 +190,7 @@ impl RegisteredGateway {
     }
 
     /// Deletes the oldest `n` messages that are older than `message_max_age_ms` from the queue.
+    ///
     /// Returns the deleted messages keys.
     pub(crate) fn delete_old_messages(&mut self, n: usize, message_max_age_ms: u64) -> Vec<String> {
         let time = get_current_time();

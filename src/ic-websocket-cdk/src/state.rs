@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     errors::WsError, types::*, utils::get_current_time, INITIAL_CANISTER_SEQUENCE_NUM,
-    INITIAL_CLIENT_SEQUENCE_NUM, LABEL_WEBSOCKET, MESSAGES_TO_DELETE,
+    INITIAL_CLIENT_SEQUENCE_NUM, LABEL_WEBSOCKET, MESSAGES_TO_DELETE_COUNT,
 };
 
 thread_local! {
@@ -33,7 +33,7 @@ thread_local! {
   /// Keeps track of the principals of the WS Gateways that poll the canister
   /* flexible */ pub(crate) static REGISTERED_GATEWAYS: RefCell<HashMap<GatewayPrincipal, RegisteredGateway>> = RefCell::new(HashMap::new());
   /// The parameters passed in the CDK initialization
-  /* flexible */ static PARAMS: RefCell<WsInitParams> = RefCell::new(WsInitParams::default());
+  /* flexible */ pub(crate) static PARAMS: RefCell<WsInitParams> = RefCell::new(WsInitParams::default());
   /// The acknowledgement active timer.
   /* flexible */ pub(crate) static ACK_TIMER: Rc<RefCell<Option<TimerId>>> = Rc::new(RefCell::new(None));
   /// The keep alive active timer.
@@ -408,20 +408,25 @@ pub(crate) fn push_message_in_gateway_queue(
 
 /// Deletes the an amount of [MESSAGES_TO_DELETE] messages from the queue
 /// that are older than the ack interval.
-fn delete_old_messages_for_gateway(gateway_principal: &GatewayPrincipal) -> Result<(), String> {
+pub(crate) fn delete_old_messages_for_gateway(
+    gateway_principal: &GatewayPrincipal,
+) -> Result<(), String> {
     let ack_interval_ms = get_params().send_ack_interval_ms;
 
-    let _deleted_messages_keys = REGISTERED_GATEWAYS.with(|map| {
+    // allow unused variables because sometimes the compiler complains about unused variables
+    // since it is only used in production code
+    #[allow(unused_variables)]
+    let deleted_messages_keys = REGISTERED_GATEWAYS.with(|map| {
         map.borrow_mut()
             .get_mut(gateway_principal)
             .ok_or_else(|| WsError::GatewayNotRegistered { gateway_principal }.to_string())
-            .and_then(|g| Ok(g.delete_old_messages(MESSAGES_TO_DELETE, ack_interval_ms)))
+            .and_then(|g| Ok(g.delete_old_messages(MESSAGES_TO_DELETE_COUNT, ack_interval_ms)))
     })?;
 
     #[cfg(not(test))]
     // executing this in tests fails because the tree is an IC-specific implementation
     CERT_TREE.with(|tree| {
-        for key in _deleted_messages_keys {
+        for key in deleted_messages_keys {
             tree.borrow_mut().delete(key.as_ref());
         }
     });

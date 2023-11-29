@@ -40,7 +40,7 @@ const INITIAL_CLIENT_SEQUENCE_NUM: u64 = 1;
 const INITIAL_CANISTER_SEQUENCE_NUM: u64 = 0;
 
 /// The number of messages to delete from the outgoing messages queue every time a new message is added.
-const MESSAGES_TO_DELETE: usize = 5;
+const MESSAGES_TO_DELETE_COUNT: usize = 5;
 
 /// Initialize the CDK.
 ///
