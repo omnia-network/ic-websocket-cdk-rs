@@ -464,8 +464,6 @@ fn handle_keep_alive_client_message(
     client_key: &ClientKey,
     _keep_alive_message: ClientKeepAliveMessageContent,
 ) {
-    // TODO: delete messages from the queue that have been acknowledged by the client
-
     // update the last keep alive timestamp for the client
     if let Some(client_metadata) = REGISTERED_CLIENTS
         .with(Rc::clone)
@@ -537,6 +535,9 @@ pub(crate) fn _ws_send(
     // CBOR serialize message of type WebsocketMessage
     let message_content = websocket_message.cbor_serialize()?;
 
+    // delete old messages from the gateway queue
+    delete_old_messages_for_gateway(&registered_client.gateway_principal)?;
+
     // certify data
     put_cert_for_message(message_key.clone(), &message_content);
 
@@ -549,7 +550,5 @@ pub(crate) fn _ws_send(
             key: message_key,
         },
         message_timestamp,
-    )?;
-
-    delete_old_messages_for_gateway(&registered_client.gateway_principal)
+    )
 }
