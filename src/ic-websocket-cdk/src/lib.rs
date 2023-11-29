@@ -25,11 +25,11 @@ pub use types::{
 const LABEL_WEBSOCKET: &[u8] = b"websocket";
 
 /// The default maximum number of messages returned by [ws_get_messages] at each poll.
-const DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES: usize = 10;
+const DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES: usize = 50;
 /// The default interval at which to send acknowledgements to the client.
-const DEFAULT_SEND_ACK_INTERVAL_MS: u64 = 60_000; // 60 seconds
+const DEFAULT_SEND_ACK_INTERVAL_MS: u64 = 300_000; // 5 minutes
 /// The default timeout to wait for the client to send a keep alive after receiving an acknowledgement.
-const DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS: u64 = 10_000; // 10 seconds
+const DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS: u64 = 60_000; // 1 minute
 
 /// The initial nonce for outgoing messages.
 const INITIAL_OUTGOING_MESSAGE_NONCE: u64 = 0;

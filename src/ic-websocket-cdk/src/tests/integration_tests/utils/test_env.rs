@@ -11,7 +11,7 @@ use pocket_ic::PocketIc;
 use super::wasm::{load_canister_wasm_from_bin, load_canister_wasm_from_path};
 
 /// The maximum number of messages returned by the **ws_get_messages** method.
-pub const DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES: u64 = 20;
+pub const DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES: u64 = 50;
 
 /// The interval between sending acks from the canister.
 /// Set to a high value to make sure the canister doesn't reset the client while testing other functions.

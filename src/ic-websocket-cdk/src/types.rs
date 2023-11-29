@@ -381,20 +381,20 @@ pub struct WsInitParams {
     /// The callback handlers for the WebSocket.
     pub handlers: WsHandlers,
     /// The maximum number of messages to be returned in a polling iteration.
-    /// Defaults to `10`.
+    /// Defaults to `50`.
     pub max_number_of_returned_messages: usize,
     /// The interval at which to send an acknowledgement message to the client,
     /// so that the client knows that all the messages it sent have been received by the canister (in milliseconds).
     ///
     /// Must be greater than `keep_alive_timeout_ms`.
     ///
-    /// Defaults to `60_000` (60 seconds).
+    /// Defaults to `300_000` (5 minutes).
     pub send_ack_interval_ms: u64,
     /// The delay to wait for the client to send a keep alive after receiving an acknowledgement (in milliseconds).
     ///
     /// Must be lower than `send_ack_interval_ms`.
     ///
-    /// Defaults to `10_000` (10 seconds).
+    /// Defaults to `60_000` (1 minute).
     pub keep_alive_timeout_ms: u64,
 }
 
