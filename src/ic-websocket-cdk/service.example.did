@@ -1,7 +1,7 @@
 import "./ws_types.did";
 
 // define your message type here
-type MyMessageType = {
+type MyMessageType = record {
   some_field : text;
 };
 
