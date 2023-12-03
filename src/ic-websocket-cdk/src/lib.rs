@@ -55,8 +55,8 @@ pub fn init(params: WsInitParams) {
     // set the handlers specified by the canister that the CDK uses to manage the IC WebSocket connection
     set_params(params.clone());
 
-    // reset initial timers
-    reset_timers();
+    // cancel possibly running timers
+    cancel_timers();
 
     // schedule a timer that will send an acknowledgement message to clients
     schedule_send_ack_to_clients();
@@ -107,7 +107,7 @@ pub fn ws_close(args: CanisterWsCloseArguments) -> CanisterWsCloseResult {
     // check if the gateway is registered
     check_is_gateway_registered(&gateway_principal)?;
 
-    // check if client registered its principal by calling ws_open
+    // check if client registered itself by calling ws_open
     check_registered_client_exists(&args.client_key)?;
 
     // check if the client is registered to the gateway that is closing the connection
@@ -149,7 +149,6 @@ pub fn ws_message<T: CandidType + for<'a> Deserialize<'a>>(
     _message_type: Option<T>,
 ) -> CanisterWsMessageResult {
     let client_principal = caller();
-    // check if client registered its principal by calling ws_open
     let registered_client_key = get_client_key_from_principal(&client_principal)?;
 
     let WebsocketMessage {
@@ -203,7 +202,6 @@ pub fn ws_message<T: CandidType + for<'a> Deserialize<'a>>(
 
 /// Returns messages to the WS Gateway in response of a polling iteration.
 pub fn ws_get_messages(args: CanisterWsGetMessagesArguments) -> CanisterWsGetMessagesResult {
-    // check if the caller of this method is the WS Gateway that has been set during the initialization of the SDK
     let gateway_principal = caller();
     if !is_registered_gateway(&gateway_principal) {
         return get_cert_messages_empty();

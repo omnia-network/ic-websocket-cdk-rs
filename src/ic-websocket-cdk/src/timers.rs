@@ -1,5 +1,6 @@
 use ic_cdk_timers::{clear_timer, TimerId};
 use ic_cdk_timers::{set_timer, set_timer_interval};
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -8,12 +9,19 @@ use crate::state::*;
 use crate::types::*;
 use crate::utils::*;
 
+thread_local! {
+  /// The acknowledgement active timer.
+  /* flexible */ pub(crate) static ACK_TIMER: RefCell<Option<TimerId>> = RefCell::new(None);
+  /// The keep alive active timer.
+  /* flexible */ pub(crate) static KEEP_ALIVE_TIMER: RefCell<Option<TimerId>> = RefCell::new(None);
+}
+
 fn put_ack_timer_id(timer_id: TimerId) {
     ACK_TIMER.with(|timer| timer.borrow_mut().replace(timer_id));
 }
 
-fn reset_ack_timer() {
-    if let Some(t_id) = ACK_TIMER.with(Rc::clone).borrow_mut().take() {
+fn cancel_ack_timer() {
+    if let Some(t_id) = ACK_TIMER.with(|timer| timer.borrow_mut().take()) {
         clear_timer(t_id);
     }
 }
@@ -22,15 +30,15 @@ fn put_keep_alive_timer_id(timer_id: TimerId) {
     KEEP_ALIVE_TIMER.with(|timer| timer.borrow_mut().replace(timer_id));
 }
 
-fn reset_keep_alive_timer() {
-    if let Some(t_id) = KEEP_ALIVE_TIMER.with(Rc::clone).borrow_mut().take() {
+fn cancel_keep_alive_timer() {
+    if let Some(t_id) = KEEP_ALIVE_TIMER.with(|timer| timer.borrow_mut().take()) {
         clear_timer(t_id);
     }
 }
 
-pub(crate) fn reset_timers() {
-    reset_ack_timer();
-    reset_keep_alive_timer();
+pub(crate) fn cancel_timers() {
+    cancel_ack_timer();
+    cancel_keep_alive_timer();
 }
 
 /// Start an interval to send an acknowledgement messages to the clients.

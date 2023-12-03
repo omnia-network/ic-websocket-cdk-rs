@@ -6,7 +6,6 @@ use std::{
 
 use candid::{encode_one, Principal};
 use ic_cdk::api::{data_certificate, set_certified_data};
-use ic_cdk_timers::TimerId;
 use ic_certified_map::{labeled, labeled_hash, AsHashTree, Hash as ICHash, RbTree};
 use serde::Serialize;
 use serde_cbor::Serializer;
@@ -34,10 +33,6 @@ thread_local! {
   /* flexible */ pub(crate) static REGISTERED_GATEWAYS: RefCell<HashMap<GatewayPrincipal, RegisteredGateway>> = RefCell::new(HashMap::new());
   /// The parameters passed in the CDK initialization
   /* flexible */ pub(crate) static PARAMS: RefCell<WsInitParams> = RefCell::new(WsInitParams::default());
-  /// The acknowledgement active timer.
-  /* flexible */ pub(crate) static ACK_TIMER: Rc<RefCell<Option<TimerId>>> = Rc::new(RefCell::new(None));
-  /// The keep alive active timer.
-  /* flexible */ pub(crate) static KEEP_ALIVE_TIMER: Rc<RefCell<Option<TimerId>>> = Rc::new(RefCell::new(None));
 }
 
 /// Resets all RefCells to their initial state.
