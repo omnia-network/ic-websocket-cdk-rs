@@ -81,6 +81,17 @@ pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
         .to_string_result()
     })?;
 
+    // check if there's a client already registered with the same principal
+    // and remove it if there is
+    match get_client_key_from_principal(&client_key.client_principal) {
+        Err(_) => {
+            // Do nothing
+        },
+        Ok(old_client_key) => {
+            remove_client(&old_client_key);
+        },
+    };
+
     // initialize client maps
     let new_client = RegisteredClient::new(args.gateway_principal);
     add_client(client_key.clone(), new_client);

@@ -263,6 +263,9 @@ pub(crate) fn add_client(client_key: ClientKey, new_client: RegisteredClient) {
     increment_gateway_clients_count(new_client.gateway_principal);
 }
 
+/// Removes a client from the internal state
+/// and call the on_close callback,
+/// if the client was registered in the state.
 pub(crate) fn remove_client(client_key: &ClientKey) {
     CLIENTS_WAITING_FOR_KEEP_ALIVE.with(|set| {
         set.borrow_mut().remove(client_key);
@@ -277,14 +280,16 @@ pub(crate) fn remove_client(client_key: &ClientKey) {
         map.borrow_mut().remove(client_key);
     });
 
-    let registered_client =
-        REGISTERED_CLIENTS.with(|map| map.borrow_mut().remove(client_key).unwrap());
-    decrement_gateway_clients_count(&registered_client.gateway_principal);
+    if let Some(registered_client) =
+        REGISTERED_CLIENTS.with(|map| map.borrow_mut().remove(client_key))
+    {
+        decrement_gateway_clients_count(&registered_client.gateway_principal);
 
-    let handlers = get_handlers_from_params();
-    handlers.call_on_close(OnCloseCallbackArgs {
-        client_principal: client_key.client_principal,
-    });
+        let handlers = get_handlers_from_params();
+        handlers.call_on_close(OnCloseCallbackArgs {
+            client_principal: client_key.client_principal,
+        });
+    };
 }
 
 pub(crate) fn format_message_for_gateway_key(

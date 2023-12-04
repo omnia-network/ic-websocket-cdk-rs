@@ -575,6 +575,14 @@ proptest! {
     }
 
     #[test]
+    fn test_remove_client_nonexistent(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key())) {
+        let res = panic::catch_unwind(|| {
+            remove_client(&test_client_key);
+        });
+        prop_assert!(res.is_ok());
+    }
+
+    #[test]
     fn test_remove_client(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key())) {
         // Set up
         CURRENT_CLIENT_KEY_MAP.with(|map| {
