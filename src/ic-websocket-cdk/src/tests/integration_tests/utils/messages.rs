@@ -1,7 +1,17 @@
-use candid::{decode_one, encode_one};
+use candid::{decode_one, encode_one, CandidType};
+use serde::{Deserialize, Serialize};
 
-use super::get_current_timestamp_ns;
+use super::{
+    certification::{is_message_body_valid, is_valid_certificate},
+    get_current_timestamp_ns,
+    test_env::get_test_env,
+};
 use crate::{CanisterOutputMessage, ClientKey, WebsocketMessage, WebsocketServiceMessageContent};
+
+#[derive(CandidType, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct AppMessage {
+    pub text: String,
+}
 
 pub(in crate::tests::integration_tests) fn get_websocket_message_from_canister_message(
     msg: &CanisterOutputMessage,
@@ -61,4 +71,68 @@ pub(in crate::tests::integration_tests) fn get_next_polling_nonce_from_messages(
     messages: Vec<CanisterOutputMessage>,
 ) -> u64 {
     get_polling_nonce_from_message(messages.last().unwrap()) + 1
+}
+
+pub(in crate::tests::integration_tests) fn verify_messages(
+    messages: &Vec<CanisterOutputMessage>,
+    client_key: &ClientKey,
+    cert: &[u8],
+    tree: &[u8],
+    expected_sequence_number: &mut u64,
+    index: &mut u64,
+) {
+    for message in messages.iter() {
+        verify_message(
+            message,
+            client_key,
+            cert,
+            tree,
+            *expected_sequence_number,
+            *index,
+        );
+
+        *expected_sequence_number += 1;
+        *index += 1;
+    }
+}
+
+fn verify_message(
+    message: &CanisterOutputMessage,
+    client_key: &ClientKey,
+    cert: &[u8],
+    tree: &[u8],
+    expected_sequence_number: u64,
+    index: u64,
+) {
+    assert_eq!(message.client_key, *client_key);
+    let websocket_message = decode_websocket_message(&message.content);
+    assert_eq!(websocket_message.client_key, *client_key);
+    assert_eq!(websocket_message.sequence_num, expected_sequence_number);
+    assert!(websocket_message.timestamp <= get_test_env().get_canister_time());
+
+    if websocket_message.is_service_message {
+        let decoded_content: WebsocketServiceMessageContent =
+            decode_one(&websocket_message.content).unwrap();
+        assert!(
+            matches!(
+                decoded_content,
+                WebsocketServiceMessageContent::AckMessage { .. }
+            ) || matches!(
+                decoded_content,
+                WebsocketServiceMessageContent::OpenMessage { .. }
+            )
+        );
+    } else {
+        let decoded_content: AppMessage = decode_one(&websocket_message.content).unwrap();
+        assert_eq!(
+            decoded_content,
+            AppMessage {
+                text: format!("test{}", index),
+            }
+        );
+    }
+
+    // check the certification
+    assert!(is_valid_certificate(&get_test_env(), cert, tree,));
+    assert!(is_message_body_valid(&message.key, &message.content, tree));
 }

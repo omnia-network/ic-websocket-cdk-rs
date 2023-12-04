@@ -23,6 +23,7 @@ type CanisterOutputCertifiedMessages = record {
   messages : vec CanisterOutputMessage;
   cert : blob;
   tree : blob;
+  is_end_of_queue : bool;
 };
 
 type CanisterWsOpenArguments = record {

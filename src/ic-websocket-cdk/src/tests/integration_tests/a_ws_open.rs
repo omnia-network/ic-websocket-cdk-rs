@@ -2,16 +2,17 @@ use proptest::prelude::*;
 use std::ops::Deref;
 
 use crate::{
-    CanisterOutputCertifiedMessages, CanisterOutputMessage, CanisterWsGetMessagesArguments,
-    CanisterWsGetMessagesResult, CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey,
-    WebsocketServiceMessageContent,
+    errors::WsError, CanisterOutputCertifiedMessages, CanisterOutputMessage,
+    CanisterWsGetMessagesArguments, CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey,
+    WebsocketServiceMessageContent, DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES,
 };
 use candid::Principal;
 
 use super::utils::{
-    actor::{ws_get_messages::call_ws_get_messages, ws_open::call_ws_open},
+    actor::{ws_get_messages::call_ws_get_messages_with_panic, ws_open::call_ws_open},
     clients::{generate_random_client_nonce, CLIENT_1_KEY, GATEWAY_1},
     messages::get_service_message_content_from_canister_message,
+    test_env::get_test_env,
 };
 
 #[test]
@@ -23,27 +24,12 @@ fn test_1_fail_for_an_anonymous_client() {
     let res = call_ws_open(&Principal::anonymous(), args);
     assert_eq!(
         res,
-        CanisterWsOpenResult::Err(String::from("anonymous principal cannot open a connection")),
+        CanisterWsOpenResult::Err(WsError::AnonymousPrincipalNotAllowed.to_string()),
     );
 }
 
 #[test]
-fn test_2_fails_for_the_registered_gateway() {
-    let args = CanisterWsOpenArguments {
-        client_nonce: generate_random_client_nonce(),
-        gateway_principal: GATEWAY_1.deref().to_owned(),
-    };
-    let res = call_ws_open(GATEWAY_1.deref(), args);
-    assert_eq!(
-        res,
-        CanisterWsOpenResult::Err(String::from(
-            "caller is the registered gateway which can't open a connection for itself",
-        )),
-    );
-}
-
-#[test]
-fn test_3_should_open_a_connection() {
+fn test_2_should_open_a_connection() {
     let client_1_key = CLIENT_1_KEY.deref();
     let args = CanisterWsOpenArguments {
         client_nonce: client_1_key.client_nonce,
@@ -52,29 +38,24 @@ fn test_3_should_open_a_connection() {
     let res = call_ws_open(&client_1_key.client_principal, args);
     assert_eq!(res, CanisterWsOpenResult::Ok(()));
 
-    let msgs = call_ws_get_messages(
+    let CanisterOutputCertifiedMessages { messages, .. } = call_ws_get_messages_with_panic(
         GATEWAY_1.deref(),
         CanisterWsGetMessagesArguments { nonce: 0 },
     );
 
-    match msgs {
-        CanisterWsGetMessagesResult::Ok(CanisterOutputCertifiedMessages { messages, .. }) => {
-            let first_message = &messages[0];
-            assert_eq!(first_message.client_key, *client_1_key);
-            let open_message = get_service_message_content_from_canister_message(first_message);
-            match open_message {
-                WebsocketServiceMessageContent::OpenMessage(open_message) => {
-                    assert_eq!(open_message.client_key, *client_1_key);
-                },
-                _ => panic!("Expected OpenMessage"),
-            }
+    let first_message = &messages[0];
+    assert_eq!(first_message.client_key, *client_1_key);
+    let open_message = get_service_message_content_from_canister_message(first_message);
+    match open_message {
+        WebsocketServiceMessageContent::OpenMessage(open_message) => {
+            assert_eq!(open_message.client_key, *client_1_key);
         },
-        _ => panic!("Expected Ok result"),
+        _ => panic!("Expected OpenMessage"),
     }
 }
 
 #[test]
-fn test_4_fails_for_a_client_with_the_same_nonce() {
+fn test_3_fails_for_a_client_with_the_same_nonce() {
     let client_1_key = CLIENT_1_KEY.deref();
     let args = CanisterWsOpenArguments {
         client_nonce: client_1_key.client_nonce,
@@ -83,15 +64,24 @@ fn test_4_fails_for_a_client_with_the_same_nonce() {
     let res = call_ws_open(&client_1_key.client_principal, args);
     assert_eq!(
         res,
-        CanisterWsOpenResult::Err(String::from(format!(
-            "client with key {client_1_key} already has an open connection"
-        ))),
+        CanisterWsOpenResult::Err(
+            WsError::ClientKeyAlreadyConnected {
+                client_key: client_1_key
+            }
+            .to_string()
+        ),
     );
+
+    // reset canister for the next test
+    get_test_env().reset_canister_with_default_params();
 }
 
 proptest! {
+    // avoid going over the max returned messages limit by using `DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES`
+    #![proptest_config(ProptestConfig::with_cases(DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES as u32))]
+
     #[test]
-    fn test_5_should_open_a_connection_for_the_same_client_with_a_different_nonce(test_client_nonce in any::<u64>().prop_map(|_| generate_random_client_nonce())) {
+    fn test_4_should_open_a_connection_for_the_same_client_with_a_different_nonce(test_client_nonce in any::<u64>().prop_map(|_| generate_random_client_nonce())) {
         let client_key = ClientKey {
             client_principal: CLIENT_1_KEY.deref().client_principal,
             client_nonce: test_client_nonce,
@@ -103,29 +93,23 @@ proptest! {
         let res = call_ws_open(&client_key.client_principal, args);
         assert_eq!(res, CanisterWsOpenResult::Ok(()));
 
-        let msgs = call_ws_get_messages(
+        let CanisterOutputCertifiedMessages { messages, .. } = call_ws_get_messages_with_panic(
             GATEWAY_1.deref(),
             CanisterWsGetMessagesArguments { nonce: 0 },
         );
 
-        match msgs {
-            CanisterWsGetMessagesResult::Ok(messages) => {
-                let service_message_for_client = messages
-                    .messages
-                    .iter()
-                    .filter(|msg| msg.client_key == client_key)
-                    .collect::<Vec<&CanisterOutputMessage>>()[0];
+        let service_message_for_client = messages
+            .iter()
+            .filter(|msg| msg.client_key == client_key)
+            .collect::<Vec<&CanisterOutputMessage>>()[0];
 
-                let open_message =
-                    get_service_message_content_from_canister_message(service_message_for_client);
-                match open_message {
-                    WebsocketServiceMessageContent::OpenMessage(open_message) => {
-                        assert_eq!(open_message.client_key, client_key);
-                    },
-                    _ => panic!("Expected OpenMessage"),
-                }
+        let open_message =
+            get_service_message_content_from_canister_message(service_message_for_client);
+        match open_message {
+            WebsocketServiceMessageContent::OpenMessage(open_message) => {
+                assert_eq!(open_message.client_key, client_key);
             },
-            _ => panic!("Expected Ok result"),
+            _ => panic!("Expected OpenMessage"),
         }
     }
 }

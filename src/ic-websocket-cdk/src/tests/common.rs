@@ -14,13 +14,7 @@ pub(super) fn generate_random_principal() -> Principal {
     let key_pair = generate_random_key_pair();
     let identity = BasicIdentity::from_key_pair(key_pair);
 
-    // workaround to keep the principal in the version of candid used by the canister
-    Principal::from_text(identity.sender().unwrap().to_text()).unwrap()
-}
-
-pub(super) fn get_static_principal() -> Principal {
-    Principal::from_text("wnkwv-wdqb5-7wlzr-azfpw-5e5n5-dyxrf-uug7x-qxb55-mkmpa-5jqik-tqe").unwrap()
-    // a random static but valid principal
+    identity.sender().unwrap()
 }
 
 pub(super) fn get_random_client_key() -> ClientKey {

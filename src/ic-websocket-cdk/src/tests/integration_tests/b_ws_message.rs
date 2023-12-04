@@ -3,7 +3,7 @@ use std::ops::Deref;
 use candid::encode_one;
 
 use crate::{
-    tests::common::generate_random_principal, CanisterAckMessageContent,
+    errors::WsError, tests::common::generate_random_principal, CanisterAckMessageContent,
     CanisterWsMessageArguments, CanisterWsMessageResult, ClientKeepAliveMessageContent, ClientKey,
     WebsocketServiceMessageContent,
 };
@@ -32,10 +32,12 @@ fn test_1_fails_if_client_is_not_registered() {
 
     assert_eq!(
         res,
-        CanisterWsMessageResult::Err(String::from(format!(
-            "client with principal {} doesn't have an open connection",
-            client_2_key.client_principal,
-        ))),
+        CanisterWsMessageResult::Err(
+            WsError::ClientPrincipalNotConnected {
+                client_principal: &client_2_key.client_principal
+            }
+            .to_string()
+        ),
     );
 }
 
@@ -43,50 +45,48 @@ fn test_1_fails_if_client_is_not_registered() {
 fn test_2_fails_if_client_sends_a_message_with_a_different_client_key() {
     let client_1_key = CLIENT_1_KEY.deref();
 
+    let wrong_client_key = ClientKey {
+        client_principal: generate_random_principal(),
+        ..client_1_key.clone()
+    };
+
     // first, send a message with a different principal
     let res = call_ws_message(
         &client_1_key.client_principal,
         CanisterWsMessageArguments {
-            msg: create_websocket_message(
-                &ClientKey {
-                    client_principal: generate_random_principal(),
-                    ..client_1_key.clone()
-                },
-                0,
-                None,
-                false,
-            ),
+            msg: create_websocket_message(&wrong_client_key, 0, None, false),
         },
     );
     assert_eq!(
         res,
-        CanisterWsMessageResult::Err(String::from(format!(
-            "client with principal {} has a different key than the one used in the message",
-            client_1_key.client_principal,
-        )))
+        CanisterWsMessageResult::Err(
+            WsError::ClientKeyMessageMismatch {
+                client_key: &wrong_client_key
+            }
+            .to_string()
+        )
     );
+
+    let wrong_client_key = ClientKey {
+        client_nonce: generate_random_client_nonce(),
+        ..client_1_key.clone()
+    };
 
     // then, send a message with a different nonce
     let res = call_ws_message(
         &client_1_key.client_principal,
         CanisterWsMessageArguments {
-            msg: create_websocket_message(
-                &ClientKey {
-                    client_nonce: generate_random_client_nonce(),
-                    ..client_1_key.clone()
-                },
-                0,
-                None,
-                false,
-            ),
+            msg: create_websocket_message(&wrong_client_key, 0, None, false),
         },
     );
     assert_eq!(
         res,
-        CanisterWsMessageResult::Err(String::from(format!(
-            "client with principal {} has a different key than the one used in the message",
-            client_1_key.client_principal,
-        )))
+        CanisterWsMessageResult::Err(
+            WsError::ClientKeyMessageMismatch {
+                client_key: &wrong_client_key
+            }
+            .to_string()
+        )
     );
 }
 
@@ -113,9 +113,16 @@ fn test_4_fails_if_client_sends_a_message_with_a_wrong_sequence_number() {
             msg: create_websocket_message(client_1_key, wrong_sequence_number, None, false),
         },
     );
-    assert_eq!(res, CanisterWsMessageResult::Err(String::from(
-        format!("incoming client's message does not have the expected sequence number. Expected: {expected_sequence_number}, actual: {wrong_sequence_number}. Client removed."))
-    ));
+    assert_eq!(
+        res,
+        CanisterWsMessageResult::Err(
+            WsError::IncomingSequenceNumberWrong {
+                expected_sequence_num: expected_sequence_number,
+                actual_sequence_num: wrong_sequence_number
+            }
+            .to_string()
+        )
+    );
 
     // check if the client has been removed
     let res = call_ws_message(
@@ -126,10 +133,12 @@ fn test_4_fails_if_client_sends_a_message_with_a_wrong_sequence_number() {
     );
     assert_eq!(
         res,
-        CanisterWsMessageResult::Err(String::from(format!(
-            "client with principal {} doesn't have an open connection",
-            client_1_key.client_principal,
-        ),))
+        CanisterWsMessageResult::Err(
+            WsError::ClientPrincipalNotConnected {
+                client_principal: &client_1_key.client_principal
+            }
+            .to_string()
+        )
     )
 }
 
@@ -151,12 +160,8 @@ fn test_5_fails_if_client_sends_a_wrong_service_message() {
             ),
         },
     );
-    match res {
-        CanisterWsMessageResult::Err(err) => {
-            assert!(err.starts_with("Error decoding service message content:"))
-        },
-        _ => panic!("unexpected result"),
-    };
+    let err = res.err().unwrap();
+    assert!(err.starts_with("Error decoding service message content:"));
 
     // fail with wrong service message variant
     let wrong_service_message =
@@ -178,7 +183,7 @@ fn test_5_fails_if_client_sends_a_wrong_service_message() {
     );
     assert_eq!(
         res,
-        CanisterWsMessageResult::Err(String::from("Invalid received service message"))
+        CanisterWsMessageResult::Err(WsError::InvalidServiceMessage.to_string())
     );
 }
 
