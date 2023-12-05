@@ -1,13 +1,13 @@
-use std::{collections::VecDeque, fmt, panic, time::Duration};
+use std::{collections::VecDeque, fmt, time::Duration};
 
 use candid::{decode_one, CandidType, Principal};
 use serde::{Deserialize, Serialize};
 use serde_cbor::Serializer;
 
 use crate::{
-    custom_print, custom_trap, errors::WsError, utils::get_current_time,
-    DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS, DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES,
-    DEFAULT_SEND_ACK_INTERVAL_MS, INITIAL_OUTGOING_MESSAGE_NONCE,
+    custom_trap, errors::WsError, utils::get_current_time, DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS,
+    DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES, DEFAULT_SEND_ACK_INTERVAL_MS,
+    INITIAL_OUTGOING_MESSAGE_NONCE,
 };
 
 pub type ClientPrincipal = Principal;
@@ -340,37 +340,23 @@ pub struct WsHandlers {
 impl WsHandlers {
     pub(crate) fn call_on_open(&self, args: OnOpenCallbackArgs) {
         if let Some(on_open) = self.on_open {
-            let res = panic::catch_unwind(|| {
-                on_open(args);
-            });
-
-            if let Err(e) = res {
-                custom_print!("Error calling on_open handler: {:?}", e);
-            }
+            // we don't have to recover from errors here,
+            // we just let the canister trap
+            on_open(args);
         }
     }
 
     pub(crate) fn call_on_message(&self, args: OnMessageCallbackArgs) {
         if let Some(on_message) = self.on_message {
-            let res = panic::catch_unwind(|| {
-                on_message(args);
-            });
-
-            if let Err(e) = res {
-                custom_print!("Error calling on_message handler: {:?}", e);
-            }
+            // see call_on_open
+            on_message(args);
         }
     }
 
     pub(crate) fn call_on_close(&self, args: OnCloseCallbackArgs) {
         if let Some(on_close) = self.on_close {
-            let res = panic::catch_unwind(|| {
-                on_close(args);
-            });
-
-            if let Err(e) = res {
-                custom_print!("Error calling on_close handler: {:?}", e);
-            }
+            // see call_on_open
+            on_close(args);
         }
     }
 }

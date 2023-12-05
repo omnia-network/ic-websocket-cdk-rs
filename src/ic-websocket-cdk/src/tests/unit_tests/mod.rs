@@ -107,45 +107,6 @@ fn test_ws_handlers_are_called() {
 }
 
 #[test]
-fn test_ws_handlers_panic_is_handled() {
-    let h = WsHandlers {
-        on_open: Some(|_| {
-            panic!("on_open_panic");
-        }),
-        on_message: Some(|_| {
-            panic!("on_close_panic");
-        }),
-        on_close: Some(|_| {
-            panic!("on_close_panic");
-        }),
-    };
-
-    set_params(WsInitParams::new(h));
-
-    let handlers = get_handlers_from_params();
-
-    let res = panic::catch_unwind(|| {
-        handlers.call_on_open(OnOpenCallbackArgs {
-            client_principal: common::generate_random_principal(),
-        });
-    });
-    assert!(res.is_ok());
-    let res = panic::catch_unwind(|| {
-        handlers.call_on_message(OnMessageCallbackArgs {
-            client_principal: common::generate_random_principal(),
-            message: vec![],
-        });
-    });
-    assert!(res.is_ok());
-    let res = panic::catch_unwind(|| {
-        handlers.call_on_close(OnCloseCallbackArgs {
-            client_principal: common::generate_random_principal(),
-        });
-    });
-    assert!(res.is_ok());
-}
-
-#[test]
 fn test_ws_init_params() {
     let handlers = WsHandlers::default();
 
