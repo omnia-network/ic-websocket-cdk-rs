@@ -173,7 +173,7 @@ impl RegisteredGateway {
 
     /// Decrements the connected clients count by 1, returning the new value.
     pub(crate) fn decrement_clients_count(&mut self) -> u64 {
-        self.connected_clients_count -= 1;
+        self.connected_clients_count = self.connected_clients_count.saturating_sub(1);
         self.connected_clients_count
     }
 
