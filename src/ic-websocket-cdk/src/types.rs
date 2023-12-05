@@ -263,6 +263,23 @@ pub(crate) struct ClientKeepAliveMessageContent {
     pub(crate) last_incoming_sequence_num: u64,
 }
 
+#[derive(CandidType, Clone, Debug, Deserialize, PartialEq, Eq)]
+pub(crate) enum CloseMessageReason {
+    /// When the canister receives a wrong sequence number from the client.
+    WrongSequenceNumber,
+    /// When the canister receives an invalid service message from the client.
+    InvalidServiceMessage,
+    /// When the canister doesn't receive the keep alive message from the client in time.
+    KeepAliveTimeout,
+    /// When the developer calls the `close` function.
+    ClosedByApplication,
+}
+
+#[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
+pub(crate) struct CanisterCloseMessageContent {
+    pub(crate) reason: CloseMessageReason,
+}
+
 /// A service message sent by the CDK to the client or vice versa.
 #[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
 pub(crate) enum WebsocketServiceMessageContent {
@@ -272,6 +289,8 @@ pub(crate) enum WebsocketServiceMessageContent {
     AckMessage(CanisterAckMessageContent),
     /// Message sent by the **client** in response to an acknowledgement message from the canister.
     KeepAliveMessage(ClientKeepAliveMessageContent),
+    /// Message sent by the **canister** when it wants to close the connection.
+    CloseMessage(CanisterCloseMessageContent),
 }
 
 impl WebsocketServiceMessageContent {

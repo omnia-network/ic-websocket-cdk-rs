@@ -88,7 +88,7 @@ pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
             // Do nothing
         },
         Ok(old_client_key) => {
-            remove_client(&old_client_key);
+            remove_client(&old_client_key, None);
         },
     };
 
@@ -124,7 +124,7 @@ pub fn ws_close(args: CanisterWsCloseArguments) -> CanisterWsCloseResult {
     // check if the client is registered to the gateway that is closing the connection
     check_client_registered_to_gateway(&args.client_key, &gateway_principal)?;
 
-    remove_client(&args.client_key);
+    remove_client(&args.client_key, None);
 
     Ok(())
 }
@@ -188,7 +188,7 @@ pub fn ws_message<T: CandidType + for<'a> Deserialize<'a>>(
         .eq(&expected_sequence_num)
         .then_some(())
         .ok_or_else(|| {
-            remove_client(&client_key);
+            remove_client(&client_key, Some(CloseMessageReason::WrongSequenceNumber));
 
             WsError::IncomingSequenceNumberWrong {
                 expected_sequence_num,

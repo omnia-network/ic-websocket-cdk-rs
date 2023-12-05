@@ -5,6 +5,7 @@ use std::{
 };
 
 use candid::{encode_one, Principal};
+#[allow(unused_imports)]
 use ic_cdk::api::{data_certificate, set_certified_data};
 use ic_certified_map::{labeled, labeled_hash, AsHashTree, Hash as ICHash, RbTree};
 use serde::Serialize;
@@ -44,7 +45,7 @@ pub(crate) fn reset_internal_state() {
 
     // for each client, call the on_close handler before clearing the map
     for client_key in client_keys_to_remove {
-        remove_client(&client_key);
+        remove_client(&client_key, None);
     }
 
     // make sure all the maps are cleared
@@ -79,16 +80,22 @@ pub(crate) fn increment_gateway_clients_count(gateway_principal: GatewayPrincipa
     });
 }
 
-/// Decrements the clients connected count for the given gateway.
-/// If there are no more clients connected, the gateway is removed from the list of registered gateways.
-pub(crate) fn decrement_gateway_clients_count(gateway_principal: &GatewayPrincipal) {
+/// Decrements the clients connected count for the given gateway, if it exists.
+///
+/// If `remove_if_empty` is true, the gateway is removed from the list of registered gateways
+/// if it has no clients connected.
+pub(crate) fn decrement_gateway_clients_count(
+    gateway_principal: &GatewayPrincipal,
+    remove_if_empty: bool,
+) {
     REGISTERED_GATEWAYS.with(|map| {
         let mut map = map.borrow_mut();
-        let g = map.get_mut(gateway_principal).unwrap(); // gateway must be registered at this point
-        let clients_count = g.decrement_clients_count();
+        if let Some(g) = map.get_mut(gateway_principal) {
+            let clients_count = g.decrement_clients_count();
 
-        if clients_count == 0 {
-            map.remove(gateway_principal);
+            if remove_if_empty && clients_count == 0 {
+                map.remove(gateway_principal);
+            }
         }
     });
 }
@@ -266,7 +273,23 @@ pub(crate) fn add_client(client_key: ClientKey, new_client: RegisteredClient) {
 /// Removes a client from the internal state
 /// and call the on_close callback,
 /// if the client was registered in the state.
-pub(crate) fn remove_client(client_key: &ClientKey) {
+///
+/// If a `close_reason` is provided, it also sends a close message to the client,
+/// so that the client can close the WS connection with the gateway.
+///
+/// If a `close_reason` is **not** provided, it also removes the gateway from the state
+/// if it has no clients connected anymore.
+pub(crate) fn remove_client(client_key: &ClientKey, close_reason: Option<CloseMessageReason>) {
+    if let Some(close_reason) = close_reason.clone() {
+        // ignore the error
+        let _ = send_service_message_to_client(
+            client_key,
+            &WebsocketServiceMessageContent::CloseMessage(CanisterCloseMessageContent {
+                reason: close_reason,
+            }),
+        );
+    }
+
     CLIENTS_WAITING_FOR_KEEP_ALIVE.with(|set| {
         set.borrow_mut().remove(client_key);
     });
@@ -283,7 +306,10 @@ pub(crate) fn remove_client(client_key: &ClientKey) {
     if let Some(registered_client) =
         REGISTERED_CLIENTS.with(|map| map.borrow_mut().remove(client_key))
     {
-        decrement_gateway_clients_count(&registered_client.gateway_principal);
+        decrement_gateway_clients_count(
+            &registered_client.gateway_principal,
+            close_reason.is_none(),
+        );
 
         let handlers = get_handlers_from_params();
         handlers.call_on_close(OnCloseCallbackArgs {
@@ -383,12 +409,15 @@ pub(crate) fn get_cert_messages_empty() -> CanisterWsGetMessagesResult {
 }
 
 fn put_cert_for_message(key: String, value: &Vec<u8>) {
+    #[allow(unused_variables)]
     let root_hash = CERT_TREE.with(|tree| {
         let mut tree = tree.borrow_mut();
         tree.insert(key.clone(), Sha256::digest(value).into());
         labeled_hash(LABEL_WEBSOCKET, &tree.root_hash())
     });
 
+    #[cfg(not(test))]
+    // executing this in tests fails because the tree is an IC-specific implementation
     set_certified_data(&root_hash);
 }
 
@@ -419,9 +448,6 @@ pub(crate) fn delete_old_messages_for_gateway(
 ) -> Result<(), String> {
     let ack_interval_ms = get_params().send_ack_interval_ms;
 
-    // allow unused variables because sometimes the compiler complains about unused variables
-    // since it is only used in production code
-    #[allow(unused_variables)]
     let deleted_messages_keys = REGISTERED_GATEWAYS.with(|map| {
         map.borrow_mut()
             .get_mut(gateway_principal)
@@ -429,8 +455,6 @@ pub(crate) fn delete_old_messages_for_gateway(
             .and_then(|g| Ok(g.delete_old_messages(MESSAGES_TO_DELETE_COUNT, ack_interval_ms)))
     })?;
 
-    #[cfg(not(test))]
-    // executing this in tests fails because the tree is an IC-specific implementation
     CERT_TREE.with(|tree| {
         for key in deleted_messages_keys {
             tree.borrow_mut().delete(key.as_ref());
@@ -487,7 +511,8 @@ pub(crate) fn handle_received_service_message(
     let decoded = WebsocketServiceMessageContent::from_candid_bytes(content)?;
     match decoded {
         WebsocketServiceMessageContent::OpenMessage(_)
-        | WebsocketServiceMessageContent::AckMessage(_) => {
+        | WebsocketServiceMessageContent::AckMessage(_)
+        | WebsocketServiceMessageContent::CloseMessage(_) => {
             WsError::InvalidServiceMessage.to_string_result()
         },
         WebsocketServiceMessageContent::KeepAliveMessage(keep_alive_message) => {

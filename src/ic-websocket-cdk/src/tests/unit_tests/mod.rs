@@ -3,6 +3,7 @@ use std::{cell::RefCell, panic};
 use super::common;
 use crate::utils::get_current_time;
 use crate::*;
+use candid::decode_one;
 use proptest::prelude::*;
 
 mod utils;
@@ -206,7 +207,29 @@ proptest! {
         while clients_count > 0 {
             let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_gateway_principal).cloned()).unwrap();
             prop_assert_eq!(registered_gateway.connected_clients_count, clients_count);
-            decrement_gateway_clients_count(&test_gateway_principal);
+            decrement_gateway_clients_count(&test_gateway_principal, false);
+            clients_count -= 1;
+        }
+
+        let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_gateway_principal).cloned());
+        prop_assert!(registered_gateway.is_some());
+    }
+
+    #[test]
+    fn test_decrement_gateway_clients_count_and_remove_gateway(test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal()), test_connected_clients_count in (1..1000u64)) {
+        // Set up
+        REGISTERED_GATEWAYS.with(|n| {
+            let mut gw = RegisteredGateway::new();
+            gw.connected_clients_count = test_connected_clients_count;
+            n.borrow_mut().insert(test_gateway_principal, gw);
+        });
+
+        // Test
+        let mut clients_count = test_connected_clients_count;
+        while clients_count > 0 {
+            let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_gateway_principal).cloned()).unwrap();
+            prop_assert_eq!(registered_gateway.connected_clients_count, clients_count);
+            decrement_gateway_clients_count(&test_gateway_principal, true);
             clients_count -= 1;
         }
 
@@ -538,7 +561,7 @@ proptest! {
     #[test]
     fn test_remove_client_nonexistent(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key())) {
         let res = panic::catch_unwind(|| {
-            remove_client(&test_client_key);
+            remove_client(&test_client_key, None);
         });
         prop_assert!(res.is_ok());
     }
@@ -566,7 +589,7 @@ proptest! {
             map.borrow_mut().insert(test_client_key.clone(), INITIAL_CANISTER_SEQUENCE_NUM);
         });
 
-        remove_client(&test_client_key);
+        remove_client(&test_client_key, None);
 
         let client_key = CURRENT_CLIENT_KEY_MAP.with(|map| map.borrow().get(&test_client_key.client_principal).cloned());
         prop_assert!(client_key.is_none());
@@ -576,6 +599,57 @@ proptest! {
 
         let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_registered_client.gateway_principal).cloned());
         prop_assert!(registered_gateway.is_none());
+
+        let incoming_seq_num = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).cloned());
+        prop_assert!(incoming_seq_num.is_none());
+
+        let outgoing_seq_num = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).cloned());
+        prop_assert!(outgoing_seq_num.is_none());
+    }
+
+    #[test]
+    fn test_remove_client_with_reason(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key())) {
+        // Set up
+        CURRENT_CLIENT_KEY_MAP.with(|map| {
+            map.borrow_mut().insert(test_client_key.client_principal.clone(), test_client_key.clone());
+        });
+        let test_registered_client = utils::generate_random_registered_client();
+        REGISTERED_CLIENTS.with(|map| {
+            map.borrow_mut().insert(test_client_key.clone(), test_registered_client.clone());
+        });
+        REGISTERED_GATEWAYS.with(|map| {
+            let mut gw = RegisteredGateway::new();
+            gw.connected_clients_count = 1;
+            map.borrow_mut()
+                .insert(test_registered_client.gateway_principal, gw);
+        });
+        INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
+            map.borrow_mut().insert(test_client_key.clone(), INITIAL_CLIENT_SEQUENCE_NUM);
+        });
+        OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
+            map.borrow_mut().insert(test_client_key.clone(), INITIAL_CANISTER_SEQUENCE_NUM);
+        });
+
+        remove_client(&test_client_key, Some(CloseMessageReason::ClosedByApplication));
+
+        let client_key = CURRENT_CLIENT_KEY_MAP.with(|map| map.borrow().get(&test_client_key.client_principal).cloned());
+        prop_assert!(client_key.is_none());
+
+        let registered_client = REGISTERED_CLIENTS.with(|map| map.borrow().get(&test_client_key).cloned());
+        prop_assert!(registered_client.is_none());
+
+        let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_registered_client.gateway_principal).cloned()).unwrap();
+        prop_assert!(registered_gateway.connected_clients_count == 0);
+        let expected_websocket_message: WebsocketMessage = serde_cbor::from_slice(&registered_gateway.messages_queue[0].content).unwrap();
+        let expected_service_content = decode_one(&expected_websocket_message.content).unwrap();
+        assert!(
+            matches!(
+                expected_service_content,
+                WebsocketServiceMessageContent::CloseMessage(CanisterCloseMessageContent{
+                    reason: CloseMessageReason::ClosedByApplication
+                }),
+            )
+        );
 
         let incoming_seq_num = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).cloned());
         prop_assert!(incoming_seq_num.is_none());

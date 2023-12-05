@@ -133,7 +133,7 @@ fn check_keep_alive_timer_callback(keep_alive_timeout_ms: u64) {
         .collect();
 
     for client_key in client_keys_to_remove {
-        remove_client(&client_key);
+        remove_client(&client_key, Some(CloseMessageReason::KeepAliveTimeout));
 
         custom_print!(
           "[check-keep-alive-timer-cb]: Client {} has not sent a keep alive message in the last {} ms and has been removed",
