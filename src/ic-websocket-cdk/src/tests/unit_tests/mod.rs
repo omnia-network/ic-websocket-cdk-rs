@@ -4,6 +4,7 @@ use super::common;
 use crate::utils::get_current_time;
 use crate::*;
 use candid::decode_one;
+use ic_certified_map::RbTree;
 use proptest::prelude::*;
 
 mod utils;
@@ -868,6 +869,19 @@ proptest! {
     }
 
     #[test]
+    fn test_put_cert_for_message(test_key in any::<u64>().prop_map(|_| utils::generate_random_message_key(&common::generate_random_principal()))) {
+        // Set up
+        CERT_TREE.with(|tree| tree.replace(RbTree::new()));
+
+        // Test
+        put_cert_for_message(test_key.clone(), &vec![1,2,3]); // we don't care about the value here
+        prop_assert!(CERT_TREE.with(|tree| tree.borrow().get(&test_key.as_bytes()).is_some()));
+
+        // Clean up
+        CERT_TREE.with(|tree| tree.replace(RbTree::new()));
+    }
+
+    #[test]
     fn test_delete_old_messages_for_gateway_nonexistent_gateway(gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
         let res = delete_old_messages_for_gateway(&gateway_principal);
         prop_assert_eq!(
@@ -944,5 +958,21 @@ proptest! {
         });
         prop_assert_eq!(registered_gateway.messages_queue.len(), expected_messages_left_count);
         prop_assert_eq!(registered_gateway.messages_to_delete.len(), expected_messages_left_count);
+    }
+
+    #[test]
+    fn test_delete_keys_from_cert_tree(test_keys in any::<Vec<u64>>().prop_map(|v| v.iter().map(|_| utils::generate_random_message_key(&common::generate_random_principal())).collect::<Vec<String>>())) {
+        // Set up
+        CERT_TREE.with(|tree| {
+            let mut tree = tree.borrow_mut();
+            for key in test_keys.clone() {
+                tree.insert(key.clone(), [0u8; 32]); // we don't care about the value here
+            }
+        });
+        prop_assert_eq!(CERT_TREE.with(|tree| tree.borrow().iter().count()), test_keys.len());
+
+        // Test
+        delete_keys_from_cert_tree(test_keys);
+        prop_assert_eq!(CERT_TREE.with(|tree| tree.borrow().iter().count()), 0);
     }
 }

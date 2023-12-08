@@ -29,7 +29,7 @@ thread_local! {
   /// Maps the client's key to the expected sequence number of the next incoming message (from that client).
   /* flexible */ pub(crate) static INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP: RefCell<HashMap<ClientKey, u64>> = RefCell::new(HashMap::new());
   /// Keeps track of the Merkle tree used for certified queries
-  /* flexible */ static CERT_TREE: RefCell<RbTree<String, ICHash>> = RefCell::new(RbTree::new());
+  /* flexible */ pub(crate) static CERT_TREE: RefCell<RbTree<String, ICHash>> = RefCell::new(RbTree::new());
   /// Keeps track of the principals of the WS Gateways that poll the canister
   /* flexible */ pub(crate) static REGISTERED_GATEWAYS: RefCell<HashMap<GatewayPrincipal, RegisteredGateway>> = RefCell::new(HashMap::new());
   /// The parameters passed in the CDK initialization
@@ -88,16 +88,24 @@ pub(crate) fn decrement_gateway_clients_count(
     gateway_principal: &GatewayPrincipal,
     remove_if_empty: bool,
 ) {
-    REGISTERED_GATEWAYS.with(|map| {
+    let messages_keys_to_delete = REGISTERED_GATEWAYS.with(|map| {
         let mut map = map.borrow_mut();
         if let Some(g) = map.get_mut(gateway_principal) {
             let clients_count = g.decrement_clients_count();
 
             if remove_if_empty && clients_count == 0 {
-                map.remove(gateway_principal);
+                let g = map.remove(gateway_principal).unwrap();
+
+                return Some(g.messages_queue.iter().map(|m| m.key.clone()).collect());
             }
         }
+
+        None
     });
+
+    if let Some(messages_keys_to_delete) = messages_keys_to_delete {
+        delete_keys_from_cert_tree(messages_keys_to_delete);
+    }
 }
 
 pub(crate) fn get_registered_gateway(
@@ -408,7 +416,7 @@ pub(crate) fn get_cert_messages_empty() -> CanisterWsGetMessagesResult {
     Ok(CanisterOutputCertifiedMessages::empty())
 }
 
-fn put_cert_for_message(key: String, value: &Vec<u8>) {
+pub(crate) fn put_cert_for_message(key: String, value: &Vec<u8>) {
     #[allow(unused_variables)]
     let root_hash = CERT_TREE.with(|tree| {
         let mut tree = tree.borrow_mut();
@@ -417,7 +425,7 @@ fn put_cert_for_message(key: String, value: &Vec<u8>) {
     });
 
     #[cfg(not(test))]
-    // executing this in tests fails because the tree is an IC-specific implementation
+    // executing this in unit tests fails because it's an IC-specific API
     set_certified_data(&root_hash);
 }
 
@@ -455,13 +463,25 @@ pub(crate) fn delete_old_messages_for_gateway(
             .and_then(|g| Ok(g.delete_old_messages(MESSAGES_TO_DELETE_COUNT, ack_interval_ms)))
     })?;
 
-    CERT_TREE.with(|tree| {
-        for key in deleted_messages_keys {
-            tree.borrow_mut().delete(key.as_ref());
-        }
-    });
+    delete_keys_from_cert_tree(deleted_messages_keys);
 
     Ok(())
+}
+
+pub(crate) fn delete_keys_from_cert_tree(keys: Vec<String>) {
+    #[allow(unused_variables)]
+    let root_hash = CERT_TREE.with(|tree| {
+        let mut tree = tree.borrow_mut();
+        for key in keys {
+            tree.delete(key.as_ref());
+        }
+        labeled_hash(LABEL_WEBSOCKET, &tree.root_hash())
+    });
+
+    // certify data with the new root hash
+    #[cfg(not(test))]
+    // executing this in unit tests fails because it's an IC-specific API
+    set_certified_data(&root_hash);
 }
 
 fn get_cert_for_range(first: &String, last: &String) -> (Vec<u8>, Vec<u8>) {

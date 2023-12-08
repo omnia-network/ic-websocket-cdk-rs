@@ -44,3 +44,7 @@ pub fn initialize_params() {
         ..Default::default()
     });
 }
+
+pub fn generate_random_message_key(gateway_principal: &GatewayPrincipal) -> String {
+    format_message_for_gateway_key(gateway_principal, rand::random())
+}
