@@ -7,9 +7,9 @@ use crate::{
 
 use super::utils::{
     actor::{
-        ws_close::call_ws_close_with_panic, ws_get_messages::call_ws_get_messages_with_panic,
+        send::call_send_with_panic, ws_close::call_ws_close_with_panic,
+        ws_get_messages::call_ws_get_messages_with_panic,
         ws_open::call_ws_open_for_client_key_and_gateway_with_panic,
-        ws_send::call_ws_send_with_panic,
     },
     messages::{get_service_message_content_from_canister_message, verify_messages, AppMessage},
     test_env::get_test_env,
@@ -34,7 +34,7 @@ proptest! {
                 text: format!("test{}", i),
             })
             .collect();
-        call_ws_send_with_panic(
+        call_send_with_panic(
             &client_key.client_principal,
             messages_to_send.clone(),
         );
@@ -108,7 +108,7 @@ proptest! {
             })
             .collect();
         // simulate canister sending other messages to client
-        call_ws_send_with_panic(
+        call_send_with_panic(
             &client_key.client_principal,
             messages_to_send.clone(),
         );

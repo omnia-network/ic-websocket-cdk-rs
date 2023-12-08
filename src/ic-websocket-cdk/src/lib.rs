@@ -13,13 +13,14 @@ mod utils;
 
 use state::*;
 use timers::*;
+#[allow(deprecated)]
+pub use types::CanisterWsSendResult;
 use types::*;
 pub use types::{
-    CanisterCloseResult, CanisterWsCloseArguments, CanisterWsCloseResult,
+    CanisterCloseResult, CanisterSendResult, CanisterWsCloseArguments, CanisterWsCloseResult,
     CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult, CanisterWsMessageArguments,
-    CanisterWsMessageResult, CanisterWsOpenArguments, CanisterWsOpenResult, CanisterWsSendResult,
-    ClientPrincipal, OnCloseCallbackArgs, OnMessageCallbackArgs, OnOpenCallbackArgs, WsHandlers,
-    WsInitParams,
+    CanisterWsMessageResult, CanisterWsOpenArguments, CanisterWsOpenResult, ClientPrincipal,
+    OnCloseCallbackArgs, OnMessageCallbackArgs, OnOpenCallbackArgs, WsHandlers, WsInitParams,
 };
 
 /// The label used when constructing the certification tree.
@@ -235,7 +236,7 @@ pub fn ws_get_messages(args: CanisterWsGetMessagesArguments) -> CanisterWsGetMes
 /// This example is the serialize equivalent of the [OnMessageCallbackArgs's example](struct.OnMessageCallbackArgs.html#example) deserialize one.
 /// ```rust
 /// use candid::{encode_one, CandidType, Principal};
-/// use ic_websocket_cdk::ws_send;
+/// use ic_websocket_cdk::send;
 /// use serde::Deserialize;
 ///
 /// #[derive(CandidType, Deserialize)]
@@ -251,11 +252,18 @@ pub fn ws_get_messages(args: CanisterWsGetMessagesArguments) -> CanisterWsGetMes
 /// };
 ///
 /// let msg_bytes = encode_one(&my_message).unwrap();
-/// ws_send(my_client_principal, msg_bytes);
+/// send(my_client_principal, msg_bytes);
 /// ```
-pub fn ws_send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> CanisterWsSendResult {
+pub fn send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> CanisterSendResult {
     let client_key = get_client_key_from_principal(&client_principal)?;
     _ws_send(&client_key, msg_bytes, false)
+}
+
+#[deprecated(since = "0.3.2", note = "use `ic_websocket_cdk::send` instead")]
+#[allow(deprecated)]
+/// Deprecated: use [send] instead.
+pub fn ws_send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> CanisterWsSendResult {
+    send(client_principal, msg_bytes)
 }
 
 /// Closes the connection with the client.

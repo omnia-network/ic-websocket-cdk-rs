@@ -2,10 +2,10 @@ use ic_cdk_macros::*;
 
 use canister::{on_close, on_message, on_open, AppMessage};
 use ic_websocket_cdk::{
-    CanisterCloseResult, CanisterWsCloseArguments, CanisterWsCloseResult,
+    CanisterCloseResult, CanisterSendResult, CanisterWsCloseArguments, CanisterWsCloseResult,
     CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult, CanisterWsMessageArguments,
-    CanisterWsMessageResult, CanisterWsOpenArguments, CanisterWsOpenResult, CanisterWsSendResult,
-    ClientPrincipal, WsHandlers, WsInitParams,
+    CanisterWsMessageResult, CanisterWsOpenArguments, CanisterWsOpenResult, ClientPrincipal,
+    WsHandlers, WsInitParams,
 };
 
 mod canister;
@@ -75,9 +75,9 @@ fn ws_get_messages(args: CanisterWsGetMessagesArguments) -> CanisterWsGetMessage
 //// Debug/tests methods
 // send a message to the client, usually called by the canister itself
 #[update]
-fn ws_send(client_principal: ClientPrincipal, messages: Vec<Vec<u8>>) -> CanisterWsSendResult {
+fn send(client_principal: ClientPrincipal, messages: Vec<Vec<u8>>) -> CanisterSendResult {
     for msg_bytes in messages {
-        match ic_websocket_cdk::ws_send(client_principal, msg_bytes) {
+        match ic_websocket_cdk::send(client_principal, msg_bytes) {
             Ok(_) => {},
             Err(e) => return Err(e),
         }

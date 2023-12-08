@@ -437,7 +437,7 @@ pub(crate) fn push_message_in_gateway_queue(
 ) -> Result<(), String> {
     REGISTERED_GATEWAYS.with(|map| {
         // messages in the queue are inserted with contiguous and increasing nonces
-        // (from beginning to end of the queue) as ws_send is called sequentially, the nonce
+        // (from beginning to end of the queue) as `send` is called sequentially, the nonce
         // is incremented by one in each call, and the message is pushed at the end of the queue
         map.borrow_mut()
             .get_mut(gateway_principal)
@@ -555,7 +555,7 @@ pub(crate) fn _ws_send(
     client_key: &ClientKey,
     msg_bytes: Vec<u8>,
     is_service_message: bool,
-) -> CanisterWsSendResult {
+) -> CanisterSendResult {
     // get the registered client if it exists
     let registered_client = get_registered_client(client_key)?;
 

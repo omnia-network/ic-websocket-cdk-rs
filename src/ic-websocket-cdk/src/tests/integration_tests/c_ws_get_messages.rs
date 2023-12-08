@@ -8,8 +8,8 @@ use crate::{
 
 use super::utils::{
     actor::{
-        ws_get_messages::call_ws_get_messages_with_panic,
-        ws_open::call_ws_open_for_client_key_with_panic, ws_send::call_ws_send_with_panic,
+        send::call_send_with_panic, ws_get_messages::call_ws_get_messages_with_panic,
+        ws_open::call_ws_open_for_client_key_with_panic,
     },
     clients::{generate_random_client_key, CLIENT_1_KEY, GATEWAY_1},
     messages::{get_next_polling_nonce_from_messages, verify_messages, AppMessage},
@@ -70,7 +70,7 @@ proptest! {
                 text: format!("test{}", i),
             })
             .collect();
-        call_ws_send_with_panic(
+        call_send_with_panic(
             &client_1_key.client_principal,
             messages_to_send.clone(),
         );
@@ -131,7 +131,7 @@ proptest! {
                 text: format!("test{}", i),
             })
             .collect();
-        call_ws_send_with_panic(&client_1_key.client_principal, messages_to_send.clone());
+        call_send_with_panic(&client_1_key.client_principal, messages_to_send.clone());
 
         let mut next_polling_nonce = 0;
         let mut expected_sequence_number = 1;  // `1` because the seq number is incremented before sending on the canister
@@ -179,7 +179,7 @@ proptest! {
                 text: format!("test{}", i),
             })
             .collect();
-        call_ws_send_with_panic(&client_1_key.client_principal, messages_to_send.clone());
+        call_send_with_panic(&client_1_key.client_principal, messages_to_send.clone());
 
         // advance canister time because the messages are deleted only
         // if they're older than the send ack interval;

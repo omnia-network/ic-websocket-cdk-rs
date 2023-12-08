@@ -1,6 +1,6 @@
 import "../src/ic-websocket-cdk/ws_types.did";
 
-type CanisterWsSendResult = variant {
+type CanisterSendResult = variant {
   Ok : null;
   Err : text;
 };
@@ -21,6 +21,6 @@ service : (text, nat64, nat64, nat64) -> {
   "ws_get_messages" : (CanisterWsGetMessagesArguments) -> (CanisterWsGetMessagesResult) query;
 
   // methods used just for debugging/testing
-  "ws_send" : (ClientPrincipal, vec blob) -> (CanisterWsSendResult);
+  "send" : (ClientPrincipal, vec blob) -> (CanisterSendResult);
   "close" : (ClientPrincipal) -> (CanisterCloseResult);
 };

@@ -41,7 +41,9 @@ pub type CanisterWsCloseResult = Result<(), String>;
 pub type CanisterWsMessageResult = Result<(), String>;
 /// The result of [ws_get_messages](crate::ws_get_messages).
 pub type CanisterWsGetMessagesResult = Result<CanisterOutputCertifiedMessages, String>;
-/// The result of [ws_send](crate::ws_send).
+/// The result of [send](crate::send).
+pub type CanisterSendResult = Result<(), String>;
+#[deprecated(since = "0.3.2", note = "use `CanisterSendResult` instead")]
 pub type CanisterWsSendResult = Result<(), String>;
 /// The result of [close](crate::close).
 pub type CanisterCloseResult = Result<(), String>;
@@ -314,7 +316,7 @@ type OnOpenCallback = fn(OnOpenCallbackArgs);
 /// To deserialize the message, use [candid::decode_one].
 ///
 /// # Example
-/// This example is the deserialize equivalent of the [ws_send's example](fn.ws_send.html#example) serialize one.
+/// This example is the deserialize equivalent of the [send's example](fn.send.html#example) serialize one.
 /// ```rust
 /// use candid::{decode_one, CandidType};
 /// use ic_websocket_cdk::OnMessageCallbackArgs;

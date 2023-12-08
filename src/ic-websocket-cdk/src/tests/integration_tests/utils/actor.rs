@@ -181,30 +181,30 @@ pub mod ws_get_messages {
     }
 }
 
-pub mod ws_send {
-    use crate::{CanisterWsSendResult, ClientPrincipal};
+pub mod send {
+    use crate::{CanisterSendResult, ClientPrincipal};
     use candid::encode_args;
 
     use super::*;
 
     /// (`ClientPrincipal`, `Vec<Vec<u8>>`)
-    type WsSendArguments = (ClientPrincipal, Vec<Vec<u8>>);
+    type SendArguments = (ClientPrincipal, Vec<Vec<u8>>);
 
     /// # Panics
     /// if the call returns a [WasmResult::Reject].
-    pub(crate) fn call_ws_send(
+    pub(crate) fn call_send(
         send_to_principal: &ClientPrincipal,
         messages: Vec<AppMessage>,
-    ) -> CanisterWsSendResult {
+    ) -> CanisterSendResult {
         let messages: Vec<Vec<u8>> = messages.iter().map(|m| encode_one(m).unwrap()).collect();
-        let args: WsSendArguments = (send_to_principal.clone(), messages);
+        let args: SendArguments = (send_to_principal.clone(), messages);
         let canister_id = get_test_env().canister_id;
         let res = get_test_env()
             .pic
             .update_call(
                 canister_id,
                 Principal::anonymous(),
-                "ws_send",
+                "send",
                 encode_args(args).unwrap(),
             )
             .expect("Failed to call canister");
@@ -214,17 +214,17 @@ pub mod ws_send {
         }
     }
 
-    /// Same as [call_ws_send].
+    /// Same as [call_send].
     ///
     /// # Panics
-    /// If [call_ws_send] panics or if the call returns an error variant.
-    pub(crate) fn call_ws_send_with_panic(
+    /// If [call_send] panics or if the call returns an error variant.
+    pub(crate) fn call_send_with_panic(
         send_to_principal: &ClientPrincipal,
         messages: Vec<AppMessage>,
     ) {
-        match call_ws_send(send_to_principal, messages) {
-            CanisterWsSendResult::Ok(_) => {},
-            CanisterWsSendResult::Err(err) => panic!("failed ws_send: {:?}", err),
+        match call_send(send_to_principal, messages) {
+            CanisterSendResult::Ok(_) => {},
+            CanisterSendResult::Err(err) => panic!("failed send: {:?}", err),
         }
     }
 }
