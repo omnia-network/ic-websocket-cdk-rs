@@ -43,6 +43,8 @@ pub type CanisterWsMessageResult = Result<(), String>;
 pub type CanisterWsGetMessagesResult = Result<CanisterOutputCertifiedMessages, String>;
 /// The result of [ws_send].
 pub type CanisterWsSendResult = Result<(), String>;
+/// The result of [close](crate::close).
+pub type CanisterCloseResult = Result<(), String>;
 
 /// The arguments for [ws_open].
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]

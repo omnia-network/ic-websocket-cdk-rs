@@ -2,10 +2,10 @@ use ic_cdk_macros::*;
 
 use canister::{on_close, on_message, on_open, AppMessage};
 use ic_websocket_cdk::{
-    CanisterWsCloseArguments, CanisterWsCloseResult, CanisterWsGetMessagesArguments,
-    CanisterWsGetMessagesResult, CanisterWsMessageArguments, CanisterWsMessageResult,
-    CanisterWsOpenArguments, CanisterWsOpenResult, CanisterWsSendResult, ClientPrincipal,
-    WsHandlers, WsInitParams,
+    CanisterCloseResult, CanisterWsCloseArguments, CanisterWsCloseResult,
+    CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult, CanisterWsMessageArguments,
+    CanisterWsMessageResult, CanisterWsOpenArguments, CanisterWsOpenResult, CanisterWsSendResult,
+    ClientPrincipal, WsHandlers, WsInitParams,
 };
 
 mod canister;
@@ -83,4 +83,10 @@ fn ws_send(client_principal: ClientPrincipal, messages: Vec<Vec<u8>>) -> Caniste
         }
     }
     Ok(())
+}
+
+// close the connection with a client, usually called by the canister itself
+#[update]
+fn close(client_principal: ClientPrincipal) -> CanisterCloseResult {
+    ic_websocket_cdk::close(client_principal)
 }

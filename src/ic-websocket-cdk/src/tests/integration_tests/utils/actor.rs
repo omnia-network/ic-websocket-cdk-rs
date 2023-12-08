@@ -228,3 +228,29 @@ pub mod ws_send {
         }
     }
 }
+
+pub mod close {
+    use crate::{CanisterCloseResult, ClientPrincipal};
+    use candid::encode_args;
+
+    use super::*;
+
+    /// # Panics
+    /// if the call returns a [WasmResult::Reject].
+    pub(crate) fn call_close(client_principal: &ClientPrincipal) -> CanisterCloseResult {
+        let canister_id = get_test_env().canister_id;
+        let res = get_test_env()
+            .pic
+            .update_call(
+                canister_id,
+                Principal::anonymous(),
+                "close",
+                encode_args((client_principal,)).unwrap(),
+            )
+            .expect("Failed to call canister");
+        match res {
+            WasmResult::Reply(bytes) => decode_one(&bytes).unwrap(),
+            _ => panic!("Expected reply"),
+        }
+    }
+}

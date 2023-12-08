@@ -12,5 +12,6 @@ mod b_ws_message;
 mod c_ws_get_messages;
 mod d_ws_close;
 mod e_ws_send;
-mod f_messages_acknowledgement;
-mod g_multiple_gateways;
+mod f_close;
+mod g_messages_acknowledgement;
+mod h_multiple_gateways;

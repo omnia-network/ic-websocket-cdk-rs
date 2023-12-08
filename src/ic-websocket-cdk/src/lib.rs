@@ -15,10 +15,11 @@ use state::*;
 use timers::*;
 use types::*;
 pub use types::{
-    CanisterWsCloseArguments, CanisterWsCloseResult, CanisterWsGetMessagesArguments,
-    CanisterWsGetMessagesResult, CanisterWsMessageArguments, CanisterWsMessageResult,
-    CanisterWsOpenArguments, CanisterWsOpenResult, CanisterWsSendResult, ClientPrincipal,
-    OnCloseCallbackArgs, OnMessageCallbackArgs, OnOpenCallbackArgs, WsHandlers, WsInitParams,
+    CanisterCloseResult, CanisterWsCloseArguments, CanisterWsCloseResult,
+    CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult, CanisterWsMessageArguments,
+    CanisterWsMessageResult, CanisterWsOpenArguments, CanisterWsOpenResult, CanisterWsSendResult,
+    ClientPrincipal, OnCloseCallbackArgs, OnMessageCallbackArgs, OnOpenCallbackArgs, WsHandlers,
+    WsInitParams,
 };
 
 /// The label used when constructing the certification tree.
@@ -112,6 +113,9 @@ pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
 }
 
 /// Handles the WS connection close event received from the WS Gateway.
+///
+/// If you want to close the connection with the client in your logic,
+/// use the [close] function instead.
 pub fn ws_close(args: CanisterWsCloseArguments) -> CanisterWsCloseResult {
     let gateway_principal = caller();
 
@@ -252,6 +256,15 @@ pub fn ws_get_messages(args: CanisterWsGetMessagesArguments) -> CanisterWsGetMes
 pub fn ws_send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> CanisterWsSendResult {
     let client_key = get_client_key_from_principal(&client_principal)?;
     _ws_send(&client_key, msg_bytes, false)
+}
+
+/// Closes the connection with the client.
+pub fn close(client_principal: ClientPrincipal) -> CanisterCloseResult {
+    let client_key = get_client_key_from_principal(&client_principal)?;
+
+    remove_client(&client_key, Some(CloseMessageReason::ClosedByApplication));
+
+    Ok(())
 }
 
 /// Resets the internal state of the IC WebSocket CDK.
