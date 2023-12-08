@@ -33,39 +33,39 @@ impl fmt::Display for ClientKey {
     }
 }
 
-/// The result of [ws_open].
+/// The result of [ws_open](crate::ws_open).
 pub type CanisterWsOpenResult = Result<(), String>;
-/// The result of [ws_close].
+/// The result of [ws_close](crate::ws_close).
 pub type CanisterWsCloseResult = Result<(), String>;
-/// The result of [ws_message].
+/// The result of [ws_message](crate::ws_message).
 pub type CanisterWsMessageResult = Result<(), String>;
-/// The result of [ws_get_messages].
+/// The result of [ws_get_messages](crate::ws_get_messages).
 pub type CanisterWsGetMessagesResult = Result<CanisterOutputCertifiedMessages, String>;
-/// The result of [ws_send].
+/// The result of [ws_send](crate::ws_send).
 pub type CanisterWsSendResult = Result<(), String>;
 /// The result of [close](crate::close).
 pub type CanisterCloseResult = Result<(), String>;
 
-/// The arguments for [ws_open].
+/// The arguments for [ws_open](crate::ws_open).
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsOpenArguments {
     pub(crate) client_nonce: u64,
     pub(crate) gateway_principal: GatewayPrincipal,
 }
 
-/// The arguments for [ws_close].
+/// The arguments for [ws_close](crate::ws_close).
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsCloseArguments {
     pub(crate) client_key: ClientKey,
 }
 
-/// The arguments for [ws_message].
+/// The arguments for [ws_message](crate::ws_message).
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsMessageArguments {
     pub(crate) msg: WebsocketMessage,
 }
 
-/// The arguments for [ws_get_messages].
+/// The arguments for [ws_get_messages](crate::ws_get_messages).
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsGetMessagesArguments {
     pub(crate) nonce: u64,
