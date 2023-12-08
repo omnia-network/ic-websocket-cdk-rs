@@ -350,9 +350,16 @@ pub struct OnCloseCallbackArgs {
 /// Handler initialized by the canister
 /// and triggered by the CDK once the WS Gateway closes the IC WebSocket connection
 /// for that client.
+///
+/// Make sure you **don't** call the [close](crate::close) function in this callback.
 type OnCloseCallback = fn(OnCloseCallbackArgs);
 
 /// Handlers initialized by the canister and triggered by the CDK.
+///
+/// **Note**: if the callbacks that you define here trap for some reason,
+/// the CDK will disconnect the client with principal `args.client_principal`.
+/// However, the client **won't** be notified
+/// until at least the next time it will try to send a message to the canister.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WsHandlers {
     pub on_open: Option<OnOpenCallback>,

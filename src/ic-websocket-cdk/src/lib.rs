@@ -267,6 +267,8 @@ pub fn ws_send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> Caniste
 }
 
 /// Closes the connection with the client.
+///
+/// This function **must not** be called in the `on_close` callback.
 pub fn close(client_principal: ClientPrincipal) -> CanisterCloseResult {
     let client_key = get_client_key_from_principal(&client_principal)?;
 
