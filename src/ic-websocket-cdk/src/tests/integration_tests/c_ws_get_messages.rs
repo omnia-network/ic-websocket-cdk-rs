@@ -14,8 +14,8 @@ use super::utils::{
     clients::{generate_random_client_key, CLIENT_1_KEY, GATEWAY_1},
     messages::{get_next_polling_nonce_from_messages, verify_messages, AppMessage},
     test_env::{
-        get_test_env, DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
-        DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES, DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
+        get_test_env, DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
+        DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
     },
 };
 
@@ -168,7 +168,6 @@ proptest! {
         get_test_env().reset_canister(
             1_000, // avoid the queue size limit
             DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
-            DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
         );
         // second, register client 1
         let client_1_key = CLIENT_1_KEY.deref();

@@ -11,11 +11,7 @@ use ic_websocket_cdk::{
 mod canister;
 
 #[init]
-fn init(
-    max_number_of_returned_messages: usize,
-    send_ack_interval_ms: u64,
-    keep_alive_timeout_ms: u64,
-) {
+fn init(max_number_of_returned_messages: usize, send_ack_interval_ms: u64) {
     let handlers = WsHandlers {
         on_open: Some(on_open),
         on_message: Some(on_message),
@@ -26,23 +22,14 @@ fn init(
         handlers,
         max_number_of_returned_messages,
         send_ack_interval_ms,
-        keep_alive_timeout_ms,
     };
 
     ic_websocket_cdk::init(params)
 }
 
 #[post_upgrade]
-fn post_upgrade(
-    max_number_of_returned_messages: usize,
-    send_ack_interval_ms: u64,
-    keep_alive_timeout_ms: u64,
-) {
-    init(
-        max_number_of_returned_messages,
-        send_ack_interval_ms,
-        keep_alive_timeout_ms,
-    );
+fn post_upgrade(max_number_of_returned_messages: usize, send_ack_interval_ms: u64) {
+    init(max_number_of_returned_messages, send_ack_interval_ms);
 }
 
 // method called by the WS Gateway after receiving FirstMessage from the client

@@ -14,7 +14,7 @@ type AppMessage = record {
   text : text;
 };
 
-service : (text, nat64, nat64, nat64) -> {
+service : (nat64, nat64) -> {
   "ws_open" : (CanisterWsOpenArguments) -> (CanisterWsOpenResult);
   "ws_close" : (CanisterWsCloseArguments) -> (CanisterWsCloseResult);
   "ws_message" : (CanisterWsMessageArguments, opt AppMessage) -> (CanisterWsMessageResult);

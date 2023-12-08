@@ -19,12 +19,6 @@ pub const DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES: u64 = 50;
 /// Value: `300_000` = 5 minutes
 pub const DEFAULT_TEST_SEND_ACK_INTERVAL_MS: u64 = 300_000;
 
-/// The interval between keep alive checks in the canister.
-/// Set to a high value to make sure the canister doesn't reset the client while testing other functions.
-///
-/// Value: `120_000` (2 minutes)
-pub const DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS: u64 = 120_000;
-
 lazy_static! {
     pub static ref TEST_ENV: Mutex<TestEnv> = Mutex::new(TestEnv::new());
 }
@@ -41,8 +35,8 @@ pub struct TestEnv {
     root_ic_key: Vec<u8>,
 }
 
-/// (`max_number_or_returned_messages`, `send_ack_interval_ms`, `send_ack_timeout_ms`)
-type CanisterInitArgs = (u64, u64, u64);
+/// (`max_number_or_returned_messages`, `send_ack_interval_ms`)
+type CanisterInitArgs = (u64, u64);
 
 impl TestEnv {
     pub fn new() -> Self {
@@ -62,7 +56,6 @@ impl TestEnv {
         let arguments: CanisterInitArgs = (
             DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
             DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
-            DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
         );
         pic.install_canister(
             canister_id,
@@ -86,13 +79,8 @@ impl TestEnv {
         &mut self,
         max_number_or_returned_messages: u64,
         send_ack_interval_ms: u64,
-        keep_alive_delay_ms: u64,
     ) {
-        let arguments: CanisterInitArgs = (
-            max_number_or_returned_messages,
-            send_ack_interval_ms,
-            keep_alive_delay_ms,
-        );
+        let arguments: CanisterInitArgs = (max_number_or_returned_messages, send_ack_interval_ms);
         let res = self.pic.reinstall_canister(
             self.canister_id,
             self.wasm_module.to_owned(),
@@ -115,7 +103,6 @@ impl TestEnv {
         self.reset_canister(
             DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
             DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
-            DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
         );
     }
 

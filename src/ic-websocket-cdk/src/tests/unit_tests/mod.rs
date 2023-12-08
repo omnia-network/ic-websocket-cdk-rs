@@ -119,38 +119,25 @@ fn test_ws_init_params() {
         DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES
     );
     assert_eq!(params.send_ack_interval_ms, DEFAULT_SEND_ACK_INTERVAL_MS);
-    assert_eq!(
-        params.keep_alive_timeout_ms,
-        DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS
-    );
 
     let params = WsInitParams::new(handlers.clone())
         .with_max_number_of_returned_messages(5)
-        .with_send_ack_interval_ms(10)
-        .with_keep_alive_timeout_ms(2);
+        .with_send_ack_interval_ms(120_000);
     assert_eq!(params.max_number_of_returned_messages, 5);
-    assert_eq!(params.send_ack_interval_ms, 10);
-    assert_eq!(params.keep_alive_timeout_ms, 2);
+    assert_eq!(params.send_ack_interval_ms, 120_000);
 }
 
 #[test]
-#[should_panic = "send_ack_interval_ms must be greater than keep_alive_timeout_ms"]
+#[should_panic = "send_ack_interval_ms must be greater than CLIENT_KEEP_ALIVE_TIMEOUT_MS"]
 fn test_ws_init_params_keep_alive_greater() {
-    let params = WsInitParams::new(WsHandlers::default())
-        .with_send_ack_interval_ms(5)
-        .with_keep_alive_timeout_ms(10);
-
-    params.check_validity();
+    WsInitParams::new(WsHandlers::default()).with_send_ack_interval_ms(5);
 }
 
 #[test]
-#[should_panic = "send_ack_interval_ms must be greater than keep_alive_timeout_ms"]
+#[should_panic = "send_ack_interval_ms must be greater than CLIENT_KEEP_ALIVE_TIMEOUT_MS"]
 fn test_ws_init_params_keep_alive_equal() {
-    let params = WsInitParams::new(WsHandlers::default())
-        .with_send_ack_interval_ms(10)
-        .with_keep_alive_timeout_ms(10);
-
-    params.check_validity();
+    WsInitParams::new(WsHandlers::default())
+        .with_send_ack_interval_ms(CLIENT_KEEP_ALIVE_TIMEOUT_MS);
 }
 
 #[test]
@@ -901,13 +888,14 @@ proptest! {
     }
 
     #[test]
-    fn test_delete_old_messages_for_gateway_queue(
+    fn test_delete_old_messages_for_gateway(
         gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal()),
         old_messages_count in 0..100usize,
         new_messages_count in 0..100usize,
-        test_ack_interval_ms in (1..100u64),
+        test_ack_interval_delta_ms in (1..100u64),
     ) {
         // Set up
+        let test_ack_interval_ms = CLIENT_KEEP_ALIVE_TIMEOUT_MS  + test_ack_interval_delta_ms;
         PARAMS.with(|p|
             *p.borrow_mut() = WsInitParams::new(WsHandlers::default())
                 .with_send_ack_interval_ms(test_ack_interval_ms)

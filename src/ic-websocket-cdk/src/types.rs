@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_cbor::Serializer;
 
 use crate::{
-    custom_trap, errors::WsError, utils::get_current_time, DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS,
+    custom_trap, errors::WsError, utils::get_current_time, CLIENT_KEEP_ALIVE_TIMEOUT_MS,
     DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES, DEFAULT_SEND_ACK_INTERVAL_MS,
     INITIAL_OUTGOING_MESSAGE_NONCE,
 };
@@ -397,21 +397,16 @@ pub struct WsInitParams {
     /// The callback handlers for the WebSocket.
     pub handlers: WsHandlers,
     /// The maximum number of messages to be returned in a polling iteration.
+    ///
     /// Defaults to `50`.
     pub max_number_of_returned_messages: usize,
     /// The interval at which to send an acknowledgement message to the client,
     /// so that the client knows that all the messages it sent have been received by the canister (in milliseconds).
     ///
-    /// Must be greater than `keep_alive_timeout_ms`.
+    /// Must be greater than [`CLIENT_KEEP_ALIVE_TIMEOUT_MS`] (1 minute).
     ///
     /// Defaults to `300_000` (5 minutes).
     pub send_ack_interval_ms: u64,
-    /// The delay to wait for the client to send a keep alive after receiving an acknowledgement (in milliseconds).
-    ///
-    /// Must be lower than `send_ack_interval_ms`.
-    ///
-    /// Defaults to `60_000` (1 minute).
-    pub keep_alive_timeout_ms: u64,
 }
 
 impl WsInitParams {
@@ -428,13 +423,13 @@ impl WsInitParams {
     }
 
     /// Checks the validity of the timer parameters.
-    /// `send_ack_interval_ms` must be greater than `keep_alive_timeout_ms`.
+    /// `send_ack_interval_ms` must be greater than [`CLIENT_KEEP_ALIVE_TIMEOUT_MS`].
     ///
     /// # Traps
-    /// If `send_ack_interval_ms` <= `keep_alive_timeout_ms`.
+    /// If `send_ack_interval_ms` <= [`CLIENT_KEEP_ALIVE_TIMEOUT_MS`].
     pub(crate) fn check_validity(&self) {
-        if self.keep_alive_timeout_ms >= self.send_ack_interval_ms {
-            custom_trap!("send_ack_interval_ms must be greater than keep_alive_timeout_ms");
+        if self.send_ack_interval_ms <= CLIENT_KEEP_ALIVE_TIMEOUT_MS {
+            custom_trap!("send_ack_interval_ms must be greater than CLIENT_KEEP_ALIVE_TIMEOUT_MS");
         }
     }
 
@@ -446,13 +441,16 @@ impl WsInitParams {
         self
     }
 
+    /// Sets the interval (in milliseconds) at which to send an acknowledgement message
+    /// to the connected clients.
+    ///
+    /// Must be greater than [`CLIENT_KEEP_ALIVE_TIMEOUT_MS`] (1 minute).
+    ///
+    /// # Traps
+    /// If `send_ack_interval_ms` <= [`CLIENT_KEEP_ALIVE_TIMEOUT_MS`]. See [WsInitParams::check_validity].
     pub fn with_send_ack_interval_ms(mut self, send_ack_interval_ms: u64) -> Self {
         self.send_ack_interval_ms = send_ack_interval_ms;
-        self
-    }
-
-    pub fn with_keep_alive_timeout_ms(mut self, keep_alive_timeout_ms: u64) -> Self {
-        self.keep_alive_timeout_ms = keep_alive_timeout_ms;
+        self.check_validity();
         self
     }
 }
@@ -463,7 +461,6 @@ impl Default for WsInitParams {
             handlers: WsHandlers::default(),
             max_number_of_returned_messages: DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES,
             send_ack_interval_ms: DEFAULT_SEND_ACK_INTERVAL_MS,
-            keep_alive_timeout_ms: DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS,
         }
     }
 }
