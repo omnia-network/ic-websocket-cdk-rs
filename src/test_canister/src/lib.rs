@@ -18,11 +18,9 @@ fn init(max_number_of_returned_messages: usize, send_ack_interval_ms: u64) {
         on_close: Some(on_close),
     };
 
-    let params = WsInitParams {
-        handlers,
-        max_number_of_returned_messages,
-        send_ack_interval_ms,
-    };
+    let params = WsInitParams::new(handlers)
+        .with_max_number_of_returned_messages(max_number_of_returned_messages)
+        .with_send_ack_interval_ms(send_ack_interval_ms);
 
     ic_websocket_cdk::init(params)
 }
