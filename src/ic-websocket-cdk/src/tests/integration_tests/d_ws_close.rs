@@ -115,8 +115,8 @@ fn test_4_should_close_the_websocket_for_a_registered_client() {
     assert_eq!(
         res,
         CanisterWsCloseResult::Err(
-            WsError::GatewayNotRegistered {
-                gateway_principal: GATEWAY_1.deref()
+            WsError::ClientKeyNotConnected {
+                client_key: &CLIENT_1_KEY,
             }
             .to_string()
         )

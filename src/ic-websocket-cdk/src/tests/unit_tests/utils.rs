@@ -1,12 +1,11 @@
-use candid::Principal;
-
 use crate::{
-    format_message_for_gateway_key, set_params, CanisterOutputMessage, ClientKey, GatewayPrincipal,
-    RegisteredClient, WsInitParams, REGISTERED_GATEWAYS,
+    format_message_for_gateway_key, set_params, tests::common::generate_random_principal,
+    CanisterOutputMessage, ClientKey, GatewayPrincipal, RegisteredClient, WsInitParams,
+    REGISTERED_GATEWAYS,
 };
 
 pub(super) fn generate_random_registered_client() -> RegisteredClient {
-    RegisteredClient::new(Principal::anonymous())
+    RegisteredClient::new(generate_random_principal())
 }
 
 pub(super) fn add_messages_for_gateway(

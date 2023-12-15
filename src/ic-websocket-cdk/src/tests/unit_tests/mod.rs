@@ -150,6 +150,14 @@ fn test_current_time() {
     assert!(get_current_time() >= timestamp_nanos);
 }
 
+#[test]
+fn test_remove_empty_expired_gateways_empty() {
+    let res = panic::catch_unwind(|| {
+        remove_empty_expired_gateways();
+    });
+    assert!(res.is_ok());
+}
+
 proptest! {
     #[test]
     fn test_increment_gateway_clients_count_gateway_nonexistent(test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
@@ -163,11 +171,14 @@ proptest! {
     fn test_increment_gateway_clients_count(test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
         // Set up
         REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(test_gateway_principal, RegisteredGateway::new()));
+        GATEWAYS_TO_REMOVE.with(|state| state.borrow_mut().insert(test_gateway_principal, 0));
 
         increment_gateway_clients_count(test_gateway_principal);
 
         let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_gateway_principal).cloned()).unwrap();
         prop_assert_eq!(registered_gateway.connected_clients_count, 1);
+        let gateway_to_remove = GATEWAYS_TO_REMOVE.with(|map| map.borrow().get(&test_gateway_principal).cloned());
+        prop_assert!(gateway_to_remove.is_none());
 
         // change the registered gateway to see if its not replaced
         REGISTERED_GATEWAYS.with(|map| {
@@ -179,6 +190,8 @@ proptest! {
         let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_gateway_principal).cloned()).unwrap();
         prop_assert_eq!(registered_gateway.outgoing_message_nonce, 5);
         prop_assert_eq!(registered_gateway.connected_clients_count, 2);
+        let gateway_to_remove = GATEWAYS_TO_REMOVE.with(|map| map.borrow().get(&test_gateway_principal).cloned());
+        prop_assert!(gateway_to_remove.is_none());
     }
 
     #[test]
@@ -195,34 +208,54 @@ proptest! {
         while clients_count > 0 {
             let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_gateway_principal).cloned()).unwrap();
             prop_assert_eq!(registered_gateway.connected_clients_count, clients_count);
-            decrement_gateway_clients_count(&test_gateway_principal, false);
+            decrement_gateway_clients_count(&test_gateway_principal);
             clients_count -= 1;
         }
 
         let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_gateway_principal).cloned());
         prop_assert!(registered_gateway.is_some());
+        let gateway_timestamp = GATEWAYS_TO_REMOVE.with(|map| map.borrow().get(&test_gateway_principal).cloned());
+        prop_assert!(gateway_timestamp.is_some());
     }
 
     #[test]
-    fn test_decrement_gateway_clients_count_and_remove_gateway(test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal()), test_connected_clients_count in (1..1000u64)) {
+    fn test_remove_empty_expired_gateways_not_expired(test_gateway_principals in any::<Vec<u8>>().prop_map(|v| v.iter().map(|_|common::generate_random_principal()).collect::<Vec<GatewayPrincipal>>())) {
         // Set up
-        REGISTERED_GATEWAYS.with(|n| {
-            let mut gw = RegisteredGateway::new();
-            gw.connected_clients_count = test_connected_clients_count;
-            n.borrow_mut().insert(test_gateway_principal, gw);
-        });
-
-        // Test
-        let mut clients_count = test_connected_clients_count;
-        while clients_count > 0 {
-            let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_gateway_principal).cloned()).unwrap();
-            prop_assert_eq!(registered_gateway.connected_clients_count, clients_count);
-            decrement_gateway_clients_count(&test_gateway_principal, true);
-            clients_count -= 1;
+        let gateway_timestamp = get_current_time() - (get_params().send_ack_interval_ms * 1_000_000) + 100_000_000;
+        for gateway_principal in test_gateway_principals.clone() {
+            REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway::new()));
+            GATEWAYS_TO_REMOVE.with(|state| state.borrow_mut().insert(gateway_principal, gateway_timestamp));
         }
 
-        let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_gateway_principal).cloned());
-        prop_assert!(registered_gateway.is_none());
+        // Test
+        remove_empty_expired_gateways();
+
+        for gateway_principal in test_gateway_principals {
+            let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&gateway_principal).cloned());
+            prop_assert!(registered_gateway.is_some());
+            let gateway_timestamp = GATEWAYS_TO_REMOVE.with(|map| map.borrow().get(&gateway_principal).cloned());
+            prop_assert!(gateway_timestamp.is_some());
+        }
+    }
+
+    #[test]
+    fn test_remove_empty_expired_gateways(test_gateway_principals in any::<Vec<u8>>().prop_map(|v| v.iter().map(|_|common::generate_random_principal()).collect::<Vec<GatewayPrincipal>>())) {
+        // Set up
+        let gateway_timestamp = get_current_time() - (get_params().send_ack_interval_ms * 1_000_000) - 100_000_000;
+        for gateway_principal in test_gateway_principals.clone() {
+            REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway::new()));
+            GATEWAYS_TO_REMOVE.with(|state| state.borrow_mut().insert(gateway_principal, gateway_timestamp));
+        }
+
+        // Test
+        remove_empty_expired_gateways();
+
+        for gateway_principal in test_gateway_principals {
+            let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&gateway_principal).cloned());
+            prop_assert!(registered_gateway.is_none());
+            let gateway_timestamp = GATEWAYS_TO_REMOVE.with(|map| map.borrow().get(&gateway_principal).cloned());
+            prop_assert!(gateway_timestamp.is_none());
+        }
     }
 
     #[test]
@@ -585,8 +618,10 @@ proptest! {
         let registered_client = REGISTERED_CLIENTS.with(|map| map.borrow().get(&test_client_key).cloned());
         prop_assert!(registered_client.is_none());
 
-        let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_registered_client.gateway_principal).cloned());
-        prop_assert!(registered_gateway.is_none());
+        let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_registered_client.gateway_principal).cloned()).unwrap();
+        prop_assert_eq!(registered_gateway.connected_clients_count, 0);
+        let gateway_timestamp = GATEWAYS_TO_REMOVE.with(|map| map.borrow().get(&test_registered_client.gateway_principal).cloned());
+        prop_assert!(gateway_timestamp.is_some());
 
         let incoming_seq_num = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).cloned());
         prop_assert!(incoming_seq_num.is_none());

@@ -112,7 +112,11 @@ fn send_ack_to_clients_timer_callback() {
 
 /// Checks if the clients for which we are waiting for keep alive have sent a keep alive message.
 /// If a client has not sent a keep alive message, it is removed from the connected clients.
+///
+/// Before checking the clients, it removes all the empty expired gateways from the list of registered gateways.
 fn check_keep_alive_timer_callback() {
+    remove_empty_expired_gateways();
+
     let client_keys_to_remove: Vec<ClientKey> = CLIENTS_WAITING_FOR_KEEP_ALIVE
         .with(Rc::clone)
         .borrow()

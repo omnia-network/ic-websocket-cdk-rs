@@ -2,6 +2,7 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     rc::Rc,
+    time::Duration,
 };
 
 use candid::{encode_one, Principal};
@@ -32,6 +33,8 @@ thread_local! {
   /* flexible */ pub(crate) static CERT_TREE: RefCell<RbTree<String, ICHash>> = RefCell::new(RbTree::new());
   /// Keeps track of the principals of the WS Gateways that poll the canister
   /* flexible */ pub(crate) static REGISTERED_GATEWAYS: RefCell<HashMap<GatewayPrincipal, RegisteredGateway>> = RefCell::new(HashMap::new());
+  /// Keeps track of the gateways that must be removed from the list of registered gateways in the next ack interval
+  /* flexible */ pub(crate) static GATEWAYS_TO_REMOVE: RefCell<HashMap<GatewayPrincipal, TimestampNs>> = RefCell::new(HashMap::new());
   /// The parameters passed in the CDK initialization
   /* flexible */ pub(crate) static PARAMS: RefCell<WsInitParams> = RefCell::new(WsInitParams::default());
 }
@@ -72,6 +75,10 @@ pub(crate) fn reset_internal_state() {
 /// Increments the clients connected count for the given gateway.
 /// If the gateway is not registered, a new entry is created with a clients connected count of 1.
 pub(crate) fn increment_gateway_clients_count(gateway_principal: GatewayPrincipal) {
+    GATEWAYS_TO_REMOVE.with(|state| {
+        state.borrow_mut().remove(&gateway_principal);
+    });
+
     REGISTERED_GATEWAYS.with(|map| {
         map.borrow_mut()
             .entry(gateway_principal)
@@ -82,29 +89,54 @@ pub(crate) fn increment_gateway_clients_count(gateway_principal: GatewayPrincipa
 
 /// Decrements the clients connected count for the given gateway, if it exists.
 ///
-/// If `remove_if_empty` is true, the gateway is removed from the list of registered gateways
-/// if it has no clients connected.
-pub(crate) fn decrement_gateway_clients_count(
-    gateway_principal: &GatewayPrincipal,
-    remove_if_empty: bool,
-) {
-    let messages_keys_to_delete = REGISTERED_GATEWAYS.with(|map| {
-        let mut map = map.borrow_mut();
-        if let Some(g) = map.get_mut(gateway_principal) {
-            let clients_count = g.decrement_clients_count();
-
-            if remove_if_empty && clients_count == 0 {
-                return map
-                    .remove(gateway_principal)
-                    .map(|g| g.messages_queue.iter().map(|m| m.key.clone()).collect());
-            }
-        }
-
-        None
+/// If the gateway has no more clients connected, it is added to the [GATEWAYS_TO_REMOVE] map,
+/// in order to remove it in the next keep alive check.
+pub(crate) fn decrement_gateway_clients_count(gateway_principal: &GatewayPrincipal) {
+    let is_empty = REGISTERED_GATEWAYS.with(|map| {
+        map.borrow_mut()
+            .get_mut(gateway_principal)
+            .is_some_and(|g| {
+                let clients_count = g.decrement_clients_count();
+                clients_count == 0
+            })
     });
 
-    if let Some(messages_keys_to_delete) = messages_keys_to_delete {
-        delete_keys_from_cert_tree(messages_keys_to_delete);
+    if is_empty {
+        GATEWAYS_TO_REMOVE.with(|state| {
+            state
+                .borrow_mut()
+                .insert(gateway_principal.clone(), get_current_time());
+        });
+    }
+}
+
+/// Removes the gateways that were added to the [GATEWAYS_TO_REMOVE] map
+/// more than the ack interval ms time ago from the list of registered gateways
+pub(crate) fn remove_empty_expired_gateways() {
+    let ack_interval_ms = get_params().send_ack_interval_ms;
+    let time = get_current_time();
+
+    let mut gateway_principals_to_remove: Vec<GatewayPrincipal> = vec![];
+
+    GATEWAYS_TO_REMOVE.with(|state| {
+        state.borrow_mut().retain(|gp, added_at| {
+            if Duration::from_nanos(time - *added_at) > Duration::from_millis(ack_interval_ms) {
+                gateway_principals_to_remove.push(gp.clone());
+                false
+            } else {
+                true
+            }
+        })
+    });
+
+    for gateway_principal in &gateway_principals_to_remove {
+        if let Some(messages_keys_to_delete) = REGISTERED_GATEWAYS.with(|map| {
+            map.borrow_mut()
+                .remove(gateway_principal)
+                .map(|g| g.messages_queue.iter().map(|m| m.key.clone()).collect())
+        }) {
+            delete_keys_from_cert_tree(messages_keys_to_delete);
+        }
     }
 }
 
@@ -278,15 +310,11 @@ pub(crate) fn add_client(client_key: ClientKey, new_client: RegisteredClient) {
     increment_gateway_clients_count(new_client.gateway_principal);
 }
 
-/// Removes a client from the internal state
-/// and call the on_close callback,
+/// Removes a client from the internal state and call the on_close callback,
 /// if the client was registered in the state.
 ///
 /// If a `close_reason` is provided, it also sends a close message to the client,
 /// so that the client can close the WS connection with the gateway.
-///
-/// If a `close_reason` is **not** provided, it also removes the gateway from the state
-/// if it has no clients connected anymore.
 pub(crate) fn remove_client(client_key: &ClientKey, close_reason: Option<CloseMessageReason>) {
     if let Some(close_reason) = close_reason.clone() {
         // ignore the error
@@ -314,10 +342,7 @@ pub(crate) fn remove_client(client_key: &ClientKey, close_reason: Option<CloseMe
     if let Some(registered_client) =
         REGISTERED_CLIENTS.with(|map| map.borrow_mut().remove(client_key))
     {
-        decrement_gateway_clients_count(
-            &registered_client.gateway_principal,
-            close_reason.is_none(),
-        );
+        decrement_gateway_clients_count(&registered_client.gateway_principal);
 
         let handlers = get_handlers_from_params();
         handlers.call_on_close(OnCloseCallbackArgs {

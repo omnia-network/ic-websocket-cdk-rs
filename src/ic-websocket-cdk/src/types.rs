@@ -78,7 +78,7 @@ pub struct CanisterWsGetMessagesArguments {
 pub(crate) struct WebsocketMessage {
     pub(crate) client_key: ClientKey, // The client that the gateway will forward the message to or that sent the message.
     pub(crate) sequence_num: u64, // Both ways, messages should arrive with sequence numbers 0, 1, 2...
-    pub(crate) timestamp: u64, // Timestamp of when the message was made for the recipient to inspect.
+    pub(crate) timestamp: TimestampNs, // Timestamp of when the message was made for the recipient to inspect.
     pub(crate) is_service_message: bool, // Whether the message is a service message sent by the CDK to the client or vice versa.
     #[serde(with = "serde_bytes")]
     pub(crate) content: Vec<u8>, // Application message encoded in binary.
@@ -132,9 +132,11 @@ pub(crate) struct MessagesForGatewayRange {
     pub is_end_of_queue: bool,
 }
 
+pub(crate) type TimestampNs = u64;
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct MessageToDelete {
-    timestamp: u64,
+    timestamp: TimestampNs,
 }
 
 pub(crate) type GatewayPrincipal = Principal;
@@ -185,7 +187,7 @@ impl RegisteredGateway {
     pub(crate) fn add_message_to_queue(
         &mut self,
         message: CanisterOutputMessage,
-        message_timestamp: u64,
+        message_timestamp: TimestampNs,
     ) {
         self.messages_queue.push_back(message.clone());
         self.messages_to_delete.push_back(MessageToDelete {
@@ -228,7 +230,7 @@ impl RegisteredGateway {
 /// The metadata about a registered client.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct RegisteredClient {
-    pub(crate) last_keep_alive_timestamp: u64,
+    pub(crate) last_keep_alive_timestamp: TimestampNs,
     pub(crate) gateway_principal: GatewayPrincipal,
 }
 
@@ -242,7 +244,7 @@ impl RegisteredClient {
     }
 
     /// Gets the last keep alive timestamp.
-    pub(crate) fn get_last_keep_alive_timestamp(&self) -> u64 {
+    pub(crate) fn get_last_keep_alive_timestamp(&self) -> TimestampNs {
         self.last_keep_alive_timestamp
     }
 

@@ -1,6 +1,8 @@
 #[cfg(not(test))]
 use ic_cdk::api::time;
 
+use crate::types::TimestampNs;
+
 #[macro_export]
 macro_rules! custom_print {
     ($($arg:tt)*) => {
@@ -29,7 +31,7 @@ macro_rules! custom_trap {
     }
 }
 
-pub(crate) fn get_current_time() -> u64 {
+pub(crate) fn get_current_time() -> TimestampNs {
     #[cfg(test)]
     {
         use std::time::SystemTime;
@@ -37,7 +39,7 @@ pub(crate) fn get_current_time() -> u64 {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap();
         let timestamp_nanos = duration_since_epoch.as_nanos();
-        timestamp_nanos as u64
+        timestamp_nanos as TimestampNs
     }
     #[cfg(not(test))]
     {
