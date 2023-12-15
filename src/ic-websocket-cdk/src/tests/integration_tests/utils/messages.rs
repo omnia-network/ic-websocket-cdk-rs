@@ -6,7 +6,10 @@ use super::{
     get_current_timestamp_ns,
     test_env::get_test_env,
 };
-use crate::{CanisterOutputMessage, ClientKey, WebsocketMessage, WebsocketServiceMessageContent};
+use crate::{
+    types::{CanisterCloseMessageContent, CloseMessageReason},
+    CanisterOutputMessage, ClientKey, WebsocketMessage, WebsocketServiceMessageContent,
+};
 
 #[derive(CandidType, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct AppMessage {
@@ -135,4 +138,16 @@ fn verify_message(
     // check the certification
     assert!(is_valid_certificate(&get_test_env(), cert, tree,));
     assert!(is_message_body_valid(&message.key, &message.content, tree));
+}
+
+pub(in crate::tests::integration_tests) fn check_canister_message_has_close_reason(
+    msg: &CanisterOutputMessage,
+    close_reason: CloseMessageReason,
+) {
+    assert_eq!(
+        get_service_message_content_from_canister_message(msg),
+        WebsocketServiceMessageContent::CloseMessage(CanisterCloseMessageContent {
+            reason: close_reason
+        }),
+    );
 }

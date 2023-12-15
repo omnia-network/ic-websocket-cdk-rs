@@ -1,13 +1,13 @@
-use std::{collections::VecDeque, fmt, panic, time::Duration};
+use std::{collections::VecDeque, fmt, time::Duration};
 
 use candid::{decode_one, CandidType, Principal};
 use serde::{Deserialize, Serialize};
 use serde_cbor::Serializer;
 
 use crate::{
-    custom_print, custom_trap, errors::WsError, utils::get_current_time,
-    DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS, DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES,
-    DEFAULT_SEND_ACK_INTERVAL_MS, INITIAL_OUTGOING_MESSAGE_NONCE,
+    custom_trap, errors::WsError, utils::get_current_time, CLIENT_KEEP_ALIVE_TIMEOUT_MS,
+    DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES, DEFAULT_SEND_ACK_INTERVAL_MS,
+    INITIAL_OUTGOING_MESSAGE_NONCE,
 };
 
 pub type ClientPrincipal = Principal;
@@ -33,37 +33,41 @@ impl fmt::Display for ClientKey {
     }
 }
 
-/// The result of [ws_open].
+/// The result of [ws_open](crate::ws_open).
 pub type CanisterWsOpenResult = Result<(), String>;
-/// The result of [ws_close].
+/// The result of [ws_close](crate::ws_close).
 pub type CanisterWsCloseResult = Result<(), String>;
-/// The result of [ws_message].
+/// The result of [ws_message](crate::ws_message).
 pub type CanisterWsMessageResult = Result<(), String>;
-/// The result of [ws_get_messages].
+/// The result of [ws_get_messages](crate::ws_get_messages).
 pub type CanisterWsGetMessagesResult = Result<CanisterOutputCertifiedMessages, String>;
-/// The result of [ws_send].
+/// The result of [send](crate::send).
+pub type CanisterSendResult = Result<(), String>;
+#[deprecated(since = "0.3.2", note = "use `CanisterSendResult` instead")]
 pub type CanisterWsSendResult = Result<(), String>;
+/// The result of [close](crate::close).
+pub type CanisterCloseResult = Result<(), String>;
 
-/// The arguments for [ws_open].
+/// The arguments for [ws_open](crate::ws_open).
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsOpenArguments {
     pub(crate) client_nonce: u64,
     pub(crate) gateway_principal: GatewayPrincipal,
 }
 
-/// The arguments for [ws_close].
+/// The arguments for [ws_close](crate::ws_close).
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsCloseArguments {
     pub(crate) client_key: ClientKey,
 }
 
-/// The arguments for [ws_message].
+/// The arguments for [ws_message](crate::ws_message).
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsMessageArguments {
     pub(crate) msg: WebsocketMessage,
 }
 
-/// The arguments for [ws_get_messages].
+/// The arguments for [ws_get_messages](crate::ws_get_messages).
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsGetMessagesArguments {
     pub(crate) nonce: u64,
@@ -74,7 +78,7 @@ pub struct CanisterWsGetMessagesArguments {
 pub(crate) struct WebsocketMessage {
     pub(crate) client_key: ClientKey, // The client that the gateway will forward the message to or that sent the message.
     pub(crate) sequence_num: u64, // Both ways, messages should arrive with sequence numbers 0, 1, 2...
-    pub(crate) timestamp: u64, // Timestamp of when the message was made for the recipient to inspect.
+    pub(crate) timestamp: TimestampNs, // Timestamp of when the message was made for the recipient to inspect.
     pub(crate) is_service_message: bool, // Whether the message is a service message sent by the CDK to the client or vice versa.
     #[serde(with = "serde_bytes")]
     pub(crate) content: Vec<u8>, // Application message encoded in binary.
@@ -128,9 +132,11 @@ pub(crate) struct MessagesForGatewayRange {
     pub is_end_of_queue: bool,
 }
 
+pub(crate) type TimestampNs = u64;
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct MessageToDelete {
-    timestamp: u64,
+    timestamp: TimestampNs,
 }
 
 pub(crate) type GatewayPrincipal = Principal;
@@ -173,7 +179,7 @@ impl RegisteredGateway {
 
     /// Decrements the connected clients count by 1, returning the new value.
     pub(crate) fn decrement_clients_count(&mut self) -> u64 {
-        self.connected_clients_count -= 1;
+        self.connected_clients_count = self.connected_clients_count.saturating_sub(1);
         self.connected_clients_count
     }
 
@@ -181,7 +187,7 @@ impl RegisteredGateway {
     pub(crate) fn add_message_to_queue(
         &mut self,
         message: CanisterOutputMessage,
-        message_timestamp: u64,
+        message_timestamp: TimestampNs,
     ) {
         self.messages_queue.push_back(message.clone());
         self.messages_to_delete.push_back(MessageToDelete {
@@ -224,7 +230,7 @@ impl RegisteredGateway {
 /// The metadata about a registered client.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct RegisteredClient {
-    pub(crate) last_keep_alive_timestamp: u64,
+    pub(crate) last_keep_alive_timestamp: TimestampNs,
     pub(crate) gateway_principal: GatewayPrincipal,
 }
 
@@ -238,7 +244,7 @@ impl RegisteredClient {
     }
 
     /// Gets the last keep alive timestamp.
-    pub(crate) fn get_last_keep_alive_timestamp(&self) -> u64 {
+    pub(crate) fn get_last_keep_alive_timestamp(&self) -> TimestampNs {
         self.last_keep_alive_timestamp
     }
 
@@ -263,6 +269,23 @@ pub(crate) struct ClientKeepAliveMessageContent {
     pub(crate) last_incoming_sequence_num: u64,
 }
 
+#[derive(CandidType, Clone, Debug, Deserialize, PartialEq, Eq)]
+pub(crate) enum CloseMessageReason {
+    /// When the canister receives a wrong sequence number from the client.
+    WrongSequenceNumber,
+    /// When the canister receives an invalid service message from the client.
+    InvalidServiceMessage,
+    /// When the canister doesn't receive the keep alive message from the client in time.
+    KeepAliveTimeout,
+    /// When the developer calls the `close` function.
+    ClosedByApplication,
+}
+
+#[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
+pub(crate) struct CanisterCloseMessageContent {
+    pub(crate) reason: CloseMessageReason,
+}
+
 /// A service message sent by the CDK to the client or vice versa.
 #[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
 pub(crate) enum WebsocketServiceMessageContent {
@@ -272,6 +295,8 @@ pub(crate) enum WebsocketServiceMessageContent {
     AckMessage(CanisterAckMessageContent),
     /// Message sent by the **client** in response to an acknowledgement message from the canister.
     KeepAliveMessage(ClientKeepAliveMessageContent),
+    /// Message sent by the **canister** when it wants to close the connection.
+    CloseMessage(CanisterCloseMessageContent),
 }
 
 impl WebsocketServiceMessageContent {
@@ -293,7 +318,7 @@ type OnOpenCallback = fn(OnOpenCallbackArgs);
 /// To deserialize the message, use [candid::decode_one].
 ///
 /// # Example
-/// This example is the deserialize equivalent of the [ws_send's example](fn.ws_send.html#example) serialize one.
+/// This example is the deserialize equivalent of the [send's example](fn.send.html#example) serialize one.
 /// ```rust
 /// use candid::{decode_one, CandidType};
 /// use ic_websocket_cdk::OnMessageCallbackArgs;
@@ -327,9 +352,16 @@ pub struct OnCloseCallbackArgs {
 /// Handler initialized by the canister
 /// and triggered by the CDK once the WS Gateway closes the IC WebSocket connection
 /// for that client.
+///
+/// Make sure you **don't** call the [close](crate::close) function in this callback.
 type OnCloseCallback = fn(OnCloseCallbackArgs);
 
 /// Handlers initialized by the canister and triggered by the CDK.
+///
+/// **Note**: if the callbacks that you define here trap for some reason,
+/// the CDK will disconnect the client with principal `args.client_principal`.
+/// However, the client **won't** be notified
+/// until at least the next time it will try to send a message to the canister.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WsHandlers {
     pub on_open: Option<OnOpenCallback>,
@@ -340,37 +372,23 @@ pub struct WsHandlers {
 impl WsHandlers {
     pub(crate) fn call_on_open(&self, args: OnOpenCallbackArgs) {
         if let Some(on_open) = self.on_open {
-            let res = panic::catch_unwind(|| {
-                on_open(args);
-            });
-
-            if let Err(e) = res {
-                custom_print!("Error calling on_open handler: {:?}", e);
-            }
+            // we don't have to recover from errors here,
+            // we just let the canister trap
+            on_open(args);
         }
     }
 
     pub(crate) fn call_on_message(&self, args: OnMessageCallbackArgs) {
         if let Some(on_message) = self.on_message {
-            let res = panic::catch_unwind(|| {
-                on_message(args);
-            });
-
-            if let Err(e) = res {
-                custom_print!("Error calling on_message handler: {:?}", e);
-            }
+            // see call_on_open
+            on_message(args);
         }
     }
 
     pub(crate) fn call_on_close(&self, args: OnCloseCallbackArgs) {
         if let Some(on_close) = self.on_close {
-            let res = panic::catch_unwind(|| {
-                on_close(args);
-            });
-
-            if let Err(e) = res {
-                custom_print!("Error calling on_close handler: {:?}", e);
-            }
+            // see call_on_open
+            on_close(args);
         }
     }
 }
@@ -381,21 +399,16 @@ pub struct WsInitParams {
     /// The callback handlers for the WebSocket.
     pub handlers: WsHandlers,
     /// The maximum number of messages to be returned in a polling iteration.
+    ///
     /// Defaults to `50`.
     pub max_number_of_returned_messages: usize,
     /// The interval at which to send an acknowledgement message to the client,
     /// so that the client knows that all the messages it sent have been received by the canister (in milliseconds).
     ///
-    /// Must be greater than `keep_alive_timeout_ms`.
+    /// Must be greater than [`CLIENT_KEEP_ALIVE_TIMEOUT_MS`] (1 minute).
     ///
     /// Defaults to `300_000` (5 minutes).
     pub send_ack_interval_ms: u64,
-    /// The delay to wait for the client to send a keep alive after receiving an acknowledgement (in milliseconds).
-    ///
-    /// Must be lower than `send_ack_interval_ms`.
-    ///
-    /// Defaults to `60_000` (1 minute).
-    pub keep_alive_timeout_ms: u64,
 }
 
 impl WsInitParams {
@@ -412,13 +425,13 @@ impl WsInitParams {
     }
 
     /// Checks the validity of the timer parameters.
-    /// `send_ack_interval_ms` must be greater than `keep_alive_timeout_ms`.
+    /// `send_ack_interval_ms` must be greater than [`CLIENT_KEEP_ALIVE_TIMEOUT_MS`].
     ///
     /// # Traps
-    /// If `send_ack_interval_ms` <= `keep_alive_timeout_ms`.
+    /// If `send_ack_interval_ms` <= [`CLIENT_KEEP_ALIVE_TIMEOUT_MS`].
     pub(crate) fn check_validity(&self) {
-        if self.keep_alive_timeout_ms >= self.send_ack_interval_ms {
-            custom_trap!("send_ack_interval_ms must be greater than keep_alive_timeout_ms");
+        if self.send_ack_interval_ms <= CLIENT_KEEP_ALIVE_TIMEOUT_MS {
+            custom_trap!("send_ack_interval_ms must be greater than CLIENT_KEEP_ALIVE_TIMEOUT_MS");
         }
     }
 
@@ -430,13 +443,16 @@ impl WsInitParams {
         self
     }
 
+    /// Sets the interval (in milliseconds) at which to send an acknowledgement message
+    /// to the connected clients.
+    ///
+    /// Must be greater than [`CLIENT_KEEP_ALIVE_TIMEOUT_MS`] (1 minute).
+    ///
+    /// # Traps
+    /// If `send_ack_interval_ms` <= [`CLIENT_KEEP_ALIVE_TIMEOUT_MS`]. See [WsInitParams::check_validity].
     pub fn with_send_ack_interval_ms(mut self, send_ack_interval_ms: u64) -> Self {
         self.send_ack_interval_ms = send_ack_interval_ms;
-        self
-    }
-
-    pub fn with_keep_alive_timeout_ms(mut self, keep_alive_timeout_ms: u64) -> Self {
-        self.keep_alive_timeout_ms = keep_alive_timeout_ms;
+        self.check_validity();
         self
     }
 }
@@ -447,7 +463,6 @@ impl Default for WsInitParams {
             handlers: WsHandlers::default(),
             max_number_of_returned_messages: DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES,
             send_ack_interval_ms: DEFAULT_SEND_ACK_INTERVAL_MS,
-            keep_alive_timeout_ms: DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS,
         }
     }
 }

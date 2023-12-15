@@ -2,47 +2,32 @@ use ic_cdk_macros::*;
 
 use canister::{on_close, on_message, on_open, AppMessage};
 use ic_websocket_cdk::{
-    CanisterWsCloseArguments, CanisterWsCloseResult, CanisterWsGetMessagesArguments,
-    CanisterWsGetMessagesResult, CanisterWsMessageArguments, CanisterWsMessageResult,
-    CanisterWsOpenArguments, CanisterWsOpenResult, CanisterWsSendResult, ClientPrincipal,
+    CanisterCloseResult, CanisterSendResult, CanisterWsCloseArguments, CanisterWsCloseResult,
+    CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult, CanisterWsMessageArguments,
+    CanisterWsMessageResult, CanisterWsOpenArguments, CanisterWsOpenResult, ClientPrincipal,
     WsHandlers, WsInitParams,
 };
 
 mod canister;
 
 #[init]
-fn init(
-    max_number_of_returned_messages: usize,
-    send_ack_interval_ms: u64,
-    keep_alive_timeout_ms: u64,
-) {
+fn init(max_number_of_returned_messages: usize, send_ack_interval_ms: u64) {
     let handlers = WsHandlers {
         on_open: Some(on_open),
         on_message: Some(on_message),
         on_close: Some(on_close),
     };
 
-    let params = WsInitParams {
-        handlers,
-        max_number_of_returned_messages,
-        send_ack_interval_ms,
-        keep_alive_timeout_ms,
-    };
+    let params = WsInitParams::new(handlers)
+        .with_max_number_of_returned_messages(max_number_of_returned_messages)
+        .with_send_ack_interval_ms(send_ack_interval_ms);
 
     ic_websocket_cdk::init(params)
 }
 
 #[post_upgrade]
-fn post_upgrade(
-    max_number_of_returned_messages: usize,
-    send_ack_interval_ms: u64,
-    keep_alive_timeout_ms: u64,
-) {
-    init(
-        max_number_of_returned_messages,
-        send_ack_interval_ms,
-        keep_alive_timeout_ms,
-    );
+fn post_upgrade(max_number_of_returned_messages: usize, send_ack_interval_ms: u64) {
+    init(max_number_of_returned_messages, send_ack_interval_ms);
 }
 
 // method called by the WS Gateway after receiving FirstMessage from the client
@@ -75,12 +60,26 @@ fn ws_get_messages(args: CanisterWsGetMessagesArguments) -> CanisterWsGetMessage
 //// Debug/tests methods
 // send a message to the client, usually called by the canister itself
 #[update]
-fn ws_send(client_principal: ClientPrincipal, messages: Vec<Vec<u8>>) -> CanisterWsSendResult {
+fn send(client_principal: ClientPrincipal, messages: Vec<Vec<u8>>) -> CanisterSendResult {
     for msg_bytes in messages {
-        match ic_websocket_cdk::ws_send(client_principal, msg_bytes) {
+        match ic_websocket_cdk::send(client_principal, msg_bytes) {
             Ok(_) => {},
             Err(e) => return Err(e),
         }
     }
     Ok(())
+}
+
+// close the connection with a client, usually called by the canister itself
+#[update]
+fn close(client_principal: ClientPrincipal) -> CanisterCloseResult {
+    ic_websocket_cdk::close(client_principal)
+}
+
+// wipes the internal state
+#[update]
+fn wipe(max_number_of_returned_messages: usize, send_ack_interval_ms: u64) {
+    ic_websocket_cdk::wipe();
+
+    init(max_number_of_returned_messages, send_ack_interval_ms);
 }

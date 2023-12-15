@@ -1,6 +1,6 @@
 [package]
 name = "ic-websocket-cdk"
-version = "0.3.1"
+version = "0.3.2"
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
@@ -29,7 +29,7 @@ proptest = "1.2.0"
 rand = "0.8.5"
 ring = "0.16.20"
 lazy_static = "1.4.0"
-pocket-ic = "1.0.0"
+pocket-ic = "2.0.1"
 ic-certificate-verification = "1.2.0"
 ic-certification = "1.2.0"
 

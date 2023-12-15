@@ -3,6 +3,8 @@ use std::{cell::RefCell, panic};
 use super::common;
 use crate::utils::get_current_time;
 use crate::*;
+use candid::decode_one;
+use ic_certified_map::RbTree;
 use proptest::prelude::*;
 
 mod utils;
@@ -107,45 +109,6 @@ fn test_ws_handlers_are_called() {
 }
 
 #[test]
-fn test_ws_handlers_panic_is_handled() {
-    let h = WsHandlers {
-        on_open: Some(|_| {
-            panic!("on_open_panic");
-        }),
-        on_message: Some(|_| {
-            panic!("on_close_panic");
-        }),
-        on_close: Some(|_| {
-            panic!("on_close_panic");
-        }),
-    };
-
-    set_params(WsInitParams::new(h));
-
-    let handlers = get_handlers_from_params();
-
-    let res = panic::catch_unwind(|| {
-        handlers.call_on_open(OnOpenCallbackArgs {
-            client_principal: common::generate_random_principal(),
-        });
-    });
-    assert!(res.is_ok());
-    let res = panic::catch_unwind(|| {
-        handlers.call_on_message(OnMessageCallbackArgs {
-            client_principal: common::generate_random_principal(),
-            message: vec![],
-        });
-    });
-    assert!(res.is_ok());
-    let res = panic::catch_unwind(|| {
-        handlers.call_on_close(OnCloseCallbackArgs {
-            client_principal: common::generate_random_principal(),
-        });
-    });
-    assert!(res.is_ok());
-}
-
-#[test]
 fn test_ws_init_params() {
     let handlers = WsHandlers::default();
 
@@ -156,38 +119,25 @@ fn test_ws_init_params() {
         DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES
     );
     assert_eq!(params.send_ack_interval_ms, DEFAULT_SEND_ACK_INTERVAL_MS);
-    assert_eq!(
-        params.keep_alive_timeout_ms,
-        DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS
-    );
 
     let params = WsInitParams::new(handlers.clone())
         .with_max_number_of_returned_messages(5)
-        .with_send_ack_interval_ms(10)
-        .with_keep_alive_timeout_ms(2);
+        .with_send_ack_interval_ms(120_000);
     assert_eq!(params.max_number_of_returned_messages, 5);
-    assert_eq!(params.send_ack_interval_ms, 10);
-    assert_eq!(params.keep_alive_timeout_ms, 2);
+    assert_eq!(params.send_ack_interval_ms, 120_000);
 }
 
 #[test]
-#[should_panic = "send_ack_interval_ms must be greater than keep_alive_timeout_ms"]
+#[should_panic = "send_ack_interval_ms must be greater than CLIENT_KEEP_ALIVE_TIMEOUT_MS"]
 fn test_ws_init_params_keep_alive_greater() {
-    let params = WsInitParams::new(WsHandlers::default())
-        .with_send_ack_interval_ms(5)
-        .with_keep_alive_timeout_ms(10);
-
-    params.check_validity();
+    WsInitParams::new(WsHandlers::default()).with_send_ack_interval_ms(5);
 }
 
 #[test]
-#[should_panic = "send_ack_interval_ms must be greater than keep_alive_timeout_ms"]
+#[should_panic = "send_ack_interval_ms must be greater than CLIENT_KEEP_ALIVE_TIMEOUT_MS"]
 fn test_ws_init_params_keep_alive_equal() {
-    let params = WsInitParams::new(WsHandlers::default())
-        .with_send_ack_interval_ms(10)
-        .with_keep_alive_timeout_ms(10);
-
-    params.check_validity();
+    WsInitParams::new(WsHandlers::default())
+        .with_send_ack_interval_ms(CLIENT_KEEP_ALIVE_TIMEOUT_MS);
 }
 
 #[test]
@@ -198,6 +148,14 @@ fn test_current_time() {
         .unwrap();
     let timestamp_nanos = duration_since_epoch.as_nanos() as u64;
     assert!(get_current_time() >= timestamp_nanos);
+}
+
+#[test]
+fn test_remove_empty_expired_gateways_empty() {
+    let res = panic::catch_unwind(|| {
+        remove_empty_expired_gateways();
+    });
+    assert!(res.is_ok());
 }
 
 proptest! {
@@ -213,11 +171,14 @@ proptest! {
     fn test_increment_gateway_clients_count(test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
         // Set up
         REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(test_gateway_principal, RegisteredGateway::new()));
+        GATEWAYS_TO_REMOVE.with(|state| state.borrow_mut().insert(test_gateway_principal, 0));
 
         increment_gateway_clients_count(test_gateway_principal);
 
         let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_gateway_principal).cloned()).unwrap();
         prop_assert_eq!(registered_gateway.connected_clients_count, 1);
+        let gateway_to_remove = GATEWAYS_TO_REMOVE.with(|map| map.borrow().get(&test_gateway_principal).cloned());
+        prop_assert!(gateway_to_remove.is_none());
 
         // change the registered gateway to see if its not replaced
         REGISTERED_GATEWAYS.with(|map| {
@@ -229,6 +190,8 @@ proptest! {
         let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_gateway_principal).cloned()).unwrap();
         prop_assert_eq!(registered_gateway.outgoing_message_nonce, 5);
         prop_assert_eq!(registered_gateway.connected_clients_count, 2);
+        let gateway_to_remove = GATEWAYS_TO_REMOVE.with(|map| map.borrow().get(&test_gateway_principal).cloned());
+        prop_assert!(gateway_to_remove.is_none());
     }
 
     #[test]
@@ -250,7 +213,49 @@ proptest! {
         }
 
         let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_gateway_principal).cloned());
-        prop_assert!(registered_gateway.is_none());
+        prop_assert!(registered_gateway.is_some());
+        let gateway_timestamp = GATEWAYS_TO_REMOVE.with(|map| map.borrow().get(&test_gateway_principal).cloned());
+        prop_assert!(gateway_timestamp.is_some());
+    }
+
+    #[test]
+    fn test_remove_empty_expired_gateways_not_expired(test_gateway_principals in any::<Vec<u8>>().prop_map(|v| v.iter().map(|_|common::generate_random_principal()).collect::<Vec<GatewayPrincipal>>())) {
+        // Set up
+        let gateway_timestamp = get_current_time() - (get_params().send_ack_interval_ms * 1_000_000) + 100_000_000;
+        for gateway_principal in test_gateway_principals.clone() {
+            REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway::new()));
+            GATEWAYS_TO_REMOVE.with(|state| state.borrow_mut().insert(gateway_principal, gateway_timestamp));
+        }
+
+        // Test
+        remove_empty_expired_gateways();
+
+        for gateway_principal in test_gateway_principals {
+            let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&gateway_principal).cloned());
+            prop_assert!(registered_gateway.is_some());
+            let gateway_timestamp = GATEWAYS_TO_REMOVE.with(|map| map.borrow().get(&gateway_principal).cloned());
+            prop_assert!(gateway_timestamp.is_some());
+        }
+    }
+
+    #[test]
+    fn test_remove_empty_expired_gateways(test_gateway_principals in any::<Vec<u8>>().prop_map(|v| v.iter().map(|_|common::generate_random_principal()).collect::<Vec<GatewayPrincipal>>())) {
+        // Set up
+        let gateway_timestamp = get_current_time() - (get_params().send_ack_interval_ms * 1_000_000) - 100_000_000;
+        for gateway_principal in test_gateway_principals.clone() {
+            REGISTERED_GATEWAYS.with(|n| n.borrow_mut().insert(gateway_principal, RegisteredGateway::new()));
+            GATEWAYS_TO_REMOVE.with(|state| state.borrow_mut().insert(gateway_principal, gateway_timestamp));
+        }
+
+        // Test
+        remove_empty_expired_gateways();
+
+        for gateway_principal in test_gateway_principals {
+            let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&gateway_principal).cloned());
+            prop_assert!(registered_gateway.is_none());
+            let gateway_timestamp = GATEWAYS_TO_REMOVE.with(|map| map.borrow().get(&gateway_principal).cloned());
+            prop_assert!(gateway_timestamp.is_none());
+        }
     }
 
     #[test]
@@ -577,7 +582,7 @@ proptest! {
     #[test]
     fn test_remove_client_nonexistent(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key())) {
         let res = panic::catch_unwind(|| {
-            remove_client(&test_client_key);
+            remove_client(&test_client_key, None);
         });
         prop_assert!(res.is_ok());
     }
@@ -605,7 +610,7 @@ proptest! {
             map.borrow_mut().insert(test_client_key.clone(), INITIAL_CANISTER_SEQUENCE_NUM);
         });
 
-        remove_client(&test_client_key);
+        remove_client(&test_client_key, None);
 
         let client_key = CURRENT_CLIENT_KEY_MAP.with(|map| map.borrow().get(&test_client_key.client_principal).cloned());
         prop_assert!(client_key.is_none());
@@ -613,8 +618,61 @@ proptest! {
         let registered_client = REGISTERED_CLIENTS.with(|map| map.borrow().get(&test_client_key).cloned());
         prop_assert!(registered_client.is_none());
 
-        let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_registered_client.gateway_principal).cloned());
-        prop_assert!(registered_gateway.is_none());
+        let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_registered_client.gateway_principal).cloned()).unwrap();
+        prop_assert_eq!(registered_gateway.connected_clients_count, 0);
+        let gateway_timestamp = GATEWAYS_TO_REMOVE.with(|map| map.borrow().get(&test_registered_client.gateway_principal).cloned());
+        prop_assert!(gateway_timestamp.is_some());
+
+        let incoming_seq_num = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).cloned());
+        prop_assert!(incoming_seq_num.is_none());
+
+        let outgoing_seq_num = OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).cloned());
+        prop_assert!(outgoing_seq_num.is_none());
+    }
+
+    #[test]
+    fn test_remove_client_with_reason(test_client_key in any::<u8>().prop_map(|_| common::get_random_client_key())) {
+        // Set up
+        CURRENT_CLIENT_KEY_MAP.with(|map| {
+            map.borrow_mut().insert(test_client_key.client_principal.clone(), test_client_key.clone());
+        });
+        let test_registered_client = utils::generate_random_registered_client();
+        REGISTERED_CLIENTS.with(|map| {
+            map.borrow_mut().insert(test_client_key.clone(), test_registered_client.clone());
+        });
+        REGISTERED_GATEWAYS.with(|map| {
+            let mut gw = RegisteredGateway::new();
+            gw.connected_clients_count = 1;
+            map.borrow_mut()
+                .insert(test_registered_client.gateway_principal, gw);
+        });
+        INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| {
+            map.borrow_mut().insert(test_client_key.clone(), INITIAL_CLIENT_SEQUENCE_NUM);
+        });
+        OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.with(|map| {
+            map.borrow_mut().insert(test_client_key.clone(), INITIAL_CANISTER_SEQUENCE_NUM);
+        });
+
+        remove_client(&test_client_key, Some(CloseMessageReason::ClosedByApplication));
+
+        let client_key = CURRENT_CLIENT_KEY_MAP.with(|map| map.borrow().get(&test_client_key.client_principal).cloned());
+        prop_assert!(client_key.is_none());
+
+        let registered_client = REGISTERED_CLIENTS.with(|map| map.borrow().get(&test_client_key).cloned());
+        prop_assert!(registered_client.is_none());
+
+        let registered_gateway = REGISTERED_GATEWAYS.with(|map| map.borrow().get(&test_registered_client.gateway_principal).cloned()).unwrap();
+        prop_assert!(registered_gateway.connected_clients_count == 0);
+        let expected_websocket_message: WebsocketMessage = serde_cbor::from_slice(&registered_gateway.messages_queue[0].content).unwrap();
+        let expected_service_content = decode_one(&expected_websocket_message.content).unwrap();
+        assert!(
+            matches!(
+                expected_service_content,
+                WebsocketServiceMessageContent::CloseMessage(CanisterCloseMessageContent{
+                    reason: CloseMessageReason::ClosedByApplication
+                }),
+            )
+        );
 
         let incoming_seq_num = INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.with(|map| map.borrow().get(&test_client_key).cloned());
         prop_assert!(incoming_seq_num.is_none());
@@ -833,6 +891,19 @@ proptest! {
     }
 
     #[test]
+    fn test_put_cert_for_message(test_key in any::<u64>().prop_map(|_| utils::generate_random_message_key(&common::generate_random_principal()))) {
+        // Set up
+        CERT_TREE.with(|tree| tree.replace(RbTree::new()));
+
+        // Test
+        put_cert_for_message(test_key.clone(), &vec![1,2,3]); // we don't care about the value here
+        prop_assert!(CERT_TREE.with(|tree| tree.borrow().get(&test_key.as_bytes()).is_some()));
+
+        // Clean up
+        CERT_TREE.with(|tree| tree.replace(RbTree::new()));
+    }
+
+    #[test]
     fn test_delete_old_messages_for_gateway_nonexistent_gateway(gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
         let res = delete_old_messages_for_gateway(&gateway_principal);
         prop_assert_eq!(
@@ -852,13 +923,14 @@ proptest! {
     }
 
     #[test]
-    fn test_delete_old_messages_for_gateway_queue(
+    fn test_delete_old_messages_for_gateway(
         gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal()),
         old_messages_count in 0..100usize,
         new_messages_count in 0..100usize,
-        test_ack_interval_ms in (1..100u64),
+        test_ack_interval_delta_ms in (1..100u64),
     ) {
         // Set up
+        let test_ack_interval_ms = CLIENT_KEEP_ALIVE_TIMEOUT_MS  + test_ack_interval_delta_ms;
         PARAMS.with(|p|
             *p.borrow_mut() = WsInitParams::new(WsHandlers::default())
                 .with_send_ack_interval_ms(test_ack_interval_ms)
@@ -909,5 +981,21 @@ proptest! {
         });
         prop_assert_eq!(registered_gateway.messages_queue.len(), expected_messages_left_count);
         prop_assert_eq!(registered_gateway.messages_to_delete.len(), expected_messages_left_count);
+    }
+
+    #[test]
+    fn test_delete_keys_from_cert_tree(test_keys in any::<Vec<u64>>().prop_map(|v| v.iter().map(|_| utils::generate_random_message_key(&common::generate_random_principal())).collect::<Vec<String>>())) {
+        // Set up
+        CERT_TREE.with(|tree| {
+            let mut tree = tree.borrow_mut();
+            for key in test_keys.clone() {
+                tree.insert(key.clone(), [0u8; 32]); // we don't care about the value here
+            }
+        });
+        prop_assert_eq!(CERT_TREE.with(|tree| tree.borrow().iter().count()), test_keys.len());
+
+        // Test
+        delete_keys_from_cert_tree(test_keys);
+        prop_assert_eq!(CERT_TREE.with(|tree| tree.borrow().iter().count()), 0);
     }
 }

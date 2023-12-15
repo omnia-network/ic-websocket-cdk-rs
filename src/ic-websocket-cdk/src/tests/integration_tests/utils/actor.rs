@@ -13,7 +13,7 @@ pub mod ws_open {
     /// # Panics
     /// if the call returns a [WasmResult::Reject].
     pub fn call_ws_open(caller: &Principal, args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
-        let canister_id = get_test_env().canister_id;
+        let canister_id = get_test_env().get_test_canister_id();
         let res = get_test_env()
             .pic
             .update_call(canister_id, *caller, "ws_open", encode_one(args).unwrap())
@@ -71,7 +71,7 @@ pub mod ws_message {
         caller: &Principal,
         args: CanisterWsMessageArguments,
     ) -> CanisterWsMessageResult {
-        let canister_id = get_test_env().canister_id;
+        let canister_id = get_test_env().get_test_canister_id();
         let res = get_test_env()
             .pic
             .update_call(
@@ -111,7 +111,7 @@ pub mod ws_close {
         caller: &Principal,
         args: CanisterWsCloseArguments,
     ) -> CanisterWsCloseResult {
-        let canister_id = get_test_env().canister_id;
+        let canister_id = get_test_env().get_test_canister_id();
         let res = get_test_env()
             .pic
             .update_call(canister_id, *caller, "ws_close", encode_one(args).unwrap())
@@ -149,7 +149,7 @@ pub mod ws_get_messages {
         caller: &Principal,
         args: CanisterWsGetMessagesArguments,
     ) -> CanisterWsGetMessagesResult {
-        let canister_id = get_test_env().canister_id;
+        let canister_id = get_test_env().get_test_canister_id();
         let res = get_test_env()
             .pic
             .query_call(
@@ -181,30 +181,30 @@ pub mod ws_get_messages {
     }
 }
 
-pub mod ws_send {
-    use crate::{CanisterWsSendResult, ClientPrincipal};
+pub mod send {
+    use crate::{CanisterSendResult, ClientPrincipal};
     use candid::encode_args;
 
     use super::*;
 
     /// (`ClientPrincipal`, `Vec<Vec<u8>>`)
-    type WsSendArguments = (ClientPrincipal, Vec<Vec<u8>>);
+    type SendArguments = (ClientPrincipal, Vec<Vec<u8>>);
 
     /// # Panics
     /// if the call returns a [WasmResult::Reject].
-    pub(crate) fn call_ws_send(
+    pub(crate) fn call_send(
         send_to_principal: &ClientPrincipal,
         messages: Vec<AppMessage>,
-    ) -> CanisterWsSendResult {
+    ) -> CanisterSendResult {
         let messages: Vec<Vec<u8>> = messages.iter().map(|m| encode_one(m).unwrap()).collect();
-        let args: WsSendArguments = (send_to_principal.clone(), messages);
-        let canister_id = get_test_env().canister_id;
+        let args: SendArguments = (send_to_principal.clone(), messages);
+        let canister_id = get_test_env().get_test_canister_id();
         let res = get_test_env()
             .pic
             .update_call(
                 canister_id,
                 Principal::anonymous(),
-                "ws_send",
+                "send",
                 encode_args(args).unwrap(),
             )
             .expect("Failed to call canister");
@@ -214,17 +214,72 @@ pub mod ws_send {
         }
     }
 
-    /// Same as [call_ws_send].
+    /// Same as [call_send].
     ///
     /// # Panics
-    /// If [call_ws_send] panics or if the call returns an error variant.
-    pub(crate) fn call_ws_send_with_panic(
+    /// If [call_send] panics or if the call returns an error variant.
+    pub(crate) fn call_send_with_panic(
         send_to_principal: &ClientPrincipal,
         messages: Vec<AppMessage>,
     ) {
-        match call_ws_send(send_to_principal, messages) {
-            CanisterWsSendResult::Ok(_) => {},
-            CanisterWsSendResult::Err(err) => panic!("failed ws_send: {:?}", err),
+        match call_send(send_to_principal, messages) {
+            CanisterSendResult::Ok(_) => {},
+            CanisterSendResult::Err(err) => panic!("failed send: {:?}", err),
+        }
+    }
+}
+
+pub mod close {
+    use crate::{CanisterCloseResult, ClientPrincipal};
+    use candid::encode_args;
+
+    use super::*;
+
+    /// # Panics
+    /// if the call returns a [WasmResult::Reject].
+    pub(crate) fn call_close(client_principal: &ClientPrincipal) -> CanisterCloseResult {
+        let canister_id = get_test_env().get_test_canister_id();
+        let res = get_test_env()
+            .pic
+            .update_call(
+                canister_id,
+                Principal::anonymous(),
+                "close",
+                encode_args((client_principal,)).unwrap(),
+            )
+            .expect("Failed to call canister");
+        match res {
+            WasmResult::Reply(bytes) => decode_one(&bytes).unwrap(),
+            _ => panic!("Expected reply"),
+        }
+    }
+}
+
+pub mod wipe {
+    use candid::encode_args;
+
+    use crate::tests::integration_tests::utils::test_env::{
+        CanisterInitArgs, DEFAULT_CANISTER_INIT_ARGS,
+    };
+
+    use super::*;
+
+    /// # Panics
+    /// if the call returns a [WasmResult::Reject].
+    pub(crate) fn call_wipe(init_args: Option<CanisterInitArgs>) {
+        let canister_id = get_test_env().get_test_canister_id();
+        let res = get_test_env()
+            .pic
+            .update_call(
+                canister_id,
+                Principal::anonymous(),
+                "wipe",
+                encode_args(init_args.unwrap_or(DEFAULT_CANISTER_INIT_ARGS)).unwrap(),
+            )
+            .expect("Failed to call canister");
+        match res {
+            WasmResult::Reply(_) => {},
+            _ => panic!("Expected reply"),
         }
     }
 }

@@ -2,20 +2,21 @@ use proptest::prelude::*;
 use std::ops::Deref;
 
 use crate::{
-    tests::common, CanisterOutputCertifiedMessages, CanisterWsGetMessagesArguments,
-    MESSAGES_TO_DELETE_COUNT,
+    tests::common, CanisterOutputCertifiedMessages, CanisterWsCloseArguments,
+    CanisterWsGetMessagesArguments, CLIENT_KEEP_ALIVE_TIMEOUT_MS, MESSAGES_TO_DELETE_COUNT,
 };
 
 use super::utils::{
     actor::{
+        send::call_send_with_panic, wipe::call_wipe, ws_close::call_ws_close_with_panic,
         ws_get_messages::call_ws_get_messages_with_panic,
-        ws_open::call_ws_open_for_client_key_with_panic, ws_send::call_ws_send_with_panic,
+        ws_open::call_ws_open_for_client_key_with_panic,
     },
     clients::{generate_random_client_key, CLIENT_1_KEY, GATEWAY_1},
     messages::{get_next_polling_nonce_from_messages, verify_messages, AppMessage},
     test_env::{
-        get_test_env, DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
-        DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES, DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
+        get_test_env, DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
+        DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
     },
 };
 
@@ -25,7 +26,7 @@ proptest! {
     #[test]
     fn test_1_non_registered_gateway_should_receive_empty_messages(ref test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
         // first, reset the canister
-        get_test_env().reset_canister_with_default_params();
+        call_wipe(None);
 
         let res = call_ws_get_messages_with_panic(
             test_gateway_principal,
@@ -45,7 +46,7 @@ proptest! {
     #[test]
     fn test_2_registered_gateway_should_receive_only_open_message_if_no_messages_sent_initial_nonce(ref test_client_key in any::<u64>().prop_map(|_| generate_random_client_key())) {
         // first, reset the canister
-        get_test_env().reset_canister_with_default_params();
+        call_wipe(None);
 
         // second, register client 1
         call_ws_open_for_client_key_with_panic(test_client_key);
@@ -60,7 +61,7 @@ proptest! {
     #[test]
     fn test_3_registered_gateway_can_receive_correct_amount_of_messages(test_send_messages_count in 1..100u64) {
         // first, reset the canister
-        get_test_env().reset_canister_with_default_params();
+        call_wipe(None);
         // second, register client 1
         let client_1_key = CLIENT_1_KEY.deref();
         call_ws_open_for_client_key_with_panic(client_1_key);
@@ -70,7 +71,7 @@ proptest! {
                 text: format!("test{}", i),
             })
             .collect();
-        call_ws_send_with_panic(
+        call_send_with_panic(
             &client_1_key.client_principal,
             messages_to_send.clone(),
         );
@@ -121,7 +122,7 @@ proptest! {
     #[test]
     fn test_4_registered_gateway_can_receive_certified_messages(test_send_messages_count in 1..100u64) {
         // first, reset the canister
-        get_test_env().reset_canister_with_default_params();
+        call_wipe(None);
         // second, register client 1
         let client_1_key = CLIENT_1_KEY.deref();
         call_ws_open_for_client_key_with_panic(client_1_key);
@@ -131,7 +132,7 @@ proptest! {
                 text: format!("test{}", i),
             })
             .collect();
-        call_ws_send_with_panic(&client_1_key.client_principal, messages_to_send.clone());
+        call_send_with_panic(&client_1_key.client_principal, messages_to_send.clone());
 
         let mut next_polling_nonce = 0;
         let mut expected_sequence_number = 1;  // `1` because the seq number is incremented before sending on the canister
@@ -165,10 +166,11 @@ proptest! {
     #[test]
     fn test_5_messages_for_gateway_are_deleted_if_old(test_send_messages_count in 1..100usize) {
         // first, reset the canister
-        get_test_env().reset_canister(
-            1_000, // avoid the queue size limit
-            DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
-            DEFAULT_TEST_KEEP_ALIVE_TIMEOUT_MS,
+        call_wipe(
+            Some((
+                1_000, // avoid the queue size limit
+                DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
+            ))
         );
         // second, register client 1
         let client_1_key = CLIENT_1_KEY.deref();
@@ -179,7 +181,7 @@ proptest! {
                 text: format!("test{}", i),
             })
             .collect();
-        call_ws_send_with_panic(&client_1_key.client_principal, messages_to_send.clone());
+        call_send_with_panic(&client_1_key.client_principal, messages_to_send.clone());
 
         // advance canister time because the messages are deleted only
         // if they're older than the send ack interval;
@@ -223,5 +225,127 @@ proptest! {
             &mut expected_sequence_number,
             &mut i,
         );
+    }
+}
+
+#[test]
+fn test_6_empty_gateway_can_get_messages_until_next_keep_alive_check() {
+    let send_messages_count = 10;
+    // first, reset the canister
+    call_wipe(None);
+    // second, register client 1
+    let client_1_key = CLIENT_1_KEY.deref();
+    call_ws_open_for_client_key_with_panic(client_1_key);
+    // third, send a batch of messages to the client
+    let messages_to_send: Vec<AppMessage> = (1..=send_messages_count)
+        .map(|i| AppMessage {
+            text: format!("test{}", i),
+        })
+        .collect();
+    call_send_with_panic(&client_1_key.client_principal, messages_to_send.clone());
+
+    // check that gateway can receive the messages
+    helpers::assert_gateway_has_messages(send_messages_count);
+
+    // disconnect the client and check that gateway can still receive the messages
+    call_ws_close_with_panic(
+        &GATEWAY_1,
+        CanisterWsCloseArguments {
+            client_key: client_1_key.clone(),
+        },
+    );
+
+    // check that gateway can still receive the messages
+    helpers::assert_gateway_has_messages(send_messages_count);
+
+    // wait for the ack interval to fire
+    get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
+
+    // check that gateway can still receive the messages, even after the ack interval has fired
+    helpers::assert_gateway_has_messages(send_messages_count);
+
+    // wait for the keep alive timeout to expire
+    get_test_env().advance_canister_time_ms(CLIENT_KEEP_ALIVE_TIMEOUT_MS);
+
+    helpers::assert_gateway_has_no_messages();
+}
+
+#[test]
+fn test_7_empty_gateway_can_get_messages_until_next_keep_alive_check_if_removed_before_ack_interval(
+) {
+    let send_messages_count = 10;
+    // first, reset the canister
+    call_wipe(None);
+    // second, register client 1
+    let client_1_key = CLIENT_1_KEY.deref();
+    call_ws_open_for_client_key_with_panic(client_1_key);
+    // third, send a batch of messages to the client
+    let messages_to_send: Vec<AppMessage> = (1..=send_messages_count)
+        .map(|i| AppMessage {
+            text: format!("test{}", i),
+        })
+        .collect();
+    call_send_with_panic(&client_1_key.client_principal, messages_to_send.clone());
+
+    // check that gateway can receive the messages
+    helpers::assert_gateway_has_messages(send_messages_count);
+
+    // wait for the ack interval to fire
+    get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
+
+    // disconnect the client and check that gateway can still receive the messages
+    call_ws_close_with_panic(
+        &GATEWAY_1,
+        CanisterWsCloseArguments {
+            client_key: client_1_key.clone(),
+        },
+    );
+
+    let expected_messages_len = send_messages_count + 1; // +1 for the ack message
+
+    // check that gateway can still receive the messages, even after the ack interval has fired
+    helpers::assert_gateway_has_messages(expected_messages_len);
+
+    // wait for the keep alive timeout to expire
+    get_test_env().advance_canister_time_ms(CLIENT_KEEP_ALIVE_TIMEOUT_MS);
+
+    // the gateway can still receive the messages, because it was emptied
+    // less than an ack interval ago
+    helpers::assert_gateway_has_messages(expected_messages_len);
+
+    // wait for next ack interval to expire
+    get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
+
+    // the gateway can still receive the messages, because empty expired gateways
+    // are removed only in the keep alive timeout callback
+    helpers::assert_gateway_has_messages(expected_messages_len);
+
+    // wait for the keep alive timeout to expire
+    get_test_env().advance_canister_time_ms(CLIENT_KEEP_ALIVE_TIMEOUT_MS);
+
+    helpers::assert_gateway_has_no_messages();
+}
+
+mod helpers {
+    use super::*;
+
+    pub(super) fn assert_gateway_has_messages(send_messages_count: usize) {
+        let CanisterOutputCertifiedMessages { messages, .. } = call_ws_get_messages_with_panic(
+            &GATEWAY_1,
+            CanisterWsGetMessagesArguments { nonce: 0 },
+        );
+        assert_eq!(
+            messages.len(),
+            // + 1 for the open service message
+            send_messages_count + 1,
+        );
+    }
+
+    pub(super) fn assert_gateway_has_no_messages() {
+        let CanisterOutputCertifiedMessages { messages, .. } = call_ws_get_messages_with_panic(
+            &GATEWAY_1,
+            CanisterWsGetMessagesArguments { nonce: 0 },
+        );
+        assert_eq!(messages.len(), 0);
     }
 }

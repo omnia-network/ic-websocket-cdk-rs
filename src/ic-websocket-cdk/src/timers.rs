@@ -4,10 +4,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use crate::custom_print;
 use crate::state::*;
 use crate::types::*;
 use crate::utils::*;
+use crate::{custom_print, CLIENT_KEEP_ALIVE_TIMEOUT_MS, CLIENT_KEEP_ALIVE_TIMEOUT_NS};
 
 thread_local! {
   /// The acknowledgement active timer.
@@ -61,10 +61,12 @@ pub(crate) fn schedule_send_ack_to_clients() {
 ///
 /// The timer callback is [check_keep_alive_timer_callback].
 fn schedule_check_keep_alive() {
-    let keep_alive_timeout_ms = get_params().keep_alive_timeout_ms;
-    let timer_id = set_timer(Duration::from_millis(keep_alive_timeout_ms), move || {
-        check_keep_alive_timer_callback(keep_alive_timeout_ms);
-    });
+    let timer_id = set_timer(
+        Duration::from_millis(CLIENT_KEEP_ALIVE_TIMEOUT_MS),
+        move || {
+            check_keep_alive_timer_callback();
+        },
+    );
 
     put_keep_alive_timer_id(timer_id);
 }
@@ -110,7 +112,11 @@ fn send_ack_to_clients_timer_callback() {
 
 /// Checks if the clients for which we are waiting for keep alive have sent a keep alive message.
 /// If a client has not sent a keep alive message, it is removed from the connected clients.
-fn check_keep_alive_timer_callback(keep_alive_timeout_ms: u64) {
+///
+/// Before checking the clients, it removes all the empty expired gateways from the list of registered gateways.
+fn check_keep_alive_timer_callback() {
+    remove_empty_expired_gateways();
+
     let client_keys_to_remove: Vec<ClientKey> = CLIENTS_WAITING_FOR_KEEP_ALIVE
         .with(Rc::clone)
         .borrow()
@@ -121,7 +127,7 @@ fn check_keep_alive_timer_callback(keep_alive_timeout_ms: u64) {
                 REGISTERED_CLIENTS.with(Rc::clone).borrow().get(client_key)
             {
                 let last_keep_alive = client_metadata.get_last_keep_alive_timestamp();
-                if get_current_time() - last_keep_alive > (keep_alive_timeout_ms * 1_000_000) {
+                if get_current_time() - last_keep_alive > CLIENT_KEEP_ALIVE_TIMEOUT_NS {
                     Some(client_key.to_owned())
                 } else {
                     None
@@ -133,12 +139,12 @@ fn check_keep_alive_timer_callback(keep_alive_timeout_ms: u64) {
         .collect();
 
     for client_key in client_keys_to_remove {
-        remove_client(&client_key);
+        remove_client(&client_key, Some(CloseMessageReason::KeepAliveTimeout));
 
         custom_print!(
-          "[check-keep-alive-timer-cb]: Client {} has not sent a keep alive message in the last {} ms and has been removed",
+          "[check-keep-alive-timer-cb]: Client {} has not sent a keep alive message in the last {}ms and has been removed",
           client_key,
-          keep_alive_timeout_ms
+          CLIENT_KEEP_ALIVE_TIMEOUT_MS
       );
     }
 

@@ -13,11 +13,13 @@ mod utils;
 
 use state::*;
 use timers::*;
+#[allow(deprecated)]
+pub use types::CanisterWsSendResult;
 use types::*;
 pub use types::{
-    CanisterWsCloseArguments, CanisterWsCloseResult, CanisterWsGetMessagesArguments,
-    CanisterWsGetMessagesResult, CanisterWsMessageArguments, CanisterWsMessageResult,
-    CanisterWsOpenArguments, CanisterWsOpenResult, CanisterWsSendResult, ClientPrincipal,
+    CanisterCloseResult, CanisterSendResult, CanisterWsCloseArguments, CanisterWsCloseResult,
+    CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult, CanisterWsMessageArguments,
+    CanisterWsMessageResult, CanisterWsOpenArguments, CanisterWsOpenResult, ClientPrincipal,
     OnCloseCallbackArgs, OnMessageCallbackArgs, OnOpenCallbackArgs, WsHandlers, WsInitParams,
 };
 
@@ -28,8 +30,12 @@ const LABEL_WEBSOCKET: &[u8] = b"websocket";
 const DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES: usize = 50;
 /// The default interval at which to send acknowledgements to the client.
 const DEFAULT_SEND_ACK_INTERVAL_MS: u64 = 300_000; // 5 minutes
+/// The maximum communication latency allowed between the client and the canister.
+const COMMUNICATION_LATENCY_BOUND_MS: u64 = 30_000; // 30 seconds
 /// The default timeout to wait for the client to send a keep alive after receiving an acknowledgement.
-const DEFAULT_CLIENT_KEEP_ALIVE_TIMEOUT_MS: u64 = 60_000; // 1 minute
+const CLIENT_KEEP_ALIVE_TIMEOUT_MS: u64 = 2 * COMMUNICATION_LATENCY_BOUND_MS;
+/// Same as [CLIENT_KEEP_ALIVE_TIMEOUT_MS], but in nanoseconds.
+const CLIENT_KEEP_ALIVE_TIMEOUT_NS: u64 = CLIENT_KEEP_ALIVE_TIMEOUT_MS * 1_000_000;
 
 /// The initial nonce for outgoing messages.
 const INITIAL_OUTGOING_MESSAGE_NONCE: u64 = 0;
@@ -88,7 +94,7 @@ pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
             // Do nothing
         },
         Ok(old_client_key) => {
-            remove_client(&old_client_key);
+            remove_client(&old_client_key, None);
         },
     };
 
@@ -112,6 +118,9 @@ pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
 }
 
 /// Handles the WS connection close event received from the WS Gateway.
+///
+/// If you want to close the connection with the client in your logic,
+/// use the [close] function instead.
 pub fn ws_close(args: CanisterWsCloseArguments) -> CanisterWsCloseResult {
     let gateway_principal = caller();
 
@@ -124,7 +133,7 @@ pub fn ws_close(args: CanisterWsCloseArguments) -> CanisterWsCloseResult {
     // check if the client is registered to the gateway that is closing the connection
     check_client_registered_to_gateway(&args.client_key, &gateway_principal)?;
 
-    remove_client(&args.client_key);
+    remove_client(&args.client_key, None);
 
     Ok(())
 }
@@ -188,7 +197,7 @@ pub fn ws_message<T: CandidType + for<'a> Deserialize<'a>>(
         .eq(&expected_sequence_num)
         .then_some(())
         .ok_or_else(|| {
-            remove_client(&client_key);
+            remove_client(&client_key, Some(CloseMessageReason::WrongSequenceNumber));
 
             WsError::IncomingSequenceNumberWrong {
                 expected_sequence_num,
@@ -231,7 +240,7 @@ pub fn ws_get_messages(args: CanisterWsGetMessagesArguments) -> CanisterWsGetMes
 /// This example is the serialize equivalent of the [OnMessageCallbackArgs's example](struct.OnMessageCallbackArgs.html#example) deserialize one.
 /// ```rust
 /// use candid::{encode_one, CandidType, Principal};
-/// use ic_websocket_cdk::ws_send;
+/// use ic_websocket_cdk::send;
 /// use serde::Deserialize;
 ///
 /// #[derive(CandidType, Deserialize)]
@@ -247,11 +256,29 @@ pub fn ws_get_messages(args: CanisterWsGetMessagesArguments) -> CanisterWsGetMes
 /// };
 ///
 /// let msg_bytes = encode_one(&my_message).unwrap();
-/// ws_send(my_client_principal, msg_bytes);
+/// send(my_client_principal, msg_bytes);
 /// ```
-pub fn ws_send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> CanisterWsSendResult {
+pub fn send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> CanisterSendResult {
     let client_key = get_client_key_from_principal(&client_principal)?;
     _ws_send(&client_key, msg_bytes, false)
+}
+
+#[deprecated(since = "0.3.2", note = "use `ic_websocket_cdk::send` instead")]
+#[allow(deprecated)]
+/// Deprecated: use [send] instead.
+pub fn ws_send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> CanisterWsSendResult {
+    send(client_principal, msg_bytes)
+}
+
+/// Closes the connection with the client.
+///
+/// This function **must not** be called in the `on_close` callback.
+pub fn close(client_principal: ClientPrincipal) -> CanisterCloseResult {
+    let client_key = get_client_key_from_principal(&client_principal)?;
+
+    remove_client(&client_key, Some(CloseMessageReason::ClosedByApplication));
+
+    Ok(())
 }
 
 /// Resets the internal state of the IC WebSocket CDK.

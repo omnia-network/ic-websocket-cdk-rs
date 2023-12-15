@@ -16,8 +16,20 @@ type ClientKeepAliveMessageContent = record {
   last_incoming_sequence_num : nat64;
 };
 
+type CloseMessageReason = variant {
+  WrongSequenceNumber;
+  InvalidServiceMessage;
+  KeepAliveTimeout;
+  ClosedByApplication;
+};
+
+type CanisterCloseMessageContent = record {
+  reason : CloseMessageReason;
+};
+
 type WebsocketServiceMessageContent = variant {
   OpenMessage : CanisterOpenMessageContent;
   AckMessage : CanisterAckMessageContent;
   KeepAliveMessage : ClientKeepAliveMessageContent;
+  CloseMessage : CanisterCloseMessageContent;
 };
