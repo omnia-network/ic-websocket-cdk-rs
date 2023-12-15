@@ -95,7 +95,10 @@ impl TestEnv {
 
     pub fn advance_canister_time_ms(&self, ms: u64) {
         self.pic.advance_time(Duration::from_millis(ms));
-        // produce and advance by one block to fire eventual timers
-        self.pic.tick();
+        // produce and advance by some blocks to fire eventual timers
+        // see https://forum.dfinity.org/t/pocketic-multi-subnet-canister-testing/24901/4
+        for _ in 0..100 {
+            self.pic.tick();
+        }
     }
 }
