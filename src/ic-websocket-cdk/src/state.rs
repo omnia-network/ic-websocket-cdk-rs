@@ -70,6 +70,9 @@ pub(crate) fn reset_internal_state() {
     REGISTERED_GATEWAYS.with(|map| {
         map.borrow_mut().clear();
     });
+    GATEWAYS_TO_REMOVE.with(|map| {
+        map.borrow_mut().clear();
+    });
 }
 
 /// Increments the clients connected count for the given gateway.
