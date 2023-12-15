@@ -94,9 +94,9 @@ pub(crate) fn decrement_gateway_clients_count(
             let clients_count = g.decrement_clients_count();
 
             if remove_if_empty && clients_count == 0 {
-                let g = map.remove(gateway_principal).unwrap();
-
-                return Some(g.messages_queue.iter().map(|m| m.key.clone()).collect());
+                return map
+                    .remove(gateway_principal)
+                    .map(|g| g.messages_queue.iter().map(|m| m.key.clone()).collect());
             }
         }
 
