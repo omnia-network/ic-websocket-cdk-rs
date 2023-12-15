@@ -7,7 +7,10 @@ use crate::{
     tests::{
         common::generate_random_principal,
         integration_tests::utils::{
-            actor::{ws_close::call_ws_close, ws_get_messages::call_ws_get_messages_with_panic},
+            actor::{
+                wipe::call_wipe, ws_close::call_ws_close,
+                ws_get_messages::call_ws_get_messages_with_panic,
+            },
             clients::GATEWAY_1,
             messages::check_canister_message_has_close_reason,
         },
@@ -22,13 +25,12 @@ use super::utils::{
     actor::{ws_message::call_ws_message, ws_open::call_ws_open_for_client_key_with_panic},
     clients::{generate_random_client_nonce, CLIENT_1_KEY, CLIENT_2_KEY},
     messages::{create_websocket_message, encode_websocket_service_message_content},
-    test_env::get_test_env,
 };
 
 #[test]
 fn test_1_fails_if_client_is_not_registered() {
     // first, reset the canister
-    get_test_env().reset_canister_with_default_params();
+    call_wipe(None);
     // second, open a connection for client 1
     call_ws_open_for_client_key_with_panic(CLIENT_1_KEY.deref());
 
@@ -55,7 +57,7 @@ fn test_1_fails_if_client_is_not_registered() {
 fn test_2_fails_if_client_sends_a_message_with_a_different_client_key() {
     let client_1_key = CLIENT_1_KEY.deref();
     // first, reset the canister
-    get_test_env().reset_canister_with_default_params();
+    call_wipe(None);
     // second, open a connection for client 1
     call_ws_open_for_client_key_with_panic(client_1_key);
 
@@ -108,7 +110,7 @@ fn test_2_fails_if_client_sends_a_message_with_a_different_client_key() {
 fn test_3_should_send_a_message_from_a_registered_client() {
     let client_1_key = CLIENT_1_KEY.deref();
     // first, reset the canister
-    get_test_env().reset_canister_with_default_params();
+    call_wipe(None);
     // second, open a connection for client 1
     call_ws_open_for_client_key_with_panic(client_1_key);
 
@@ -125,7 +127,7 @@ fn test_3_should_send_a_message_from_a_registered_client() {
 fn test_4_fails_if_client_sends_a_message_with_a_wrong_sequence_number() {
     let client_1_key = CLIENT_1_KEY.deref();
     // first, reset the canister
-    get_test_env().reset_canister_with_default_params();
+    call_wipe(None);
     // second, open a connection for client 1
     call_ws_open_for_client_key_with_panic(client_1_key);
 
@@ -181,7 +183,7 @@ fn test_4_fails_if_client_sends_a_message_with_a_wrong_sequence_number() {
 fn test_5_fails_if_client_sends_a_wrong_service_message() {
     let client_1_key = CLIENT_1_KEY.deref();
     // first, reset the canister
-    get_test_env().reset_canister_with_default_params();
+    call_wipe(None);
     // second, open a connection for client 1
     call_ws_open_for_client_key_with_panic(client_1_key);
 
@@ -230,7 +232,7 @@ fn test_5_fails_if_client_sends_a_wrong_service_message() {
 fn test_6_should_send_a_service_message_from_a_registered_client() {
     let client_1_key = CLIENT_1_KEY.deref();
     // first, reset the canister
-    get_test_env().reset_canister_with_default_params();
+    call_wipe(None);
     // second, open a connection for client 1
     call_ws_open_for_client_key_with_panic(client_1_key);
 

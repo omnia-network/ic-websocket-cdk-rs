@@ -23,4 +23,5 @@ service : (nat64, nat64) -> {
   // methods used just for debugging/testing
   "send" : (ClientPrincipal, vec blob) -> (CanisterSendResult);
   "close" : (ClientPrincipal) -> (CanisterCloseResult);
+  "wipe" : (nat64, nat64) -> ();
 };

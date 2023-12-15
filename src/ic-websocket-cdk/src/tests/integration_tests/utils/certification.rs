@@ -6,7 +6,8 @@ use super::test_env::TestEnv;
 
 pub fn is_valid_certificate(test_env: &TestEnv, certificate: &[u8], tree: &[u8]) -> bool {
     let cert: Certificate = serde_cbor::from_slice(certificate).unwrap();
-    let canister_id_bytes = test_env.canister_id.as_slice();
+    let canister_id = test_env.get_test_canister_id();
+    let canister_id_bytes = canister_id.as_slice();
     let verify_res = cert.verify(canister_id_bytes, &test_env.get_root_ic_key());
     match verify_res {
         Ok(_) => {

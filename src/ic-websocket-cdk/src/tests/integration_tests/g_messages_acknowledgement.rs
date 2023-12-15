@@ -13,8 +13,8 @@ use crate::{
 
 use super::utils::{
     actor::{
-        ws_get_messages::call_ws_get_messages_with_panic, ws_message::call_ws_message_with_panic,
-        ws_open::call_ws_open_for_client_key_with_panic,
+        wipe::call_wipe, ws_get_messages::call_ws_get_messages_with_panic,
+        ws_message::call_ws_message_with_panic, ws_open::call_ws_open_for_client_key_with_panic,
     },
     certification::{is_message_body_valid, is_valid_certificate},
     clients::{CLIENT_1_KEY, GATEWAY_1},
@@ -27,7 +27,7 @@ use super::utils::{
 
 #[test]
 fn test_1_client_should_receive_ack_messages() {
-    get_test_env().reset_canister_with_default_params();
+    call_wipe(None);
     // open a connection for client 1
     let client_1_key = CLIENT_1_KEY.deref();
     call_ws_open_for_client_key_with_panic(client_1_key);
@@ -58,7 +58,7 @@ fn test_1_client_should_receive_ack_messages() {
 fn test_2_client_is_removed_if_keep_alive_timeout_is_reached() {
     let client_1_key = CLIENT_1_KEY.deref();
     // open a connection for client 1
-    get_test_env().reset_canister_with_default_params();
+    call_wipe(None);
     call_ws_open_for_client_key_with_panic(client_1_key);
     // advance the canister time to make sure the ack timer expires and an ack is sent
     get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
@@ -104,7 +104,7 @@ fn test_2_client_is_removed_if_keep_alive_timeout_is_reached() {
 #[test]
 fn test_3_client_is_not_removed_if_it_sends_a_keep_alive_before_timeout() {
     let client_1_key = CLIENT_1_KEY.deref();
-    get_test_env().reset_canister_with_default_params();
+    call_wipe(None);
     // open a connection for client 1
     call_ws_open_for_client_key_with_panic(client_1_key);
     // advance the canister time to make sure the ack timer expires and an ack is sent
@@ -157,7 +157,7 @@ fn test_3_client_is_not_removed_if_it_sends_a_keep_alive_before_timeout() {
 #[test]
 fn test_4_client_is_not_removed_if_it_connects_while_canister_is_waiting_for_keep_alive() {
     let client_1_key = CLIENT_1_KEY.deref();
-    get_test_env().reset_canister_with_default_params();
+    call_wipe(None);
     // advance the canister time to make sure the ack timer expires and the canister started the keep alive timer
     get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
     // open a connection for client 1

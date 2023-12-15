@@ -4,6 +4,7 @@ use crate::{errors::WsError, CanisterWsCloseArguments, CanisterWsCloseResult};
 
 use super::utils::{
     actor::{
+        wipe::call_wipe,
         ws_close::call_ws_close,
         ws_open::{
             call_ws_open_for_client_key_and_gateway_with_panic,
@@ -11,13 +12,12 @@ use super::utils::{
         },
     },
     clients::{CLIENT_1_KEY, CLIENT_2_KEY, GATEWAY_1, GATEWAY_2},
-    test_env::get_test_env,
 };
 
 #[test]
 fn test_1_fails_if_gateway_is_not_registered() {
     // first, reset the canister
-    get_test_env().reset_canister_with_default_params();
+    call_wipe(None);
     // second, open a connection for client 1
     call_ws_open_for_client_key_with_panic(CLIENT_1_KEY.deref());
 
@@ -44,7 +44,7 @@ fn test_1_fails_if_gateway_is_not_registered() {
 #[test]
 fn test_2_fails_if_client_is_not_registered() {
     // first, reset the canister
-    get_test_env().reset_canister_with_default_params();
+    call_wipe(None);
     // second, open a connection for client 1
     call_ws_open_for_client_key_with_panic(CLIENT_1_KEY.deref());
 
@@ -69,7 +69,7 @@ fn test_2_fails_if_client_is_not_registered() {
 #[test]
 fn test_3_fails_if_client_is_not_registered_to_gateway() {
     // first, reset the canister
-    get_test_env().reset_canister_with_default_params();
+    call_wipe(None);
     // second, open a connection for both clients
     call_ws_open_for_client_key_and_gateway_with_panic(CLIENT_1_KEY.deref(), *GATEWAY_1.deref());
     call_ws_open_for_client_key_and_gateway_with_panic(CLIENT_2_KEY.deref(), *GATEWAY_2.deref());

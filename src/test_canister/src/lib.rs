@@ -75,3 +75,11 @@ fn send(client_principal: ClientPrincipal, messages: Vec<Vec<u8>>) -> CanisterSe
 fn close(client_principal: ClientPrincipal) -> CanisterCloseResult {
     ic_websocket_cdk::close(client_principal)
 }
+
+// wipes the internal state
+#[update]
+fn wipe(max_number_of_returned_messages: usize, send_ack_interval_ms: u64) {
+    ic_websocket_cdk::wipe();
+
+    init(max_number_of_returned_messages, send_ack_interval_ms);
+}

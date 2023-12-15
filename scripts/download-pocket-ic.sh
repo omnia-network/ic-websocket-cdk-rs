@@ -8,7 +8,7 @@ if [ -f "$POCKET_IC_BIN" ]; then
 else 
     echo "$POCKET_IC_BIN does not exist."
     echo "Downloading Pocket IC binary..."
-    curl -sLO https://download.dfinity.systems/ic/307d5847c1d2fe1f5e19181c7d0fcec23f4658b3/openssl-static-binaries/x86_64-linux/pocket-ic.gz
+    curl -sLO https://download.dfinity.systems/ic/69e1408347723dbaa7a6cd2faa9b65c42abbe861/openssl-static-binaries/x86_64-linux/pocket-ic.gz
 
     echo "Extracting Pocket IC binary..."
     gzip -d $POCKET_IC_BIN.gz

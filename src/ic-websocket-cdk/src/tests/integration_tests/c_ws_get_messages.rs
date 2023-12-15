@@ -8,7 +8,8 @@ use crate::{
 
 use super::utils::{
     actor::{
-        send::call_send_with_panic, ws_get_messages::call_ws_get_messages_with_panic,
+        send::call_send_with_panic, wipe::call_wipe,
+        ws_get_messages::call_ws_get_messages_with_panic,
         ws_open::call_ws_open_for_client_key_with_panic,
     },
     clients::{generate_random_client_key, CLIENT_1_KEY, GATEWAY_1},
@@ -25,7 +26,7 @@ proptest! {
     #[test]
     fn test_1_non_registered_gateway_should_receive_empty_messages(ref test_gateway_principal in any::<u8>().prop_map(|_| common::generate_random_principal())) {
         // first, reset the canister
-        get_test_env().reset_canister_with_default_params();
+        call_wipe(None);
 
         let res = call_ws_get_messages_with_panic(
             test_gateway_principal,
@@ -45,7 +46,7 @@ proptest! {
     #[test]
     fn test_2_registered_gateway_should_receive_only_open_message_if_no_messages_sent_initial_nonce(ref test_client_key in any::<u64>().prop_map(|_| generate_random_client_key())) {
         // first, reset the canister
-        get_test_env().reset_canister_with_default_params();
+        call_wipe(None);
 
         // second, register client 1
         call_ws_open_for_client_key_with_panic(test_client_key);
@@ -60,7 +61,7 @@ proptest! {
     #[test]
     fn test_3_registered_gateway_can_receive_correct_amount_of_messages(test_send_messages_count in 1..100u64) {
         // first, reset the canister
-        get_test_env().reset_canister_with_default_params();
+        call_wipe(None);
         // second, register client 1
         let client_1_key = CLIENT_1_KEY.deref();
         call_ws_open_for_client_key_with_panic(client_1_key);
@@ -121,7 +122,7 @@ proptest! {
     #[test]
     fn test_4_registered_gateway_can_receive_certified_messages(test_send_messages_count in 1..100u64) {
         // first, reset the canister
-        get_test_env().reset_canister_with_default_params();
+        call_wipe(None);
         // second, register client 1
         let client_1_key = CLIENT_1_KEY.deref();
         call_ws_open_for_client_key_with_panic(client_1_key);
@@ -165,9 +166,11 @@ proptest! {
     #[test]
     fn test_5_messages_for_gateway_are_deleted_if_old(test_send_messages_count in 1..100usize) {
         // first, reset the canister
-        get_test_env().reset_canister(
-            1_000, // avoid the queue size limit
-            DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
+        call_wipe(
+            Some((
+                1_000, // avoid the queue size limit
+                DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
+            ))
         );
         // second, register client 1
         let client_1_key = CLIENT_1_KEY.deref();

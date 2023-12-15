@@ -2,9 +2,10 @@ use proptest::prelude::*;
 use std::ops::Deref;
 
 use crate::{
-    errors::WsError, CanisterOutputCertifiedMessages, CanisterOutputMessage,
-    CanisterWsGetMessagesArguments, CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey,
-    WebsocketServiceMessageContent, DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES,
+    errors::WsError, tests::integration_tests::utils::actor::wipe::call_wipe,
+    CanisterOutputCertifiedMessages, CanisterOutputMessage, CanisterWsGetMessagesArguments,
+    CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey, WebsocketServiceMessageContent,
+    DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES,
 };
 use candid::Principal;
 
@@ -12,7 +13,6 @@ use super::utils::{
     actor::{ws_get_messages::call_ws_get_messages_with_panic, ws_open::call_ws_open},
     clients::{generate_random_client_nonce, CLIENT_1_KEY, GATEWAY_1},
     messages::get_service_message_content_from_canister_message,
-    test_env::get_test_env,
 };
 
 #[test]
@@ -73,7 +73,7 @@ fn test_3_fails_for_a_client_with_the_same_nonce() {
     );
 
     // reset canister for the next test
-    get_test_env().reset_canister_with_default_params();
+    call_wipe(None);
 }
 
 proptest! {
