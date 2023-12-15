@@ -30,10 +30,10 @@ const LABEL_WEBSOCKET: &[u8] = b"websocket";
 const DEFAULT_MAX_NUMBER_OF_RETURNED_MESSAGES: usize = 50;
 /// The default interval at which to send acknowledgements to the client.
 const DEFAULT_SEND_ACK_INTERVAL_MS: u64 = 300_000; // 5 minutes
-/// The maximum network latency allowed between the client and the canister.
-const MAX_ALLOWED_NETWORK_LATENCY_MS: u64 = 30_000; // 30 seconds
+/// The maximum communication latency allowed between the client and the canister.
+const COMMUNICATION_LATENCY_BOUND_MS: u64 = 30_000; // 30 seconds
 /// The default timeout to wait for the client to send a keep alive after receiving an acknowledgement.
-const CLIENT_KEEP_ALIVE_TIMEOUT_MS: u64 = 2 * MAX_ALLOWED_NETWORK_LATENCY_MS;
+const CLIENT_KEEP_ALIVE_TIMEOUT_MS: u64 = 2 * COMMUNICATION_LATENCY_BOUND_MS;
 /// Same as [CLIENT_KEEP_ALIVE_TIMEOUT_MS], but in nanoseconds.
 const CLIENT_KEEP_ALIVE_TIMEOUT_NS: u64 = CLIENT_KEEP_ALIVE_TIMEOUT_MS * 1_000_000;
 
