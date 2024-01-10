@@ -55,6 +55,14 @@ pub struct CanisterWsOpenArguments {
     pub(crate) gateway_principal: GatewayPrincipal,
 }
 
+impl CanisterWsOpenArguments {
+    pub fn new(client_nonce: u64, gateway_principal: GatewayPrincipal) -> Self {
+        Self {
+            client_nonce,
+            gateway_principal,
+        }
+    }
+}
 /// The arguments for [ws_close](crate::ws_close).
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsCloseArguments {
