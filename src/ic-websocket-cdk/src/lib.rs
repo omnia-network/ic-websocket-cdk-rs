@@ -19,8 +19,9 @@ use types::*;
 pub use types::{
     CanisterCloseResult, CanisterSendResult, CanisterWsCloseArguments, CanisterWsCloseResult,
     CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult, CanisterWsMessageArguments,
-    CanisterWsMessageResult, CanisterWsOpenArguments, CanisterWsOpenResult, ClientPrincipal,
-    OnCloseCallbackArgs, OnMessageCallbackArgs, OnOpenCallbackArgs, WsHandlers, WsInitParams,
+    CanisterWsMessageResult, CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey,
+    ClientPrincipal, OnCloseCallbackArgs, OnMessageCallbackArgs, OnOpenCallbackArgs, WsHandlers,
+    WsInitParams,
 };
 
 /// The label used when constructing the certification tree.
