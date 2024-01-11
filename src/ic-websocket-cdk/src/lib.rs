@@ -17,11 +17,12 @@ use timers::*;
 pub use types::CanisterWsSendResult;
 use types::*;
 pub use types::{
-    CanisterCloseResult, CanisterSendResult, CanisterWsCloseArguments, CanisterWsCloseResult,
+    CanisterCloseResult, CanisterOutputCertifiedMessages, CanisterOutputMessage,
+    CanisterSendResult, CanisterWsCloseArguments, CanisterWsCloseResult,
     CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult, CanisterWsMessageArguments,
     CanisterWsMessageResult, CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey,
-    ClientPrincipal, OnCloseCallbackArgs, OnMessageCallbackArgs, OnOpenCallbackArgs, WsHandlers,
-    WsInitParams,
+    ClientPrincipal, OnCloseCallbackArgs, OnMessageCallbackArgs, OnOpenCallbackArgs,
+    WebsocketMessage, WsHandlers, WsInitParams,
 };
 
 /// The label used when constructing the certification tree.

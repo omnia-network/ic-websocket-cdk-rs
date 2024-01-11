@@ -38,10 +38,8 @@ fn test_2_should_open_a_connection() {
     let res = call_ws_open(&client_1_key.client_principal, args);
     assert_eq!(res, CanisterWsOpenResult::Ok(()));
 
-    let CanisterOutputCertifiedMessages { messages, .. } = call_ws_get_messages_with_panic(
-        GATEWAY_1.deref(),
-        CanisterWsGetMessagesArguments { nonce: 0 },
-    );
+    let CanisterOutputCertifiedMessages { messages, .. } =
+        call_ws_get_messages_with_panic(GATEWAY_1.deref(), CanisterWsGetMessagesArguments::new(0));
 
     let first_message = &messages[0];
     assert_eq!(first_message.client_key, *client_1_key);
@@ -95,7 +93,7 @@ proptest! {
 
         let CanisterOutputCertifiedMessages { messages, .. } = call_ws_get_messages_with_panic(
             GATEWAY_1.deref(),
-            CanisterWsGetMessagesArguments { nonce: 0 },
+            CanisterWsGetMessagesArguments::new(0),
         );
 
         let service_message_for_client = messages

@@ -51,8 +51,8 @@ pub type CanisterCloseResult = Result<(), String>;
 /// The arguments for [ws_open](crate::ws_open).
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsOpenArguments {
-    pub(crate) client_nonce: u64,
-    pub(crate) gateway_principal: GatewayPrincipal,
+    pub client_nonce: u64,
+    pub gateway_principal: GatewayPrincipal,
 }
 
 impl CanisterWsOpenArguments {
@@ -66,35 +66,71 @@ impl CanisterWsOpenArguments {
 /// The arguments for [ws_close](crate::ws_close).
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsCloseArguments {
-    pub(crate) client_key: ClientKey,
+    pub client_key: ClientKey,
+}
+
+impl CanisterWsCloseArguments {
+    pub fn new(client_key: ClientKey) -> Self {
+        Self { client_key }
+    }
 }
 
 /// The arguments for [ws_message](crate::ws_message).
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsMessageArguments {
-    pub(crate) msg: WebsocketMessage,
+    pub msg: WebsocketMessage,
+}
+
+impl CanisterWsMessageArguments {
+    pub fn new(msg: WebsocketMessage) -> Self {
+        Self { msg }
+    }
 }
 
 /// The arguments for [ws_get_messages](crate::ws_get_messages).
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct CanisterWsGetMessagesArguments {
-    pub(crate) nonce: u64,
+    pub nonce: u64,
+}
+
+impl CanisterWsGetMessagesArguments {
+    pub fn new(nonce: u64) -> Self {
+        Self { nonce }
+    }
 }
 
 /// Messages exchanged through the WebSocket.
+///
+/// Note: you won't need this struct in a normal IC WebSocket implementation.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-pub(crate) struct WebsocketMessage {
-    pub(crate) client_key: ClientKey, // The client that the gateway will forward the message to or that sent the message.
-    pub(crate) sequence_num: u64, // Both ways, messages should arrive with sequence numbers 0, 1, 2...
-    pub(crate) timestamp: TimestampNs, // Timestamp of when the message was made for the recipient to inspect.
-    pub(crate) is_service_message: bool, // Whether the message is a service message sent by the CDK to the client or vice versa.
+pub struct WebsocketMessage {
+    pub client_key: ClientKey, // The client that the gateway will forward the message to or that sent the message.
+    pub sequence_num: u64,     // Both ways, messages should arrive with sequence numbers 0, 1, 2...
+    pub timestamp: TimestampNs, // Timestamp of when the message was made for the recipient to inspect.
+    pub is_service_message: bool, // Whether the message is a service message sent by the CDK to the client or vice versa.
     #[serde(with = "serde_bytes")]
-    pub(crate) content: Vec<u8>, // Application message encoded in binary.
+    pub content: Vec<u8>, // Application message encoded in binary.
 }
 
 impl WebsocketMessage {
+    pub fn new(
+        client_key: ClientKey,
+        sequence_num: u64,
+        timestamp: TimestampNs,
+        is_service_message: bool,
+        content: Vec<u8>,
+    ) -> Self {
+        Self {
+            client_key,
+            sequence_num,
+            timestamp,
+            is_service_message,
+            content,
+        }
+    }
+
     /// Serializes the message into a Vec<u8>, using CBOR.
-    pub(crate) fn cbor_serialize(&self) -> Result<Vec<u8>, String> {
+    pub fn cbor_serialize(&self) -> Result<Vec<u8>, String> {
         let mut data = vec![];
         let mut serializer = Serializer::new(&mut data);
         serializer.self_describe().map_err(|e| e.to_string())?;
@@ -104,23 +140,27 @@ impl WebsocketMessage {
 }
 
 /// Element of the list of messages returned to the WS Gateway after polling.
+///
+/// Note: you won't need this struct in a normal IC WebSocket implementation.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-pub(crate) struct CanisterOutputMessage {
-    pub(crate) client_key: ClientKey, // The client that the gateway will forward the message to or that sent the message.
-    pub(crate) key: String,           // Key for certificate verification.
+pub struct CanisterOutputMessage {
+    pub client_key: ClientKey, // The client that the gateway will forward the message to or that sent the message.
+    pub key: String,           // Key for certificate verification.
     #[serde(with = "serde_bytes")]
-    pub(crate) content: Vec<u8>, // The message to be relayed, that contains the application message.
+    pub content: Vec<u8>, // The message to be relayed, that contains the application message.
 }
 
 /// List of messages returned to the WS Gateway after polling.
+///
+/// Note: you won't need this struct in a normal IC WebSocket implementation.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct CanisterOutputCertifiedMessages {
-    pub(crate) messages: Vec<CanisterOutputMessage>, // List of messages.
+    pub messages: Vec<CanisterOutputMessage>, // List of messages.
     #[serde(with = "serde_bytes")]
-    pub(crate) cert: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
+    pub cert: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
     #[serde(with = "serde_bytes")]
-    pub(crate) tree: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
-    pub(crate) is_end_of_queue: bool, // Whether the end of the messages queue has been reached.
+    pub tree: Vec<u8>, // cert+tree constitute the certificate for all returned messages.
+    pub is_end_of_queue: bool, // Whether the end of the messages queue has been reached.
 }
 
 impl CanisterOutputCertifiedMessages {

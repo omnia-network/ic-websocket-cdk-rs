@@ -37,9 +37,7 @@ fn test_1_fails_if_client_is_not_registered() {
     let client_2_key = CLIENT_2_KEY.deref();
     let res = call_ws_message(
         &client_2_key.client_principal,
-        CanisterWsMessageArguments {
-            msg: create_websocket_message(client_2_key, 0, None, false),
-        },
+        CanisterWsMessageArguments::new(create_websocket_message(client_2_key, 0, None, false)),
     );
 
     assert_eq!(
@@ -69,9 +67,12 @@ fn test_2_fails_if_client_sends_a_message_with_a_different_client_key() {
     // first, send a message with a different principal
     let res = call_ws_message(
         &client_1_key.client_principal,
-        CanisterWsMessageArguments {
-            msg: create_websocket_message(&wrong_client_key, 0, None, false),
-        },
+        CanisterWsMessageArguments::new(create_websocket_message(
+            &wrong_client_key,
+            0,
+            None,
+            false,
+        )),
     );
     assert_eq!(
         res,
@@ -91,9 +92,12 @@ fn test_2_fails_if_client_sends_a_message_with_a_different_client_key() {
     // then, send a message with a different nonce
     let res = call_ws_message(
         &client_1_key.client_principal,
-        CanisterWsMessageArguments {
-            msg: create_websocket_message(&wrong_client_key, 0, None, false),
-        },
+        CanisterWsMessageArguments::new(create_websocket_message(
+            &wrong_client_key,
+            0,
+            None,
+            false,
+        )),
     );
     assert_eq!(
         res,
@@ -116,9 +120,7 @@ fn test_3_should_send_a_message_from_a_registered_client() {
 
     let res = call_ws_message(
         &client_1_key.client_principal,
-        CanisterWsMessageArguments {
-            msg: create_websocket_message(client_1_key, 1, None, false),
-        },
+        CanisterWsMessageArguments::new(create_websocket_message(client_1_key, 1, None, false)),
     );
     assert_eq!(res, CanisterWsMessageResult::Ok(()));
 }
@@ -135,9 +137,12 @@ fn test_4_fails_if_client_sends_a_message_with_a_wrong_sequence_number() {
     let expected_sequence_number = 1; // the next valid sequence number
     let res = call_ws_message(
         &client_1_key.client_principal,
-        CanisterWsMessageArguments {
-            msg: create_websocket_message(client_1_key, wrong_sequence_number, None, false),
-        },
+        CanisterWsMessageArguments::new(create_websocket_message(
+            client_1_key,
+            wrong_sequence_number,
+            None,
+            false,
+        )),
     );
     assert_eq!(
         res,
@@ -153,7 +158,7 @@ fn test_4_fails_if_client_sends_a_message_with_a_wrong_sequence_number() {
     // check if the gateway put the close message in the queue
     let msgs = call_ws_get_messages_with_panic(
         GATEWAY_1.deref(),
-        CanisterWsGetMessagesArguments { nonce: 1 }, // skip the first open message
+        CanisterWsGetMessagesArguments::new(1), // skip the first open message
     );
     check_canister_message_has_close_reason(
         &msgs.messages[0],
@@ -164,9 +169,7 @@ fn test_4_fails_if_client_sends_a_message_with_a_wrong_sequence_number() {
     // so calling the ws_close endpoint should return the ClientKeyNotConnected error
     let res = call_ws_close(
         GATEWAY_1.deref(),
-        CanisterWsCloseArguments {
-            client_key: client_1_key.clone(),
-        },
+        CanisterWsCloseArguments::new(client_1_key.clone()),
     );
     assert_eq!(
         res,
@@ -190,14 +193,12 @@ fn test_5_fails_if_client_sends_a_wrong_service_message() {
     // fail with wrong content encoding
     let res = call_ws_message(
         &client_1_key.client_principal,
-        CanisterWsMessageArguments {
-            msg: create_websocket_message(
-                client_1_key,
-                1,
-                Some(encode_one(vec![1, 2, 3]).unwrap()),
-                true,
-            ),
-        },
+        CanisterWsMessageArguments::new(create_websocket_message(
+            client_1_key,
+            1,
+            Some(encode_one(vec![1, 2, 3]).unwrap()),
+            true,
+        )),
     );
     assert!(res
         .err()
@@ -211,16 +212,14 @@ fn test_5_fails_if_client_sends_a_wrong_service_message() {
         });
     let res = call_ws_message(
         &client_1_key.client_principal,
-        CanisterWsMessageArguments {
-            msg: create_websocket_message(
-                client_1_key,
-                2,
-                Some(encode_websocket_service_message_content(
-                    &wrong_service_message,
-                )),
-                true,
-            ),
-        },
+        CanisterWsMessageArguments::new(create_websocket_message(
+            client_1_key,
+            2,
+            Some(encode_websocket_service_message_content(
+                &wrong_service_message,
+            )),
+            true,
+        )),
     );
     assert_eq!(
         res,
@@ -242,16 +241,14 @@ fn test_6_should_send_a_service_message_from_a_registered_client() {
         });
     let res = call_ws_message(
         &client_1_key.client_principal,
-        CanisterWsMessageArguments {
-            msg: create_websocket_message(
-                client_1_key,
-                1,
-                Some(encode_websocket_service_message_content(
-                    &client_service_message,
-                )),
-                true,
-            ),
-        },
+        CanisterWsMessageArguments::new(create_websocket_message(
+            client_1_key,
+            1,
+            Some(encode_websocket_service_message_content(
+                &client_service_message,
+            )),
+            true,
+        )),
     );
     assert_eq!(res, CanisterWsMessageResult::Ok(()));
 }

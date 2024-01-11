@@ -42,7 +42,7 @@ proptest! {
         // gateway 1 can poll the messages
         let CanisterOutputCertifiedMessages { messages, cert, tree, is_end_of_queue } = call_ws_get_messages_with_panic(
             first_gateway,
-            CanisterWsGetMessagesArguments { nonce: 0 },
+            CanisterWsGetMessagesArguments::new(0),
         );
         prop_assert_eq!(messages.len(), messages_to_send.len() + 1); // +1 for the open service message
         prop_assert_eq!(is_end_of_queue, true);
@@ -60,23 +60,21 @@ proptest! {
         // gateway 2 has no messages because it's not registered
         let CanisterOutputCertifiedMessages { messages, .. } = call_ws_get_messages_with_panic(
             second_gateway,
-            CanisterWsGetMessagesArguments { nonce: 0 },
+            CanisterWsGetMessagesArguments::new(0),
         );
         prop_assert_eq!(messages.len() as u64, 0);
 
         // client disconnects, so gateway 1 closes the connection
         call_ws_close_with_panic(
             first_gateway,
-            CanisterWsCloseArguments {
-                client_key: client_key.clone(),
-            },
+            CanisterWsCloseArguments::new(client_key.clone()),
         );
         // client reopens connection with gateway 2
         call_ws_open_for_client_key_and_gateway_with_panic(&client_key, *second_gateway);
         // gateway 2 now has the open message
         let CanisterOutputCertifiedMessages { messages, cert, tree, is_end_of_queue } = call_ws_get_messages_with_panic(
             second_gateway,
-            CanisterWsGetMessagesArguments { nonce: 0 },
+            CanisterWsGetMessagesArguments::new(0),
         );
 
         prop_assert_eq!(messages.len() as u64, 1);
@@ -114,7 +112,7 @@ proptest! {
 
         let CanisterOutputCertifiedMessages { messages, cert, tree, is_end_of_queue } = call_ws_get_messages_with_panic(
             second_gateway,
-            CanisterWsGetMessagesArguments { nonce: 0 },
+            CanisterWsGetMessagesArguments::new(0),
         );
         prop_assert_eq!(messages.len(), messages_to_send.len() + 1); // +1 for the open service message
         prop_assert_eq!(is_end_of_queue, true);

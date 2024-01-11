@@ -26,9 +26,7 @@ fn test_1_fails_if_gateway_is_not_registered() {
     // finally, we can start testing
     let res = call_ws_close(
         gateway_2_principal,
-        CanisterWsCloseArguments {
-            client_key: CLIENT_1_KEY.clone(),
-        },
+        CanisterWsCloseArguments::new(CLIENT_1_KEY.clone()),
     );
     assert_eq!(
         res,
@@ -51,9 +49,7 @@ fn test_2_fails_if_client_is_not_registered() {
     let client_2_key = CLIENT_2_KEY.deref();
     let res = call_ws_close(
         GATEWAY_1.deref(),
-        CanisterWsCloseArguments {
-            client_key: client_2_key.clone(),
-        },
+        CanisterWsCloseArguments::new(client_2_key.clone()),
     );
     assert_eq!(
         res,
@@ -79,9 +75,7 @@ fn test_3_fails_if_client_is_not_registered_to_gateway() {
     // finally, we can start testing
     let res = call_ws_close(
         gateway_2_principal,
-        CanisterWsCloseArguments {
-            client_key: CLIENT_1_KEY.clone(),
-        },
+        CanisterWsCloseArguments::new(CLIENT_1_KEY.clone()),
     );
     assert_eq!(
         res,
@@ -99,18 +93,14 @@ fn test_3_fails_if_client_is_not_registered_to_gateway() {
 fn test_4_should_close_the_websocket_for_a_registered_client() {
     let res = call_ws_close(
         GATEWAY_1.deref(),
-        CanisterWsCloseArguments {
-            client_key: CLIENT_1_KEY.clone(),
-        },
+        CanisterWsCloseArguments::new(CLIENT_1_KEY.clone()),
     );
     assert_eq!(res, CanisterWsCloseResult::Ok(()));
 
     // we expect the ws_close to fail if we execute it again
     let res = call_ws_close(
         GATEWAY_1.deref(),
-        CanisterWsCloseArguments {
-            client_key: CLIENT_1_KEY.clone(),
-        },
+        CanisterWsCloseArguments::new(CLIENT_1_KEY.clone()),
     );
     assert_eq!(
         res,

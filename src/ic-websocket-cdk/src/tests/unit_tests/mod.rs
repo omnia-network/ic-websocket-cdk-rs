@@ -835,13 +835,13 @@ proptest! {
     #[test]
     fn test_serialize_websocket_message(test_msg_bytes in any::<Vec<u8>>(), test_sequence_num in any::<u64>(), test_timestamp in any::<u64>()) {
         // TODO: add more tests, in which we check the serialized message
-        let websocket_message = WebsocketMessage {
-            client_key: common::get_random_client_key(),
-            sequence_num: test_sequence_num,
-            timestamp: test_timestamp,
-            is_service_message: false,
-            content: test_msg_bytes,
-        };
+        let websocket_message = WebsocketMessage::new(
+            common::get_random_client_key(),
+            test_sequence_num,
+            test_timestamp,
+            false,
+            test_msg_bytes,
+        );
 
         let serialized_message = websocket_message.cbor_serialize();
         prop_assert!(serialized_message.is_ok()); // not so useful as a test

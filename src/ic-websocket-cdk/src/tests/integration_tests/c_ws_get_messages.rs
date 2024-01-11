@@ -30,16 +30,11 @@ proptest! {
 
         let res = call_ws_get_messages_with_panic(
             test_gateway_principal,
-            CanisterWsGetMessagesArguments { nonce: 0 },
+            CanisterWsGetMessagesArguments::new(0),
         );
         assert_eq!(
             res,
-            CanisterOutputCertifiedMessages {
-                messages: vec![],
-                cert: vec![],
-                tree: vec![],
-                is_end_of_queue: true,
-            },
+            CanisterOutputCertifiedMessages::empty()
         );
     }
 
@@ -53,7 +48,7 @@ proptest! {
 
         let CanisterOutputCertifiedMessages { messages, .. } = call_ws_get_messages_with_panic(
             GATEWAY_1.deref(),
-            CanisterWsGetMessagesArguments { nonce: 0 },
+            CanisterWsGetMessagesArguments::new(0),
         );
         prop_assert_eq!(messages.len(), 1); // we expect only the service message
     }
@@ -85,7 +80,7 @@ proptest! {
                 ..
             } = call_ws_get_messages_with_panic(
                 GATEWAY_1.deref(),
-                CanisterWsGetMessagesArguments { nonce: i },
+                CanisterWsGetMessagesArguments::new(i),
             );
             prop_assert_eq!(
                 messages.len() as u64,
@@ -104,18 +99,11 @@ proptest! {
         // try to get more messages than available
         let res = call_ws_get_messages_with_panic(
             GATEWAY_1.deref(),
-            CanisterWsGetMessagesArguments {
-                nonce: messages_count,
-            },
+            CanisterWsGetMessagesArguments::new(messages_count),
         );
         prop_assert_eq!(
             res,
-            CanisterOutputCertifiedMessages {
-                messages: vec![],
-                cert: vec![],
-                tree: vec![],
-                is_end_of_queue: true,
-            }
+            CanisterOutputCertifiedMessages::empty()
         );
     }
 
@@ -146,9 +134,7 @@ proptest! {
                 ..
             } = call_ws_get_messages_with_panic(
                 GATEWAY_1.deref(),
-                CanisterWsGetMessagesArguments {
-                    nonce: next_polling_nonce,
-                },
+                CanisterWsGetMessagesArguments::new(next_polling_nonce),
             );
             verify_messages(
                 &messages,
@@ -196,7 +182,7 @@ proptest! {
             ..
         } = call_ws_get_messages_with_panic(
             GATEWAY_1.deref(),
-            CanisterWsGetMessagesArguments { nonce: 0 },
+            CanisterWsGetMessagesArguments::new(0),
         );
 
         assert_eq!(
@@ -250,9 +236,7 @@ fn test_6_empty_gateway_can_get_messages_until_next_keep_alive_check() {
     // disconnect the client and check that gateway can still receive the messages
     call_ws_close_with_panic(
         &GATEWAY_1,
-        CanisterWsCloseArguments {
-            client_key: client_1_key.clone(),
-        },
+        CanisterWsCloseArguments::new(client_1_key.clone()),
     );
 
     // check that gateway can still receive the messages
@@ -296,9 +280,7 @@ fn test_7_empty_gateway_can_get_messages_until_next_keep_alive_check_if_removed_
     // disconnect the client and check that gateway can still receive the messages
     call_ws_close_with_panic(
         &GATEWAY_1,
-        CanisterWsCloseArguments {
-            client_key: client_1_key.clone(),
-        },
+        CanisterWsCloseArguments::new(client_1_key.clone()),
     );
 
     let expected_messages_len = send_messages_count + 1; // +1 for the ack message
@@ -330,10 +312,8 @@ mod helpers {
     use super::*;
 
     pub(super) fn assert_gateway_has_messages(send_messages_count: usize) {
-        let CanisterOutputCertifiedMessages { messages, .. } = call_ws_get_messages_with_panic(
-            &GATEWAY_1,
-            CanisterWsGetMessagesArguments { nonce: 0 },
-        );
+        let CanisterOutputCertifiedMessages { messages, .. } =
+            call_ws_get_messages_with_panic(&GATEWAY_1, CanisterWsGetMessagesArguments::new(0));
         assert_eq!(
             messages.len(),
             // + 1 for the open service message
@@ -342,10 +322,8 @@ mod helpers {
     }
 
     pub(super) fn assert_gateway_has_no_messages() {
-        let CanisterOutputCertifiedMessages { messages, .. } = call_ws_get_messages_with_panic(
-            &GATEWAY_1,
-            CanisterWsGetMessagesArguments { nonce: 0 },
-        );
+        let CanisterOutputCertifiedMessages { messages, .. } =
+            call_ws_get_messages_with_panic(&GATEWAY_1, CanisterWsGetMessagesArguments::new(0));
         assert_eq!(messages.len(), 0);
     }
 }
