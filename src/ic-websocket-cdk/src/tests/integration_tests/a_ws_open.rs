@@ -82,10 +82,10 @@ proptest! {
 
     #[test]
     fn test_4_should_open_a_connection_for_the_same_client_with_a_different_nonce(test_client_nonce in any::<u64>().prop_map(|_| generate_random_client_nonce())) {
-        let client_key = ClientKey {
-            client_principal: CLIENT_1_KEY.deref().client_principal,
-            client_nonce: test_client_nonce,
-        };
+        let client_key = ClientKey::new(
+            CLIENT_1_KEY.deref().client_principal,
+            test_client_nonce
+        );
         let args = CanisterWsOpenArguments {
             client_nonce: client_key.client_nonce,
             gateway_principal: GATEWAY_1.deref().to_owned(),

@@ -12,14 +12,14 @@ use crate::{
 
 pub type ClientPrincipal = Principal;
 #[derive(CandidType, Clone, Deserialize, Serialize, Eq, PartialEq, Debug, Hash)]
-pub(crate) struct ClientKey {
+pub struct ClientKey {
     pub(crate) client_principal: ClientPrincipal,
     pub(crate) client_nonce: u64,
 }
 
 impl ClientKey {
     /// Creates a new instance of ClientKey.
-    pub(crate) fn new(client_principal: ClientPrincipal, client_nonce: u64) -> Self {
+    pub fn new(client_principal: ClientPrincipal, client_nonce: u64) -> Self {
         Self {
             client_principal,
             client_nonce,
