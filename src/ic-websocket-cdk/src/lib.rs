@@ -8,7 +8,7 @@ mod errors;
 mod state;
 mod tests;
 mod timers;
-mod types;
+pub mod types;
 mod utils;
 
 use state::*;
@@ -17,12 +17,10 @@ use timers::*;
 pub use types::CanisterWsSendResult;
 use types::*;
 pub use types::{
-    CanisterCloseResult, CanisterOutputCertifiedMessages, CanisterOutputMessage,
-    CanisterSendResult, CanisterWsCloseArguments, CanisterWsCloseResult,
+    CanisterCloseResult, CanisterSendResult, CanisterWsCloseArguments, CanisterWsCloseResult,
     CanisterWsGetMessagesArguments, CanisterWsGetMessagesResult, CanisterWsMessageArguments,
-    CanisterWsMessageResult, CanisterWsOpenArguments, CanisterWsOpenResult, ClientKey,
-    ClientPrincipal, OnCloseCallbackArgs, OnMessageCallbackArgs, OnOpenCallbackArgs,
-    WebsocketMessage, WsHandlers, WsInitParams,
+    CanisterWsMessageResult, CanisterWsOpenArguments, CanisterWsOpenResult, ClientPrincipal,
+    OnCloseCallbackArgs, OnMessageCallbackArgs, OnOpenCallbackArgs, WsHandlers, WsInitParams,
 };
 
 /// The label used when constructing the certification tree.
