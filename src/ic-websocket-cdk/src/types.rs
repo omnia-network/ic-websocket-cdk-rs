@@ -303,22 +303,26 @@ impl RegisteredClient {
 }
 
 #[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
-pub(crate) struct CanisterOpenMessageContent {
-    pub(crate) client_key: ClientKey,
+/// Note: you won't need this struct in a normal IC WebSocket implementation.
+pub struct CanisterOpenMessageContent {
+    pub client_key: ClientKey,
 }
 
 #[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
-pub(crate) struct CanisterAckMessageContent {
-    pub(crate) last_incoming_sequence_num: u64,
+/// Note: you won't need this struct in a normal IC WebSocket implementation.
+pub struct CanisterAckMessageContent {
+    pub last_incoming_sequence_num: u64,
 }
 
 #[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
-pub(crate) struct ClientKeepAliveMessageContent {
-    pub(crate) last_incoming_sequence_num: u64,
+/// Note: you won't need this struct in a normal IC WebSocket implementation.
+pub struct ClientKeepAliveMessageContent {
+    pub last_incoming_sequence_num: u64,
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, PartialEq, Eq)]
-pub(crate) enum CloseMessageReason {
+/// Note: you won't need this enum in a normal IC WebSocket implementation.
+pub enum CloseMessageReason {
     /// When the canister receives a wrong sequence number from the client.
     WrongSequenceNumber,
     /// When the canister receives an invalid service message from the client.
@@ -330,13 +334,16 @@ pub(crate) enum CloseMessageReason {
 }
 
 #[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
-pub(crate) struct CanisterCloseMessageContent {
-    pub(crate) reason: CloseMessageReason,
+/// Note: you won't need this struct in a normal IC WebSocket implementation.
+pub struct CanisterCloseMessageContent {
+    pub reason: CloseMessageReason,
 }
 
-/// A service message sent by the CDK to the client or vice versa.
 #[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
-pub(crate) enum WebsocketServiceMessageContent {
+/// A service message sent by the CDK to the client or vice versa.
+///
+/// Note: you won't need this struct in a normal IC WebSocket implementation.
+pub enum WebsocketServiceMessageContent {
     /// Message sent by the **canister** when a client opens a connection.
     OpenMessage(CanisterOpenMessageContent),
     /// Message sent _periodically_ by the **canister** to the client to acknowledge the messages received.
@@ -348,7 +355,7 @@ pub(crate) enum WebsocketServiceMessageContent {
 }
 
 impl WebsocketServiceMessageContent {
-    pub(crate) fn from_candid_bytes(bytes: &[u8]) -> Result<Self, String> {
+    pub fn from_candid_bytes(bytes: &[u8]) -> Result<Self, String> {
         decode_one(&bytes).map_err(|err| WsError::DecodeServiceMessageContent { err }.to_string())
     }
 }
