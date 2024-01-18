@@ -101,7 +101,7 @@ impl CanisterWsGetMessagesArguments {
 
 /// Messages exchanged through the WebSocket.
 ///
-/// Note: you won't need this struct in a normal IC WebSocket implementation.
+/// **Note:** You should only use this struct in tests.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct WebsocketMessage {
     pub client_key: ClientKey, // The client that the gateway will forward the message to or that sent the message.
@@ -141,7 +141,7 @@ impl WebsocketMessage {
 
 /// Element of the list of messages returned to the WS Gateway after polling.
 ///
-/// Note: you won't need this struct in a normal IC WebSocket implementation.
+/// **Note:** You should only use this struct in tests.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct CanisterOutputMessage {
     pub client_key: ClientKey, // The client that the gateway will forward the message to or that sent the message.
@@ -152,7 +152,7 @@ pub struct CanisterOutputMessage {
 
 /// List of messages returned to the WS Gateway after polling.
 ///
-/// Note: you won't need this struct in a normal IC WebSocket implementation.
+/// **Note:** You should only use this struct in tests.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct CanisterOutputCertifiedMessages {
     pub messages: Vec<CanisterOutputMessage>, // List of messages.
@@ -189,8 +189,8 @@ pub(crate) struct MessageToDelete {
 
 pub(crate) type GatewayPrincipal = Principal;
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
 /// Contains data about the registered WS Gateway.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct RegisteredGateway {
     /// The queue of the messages that the gateway can poll.
     pub(crate) messages_queue: VecDeque<CanisterOutputMessage>,
@@ -302,26 +302,26 @@ impl RegisteredClient {
     }
 }
 
+/// **Note:** You should only use this struct in tests.
 #[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
-/// Note: you won't need this struct in a normal IC WebSocket implementation.
 pub struct CanisterOpenMessageContent {
     pub client_key: ClientKey,
 }
 
+/// **Note:** You should only use this struct in tests.
 #[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
-/// Note: you won't need this struct in a normal IC WebSocket implementation.
 pub struct CanisterAckMessageContent {
     pub last_incoming_sequence_num: u64,
 }
 
+/// **Note:** You should only use this struct in tests.
 #[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
-/// Note: you won't need this struct in a normal IC WebSocket implementation.
 pub struct ClientKeepAliveMessageContent {
     pub last_incoming_sequence_num: u64,
 }
 
+/// **Note:** You should only use this struct in tests.
 #[derive(CandidType, Clone, Debug, Deserialize, PartialEq, Eq)]
-/// Note: you won't need this enum in a normal IC WebSocket implementation.
 pub enum CloseMessageReason {
     /// When the canister receives a wrong sequence number from the client.
     WrongSequenceNumber,
@@ -333,16 +333,16 @@ pub enum CloseMessageReason {
     ClosedByApplication,
 }
 
+/// **Note:** You should only use this struct in tests.
 #[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
-/// Note: you won't need this struct in a normal IC WebSocket implementation.
 pub struct CanisterCloseMessageContent {
     pub reason: CloseMessageReason,
 }
 
-#[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
 /// A service message sent by the CDK to the client or vice versa.
 ///
-/// Note: you won't need this struct in a normal IC WebSocket implementation.
+/// **Note:** You should only use this struct in tests.
+#[derive(CandidType, Debug, Deserialize, PartialEq, Eq)]
 pub enum WebsocketServiceMessageContent {
     /// Message sent by the **canister** when a client opens a connection.
     OpenMessage(CanisterOpenMessageContent),
