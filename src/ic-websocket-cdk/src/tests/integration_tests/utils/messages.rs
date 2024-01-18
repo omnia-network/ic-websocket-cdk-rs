@@ -49,13 +49,13 @@ pub(in crate::tests::integration_tests) fn create_websocket_message(
 ) -> WebsocketMessage {
     let content = content.unwrap_or(vec![]);
 
-    WebsocketMessage {
-        client_key: client_key.clone(),
-        sequence_num: sequence_number,
-        timestamp: get_current_timestamp_ns(),
-        content,
+    WebsocketMessage::new(
+        client_key.clone(),
+        sequence_number,
+        get_current_timestamp_ns(),
         is_service_message,
-    }
+        content,
+    )
 }
 
 pub(in crate::tests::integration_tests) fn decode_websocket_message(

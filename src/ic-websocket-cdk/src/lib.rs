@@ -8,7 +8,7 @@ mod errors;
 mod state;
 mod tests;
 mod timers;
-mod types;
+pub mod types;
 mod utils;
 
 use state::*;

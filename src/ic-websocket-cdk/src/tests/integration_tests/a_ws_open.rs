@@ -38,10 +38,8 @@ fn test_2_should_open_a_connection() {
     let res = call_ws_open(&client_1_key.client_principal, args);
     assert_eq!(res, CanisterWsOpenResult::Ok(()));
 
-    let CanisterOutputCertifiedMessages { messages, .. } = call_ws_get_messages_with_panic(
-        GATEWAY_1.deref(),
-        CanisterWsGetMessagesArguments { nonce: 0 },
-    );
+    let CanisterOutputCertifiedMessages { messages, .. } =
+        call_ws_get_messages_with_panic(GATEWAY_1.deref(), CanisterWsGetMessagesArguments::new(0));
 
     let first_message = &messages[0];
     assert_eq!(first_message.client_key, *client_1_key);
@@ -82,10 +80,10 @@ proptest! {
 
     #[test]
     fn test_4_should_open_a_connection_for_the_same_client_with_a_different_nonce(test_client_nonce in any::<u64>().prop_map(|_| generate_random_client_nonce())) {
-        let client_key = ClientKey {
-            client_principal: CLIENT_1_KEY.deref().client_principal,
-            client_nonce: test_client_nonce,
-        };
+        let client_key = ClientKey::new(
+            CLIENT_1_KEY.deref().client_principal,
+            test_client_nonce
+        );
         let args = CanisterWsOpenArguments {
             client_nonce: client_key.client_nonce,
             gateway_principal: GATEWAY_1.deref().to_owned(),
@@ -95,7 +93,7 @@ proptest! {
 
         let CanisterOutputCertifiedMessages { messages, .. } = call_ws_get_messages_with_panic(
             GATEWAY_1.deref(),
-            CanisterWsGetMessagesArguments { nonce: 0 },
+            CanisterWsGetMessagesArguments::new(0),
         );
 
         let service_message_for_client = messages

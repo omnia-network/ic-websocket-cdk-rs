@@ -34,23 +34,19 @@ fn test_1_client_should_receive_ack_messages() {
     // make sure there are no messages in the queue, except from first open message
     let CanisterOutputCertifiedMessages { messages, .. } = call_ws_get_messages_with_panic(
         GATEWAY_1.deref(),
-        CanisterWsGetMessagesArguments { nonce: 1 }, // skip the service open message
+        CanisterWsGetMessagesArguments::new(1), // skip the service open message
     );
     assert_eq!(messages.len(), 0);
     // send a message from the client in order to receive the ack with the updated sequence number
     call_ws_message_with_panic(
         &client_1_key.client_principal,
-        CanisterWsMessageArguments {
-            msg: create_websocket_message(client_1_key, 1, None, false),
-        },
+        CanisterWsMessageArguments::new(create_websocket_message(client_1_key, 1, None, false)),
     );
     // advance the canister time to make sure the ack timer expires and an ack is sent
     get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
 
-    let res = call_ws_get_messages_with_panic(
-        GATEWAY_1.deref(),
-        CanisterWsGetMessagesArguments { nonce: 1 },
-    );
+    let res =
+        call_ws_get_messages_with_panic(GATEWAY_1.deref(), CanisterWsGetMessagesArguments::new(1));
     helpers::check_ack_message_result(&res, client_1_key, 1, 2);
 }
 
@@ -63,10 +59,8 @@ fn test_2_client_is_removed_if_keep_alive_timeout_is_reached() {
     // advance the canister time to make sure the ack timer expires and an ack is sent
     get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
     // get messages to check if the ack message has been set
-    let msgs = call_ws_get_messages_with_panic(
-        GATEWAY_1.deref(),
-        CanisterWsGetMessagesArguments { nonce: 1 },
-    );
+    let msgs =
+        call_ws_get_messages_with_panic(GATEWAY_1.deref(), CanisterWsGetMessagesArguments::new(1));
     helpers::check_ack_message_result(&msgs, client_1_key, 0, 2);
 
     // advance the canister time to make sure the keep alive timeout expires
@@ -75,7 +69,7 @@ fn test_2_client_is_removed_if_keep_alive_timeout_is_reached() {
     // check if the gateway put the close message in the queue
     let msgs = call_ws_get_messages_with_panic(
         GATEWAY_1.deref(),
-        CanisterWsGetMessagesArguments { nonce: 1 }, // skip the first open message
+        CanisterWsGetMessagesArguments::new(1), // skip the first open message
     );
     check_canister_message_has_close_reason(
         &msgs.messages[1],
@@ -86,9 +80,7 @@ fn test_2_client_is_removed_if_keep_alive_timeout_is_reached() {
     // so calling the ws_close endpoint should return the ClientKeyNotConnected error
     let res = call_ws_close(
         GATEWAY_1.deref(),
-        CanisterWsCloseArguments {
-            client_key: client_1_key.clone(),
-        },
+        CanisterWsCloseArguments::new(client_1_key.clone()),
     );
     assert_eq!(
         res,
@@ -110,29 +102,23 @@ fn test_3_client_is_not_removed_if_it_sends_a_keep_alive_before_timeout() {
     // advance the canister time to make sure the ack timer expires and an ack is sent
     get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
     // get messages to check if the ack message has been set
-    let res = call_ws_get_messages_with_panic(
-        GATEWAY_1.deref(),
-        CanisterWsGetMessagesArguments { nonce: 1 },
-    );
+    let res =
+        call_ws_get_messages_with_panic(GATEWAY_1.deref(), CanisterWsGetMessagesArguments::new(1));
     helpers::check_ack_message_result(&res, client_1_key, 0, 2);
 
     // send keep alive message
     call_ws_message_with_panic(
         &client_1_key.client_principal,
-        CanisterWsMessageArguments {
-            msg: create_websocket_message(
-                client_1_key,
-                1,
-                Some(encode_websocket_service_message_content(
-                    &WebsocketServiceMessageContent::KeepAliveMessage(
-                        ClientKeepAliveMessageContent {
-                            last_incoming_sequence_num: 1, // ignored in the CDK
-                        },
-                    ),
-                )),
-                true,
-            ),
-        },
+        CanisterWsMessageArguments::new(create_websocket_message(
+            client_1_key,
+            1,
+            Some(encode_websocket_service_message_content(
+                &WebsocketServiceMessageContent::KeepAliveMessage(ClientKeepAliveMessageContent {
+                    last_incoming_sequence_num: 1, // ignored in the CDK
+                }),
+            )),
+            true,
+        )),
     );
     // advance the canister time to make sure the keep alive timeout expires and the canister checks the keep alive
     get_test_env().advance_canister_time_ms(CLIENT_KEEP_ALIVE_TIMEOUT_MS);
@@ -140,16 +126,14 @@ fn test_3_client_is_not_removed_if_it_sends_a_keep_alive_before_timeout() {
     // and be sure that the client has not been removed
     call_ws_message_with_panic(
         &client_1_key.client_principal,
-        CanisterWsMessageArguments {
-            msg: create_websocket_message(client_1_key, 2, None, false),
-        },
+        CanisterWsMessageArguments::new(create_websocket_message(client_1_key, 2, None, false)),
     );
     // wait for the canister to send the next ack
     get_test_env()
         .advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS - CLIENT_KEEP_ALIVE_TIMEOUT_MS);
     let res = call_ws_get_messages_with_panic(
         GATEWAY_1.deref(),
-        CanisterWsGetMessagesArguments { nonce: 2 }, // skip the service open message and the fist ack message
+        CanisterWsGetMessagesArguments::new(2), // skip the service open message and the fist ack message
     );
     helpers::check_ack_message_result(&res, client_1_key, 2, 3);
 }
@@ -166,7 +150,7 @@ fn test_4_client_is_not_removed_if_it_connects_while_canister_is_waiting_for_kee
     // get messages for client: at this point the client doesn't expect any message
     let CanisterOutputCertifiedMessages { messages, .. } = call_ws_get_messages_with_panic(
         GATEWAY_1.deref(),
-        CanisterWsGetMessagesArguments { nonce: 1 }, // skip the service open message
+        CanisterWsGetMessagesArguments::new(1), // skip the service open message
     );
     assert_eq!(messages.len(), 0);
 
@@ -174,9 +158,7 @@ fn test_4_client_is_not_removed_if_it_connects_while_canister_is_waiting_for_kee
     // and be sure that the client has not been removed
     call_ws_message_with_panic(
         &client_1_key.client_principal,
-        CanisterWsMessageArguments {
-            msg: create_websocket_message(client_1_key, 1, None, false),
-        },
+        CanisterWsMessageArguments::new(create_websocket_message(client_1_key, 1, None, false)),
     );
 
     // wait for the keep alive timeout to expire
@@ -187,7 +169,7 @@ fn test_4_client_is_not_removed_if_it_connects_while_canister_is_waiting_for_kee
 
     let res = call_ws_get_messages_with_panic(
         GATEWAY_1.deref(),
-        CanisterWsGetMessagesArguments { nonce: 1 }, // skip the service open message
+        CanisterWsGetMessagesArguments::new(1), // skip the service open message
     );
     helpers::check_ack_message_result(&res, client_1_key, 1, 2);
 }
