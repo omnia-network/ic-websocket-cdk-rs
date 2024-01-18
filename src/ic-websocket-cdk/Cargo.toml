@@ -1,6 +1,6 @@
 [package]
 name = "ic-websocket-cdk"
-version = "0.3.2"
+version = "0.3.3"
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
