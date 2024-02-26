@@ -1,23 +1,20 @@
 [workspace]
-members = [
-  "src/ic-websocket-cdk",
-  "src/test_canister",
-]
+members = ["src/ic-websocket-cdk", "src/test_canister"]
 resolver = "2"
 
 [workspace.package]
 edition = "2021"
 repository = "https://github.com/omnia-network/ic-websocket-cdk-rs"
-rust-version = "1.70.0"
+rust-version = "1.75.0"
 description = "IC Websocket CDK Rust workspace"
 license = "MIT"
 
 [workspace.dependencies]
 ic-websocket-cdk = { path = "src/ic-websocket-cdk" }
 
-candid = "0.9.3"
-ic-cdk = "0.10.0"
-ic-cdk-macros = "0.7.1"
+candid = "0.10.3"
+ic-cdk = "0.12.0"
+ic-cdk-macros = "0.8.4"
 serde = "1.0.176"
 serde_cbor = "0.11.2"
 
