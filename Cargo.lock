@@ -1056,7 +1056,7 @@ dependencies = [
 
 [[package]]
 name = "ic-websocket-cdk"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "base64 0.21.7",
  "candid",
