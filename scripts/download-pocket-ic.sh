@@ -7,8 +7,17 @@ if [ -f "$POCKET_IC_BIN" ]; then
     echo -e "$POCKET_IC_BIN exists. Path: $(pwd)/$POCKET_IC_BIN\n"
 else 
     echo "$POCKET_IC_BIN does not exist."
+
     echo "Downloading Pocket IC binary..."
-    curl -sLO https://download.dfinity.systems/ic/69e1408347723dbaa7a6cd2faa9b65c42abbe861/openssl-static-binaries/x86_64-linux/pocket-ic.gz
+    if [[ "$OSTYPE" == "linux"* ]]; then
+        ARCH="linux"
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        ARCH="darwin"
+    else
+        echo "Unsupported OS: $OSTYPE"
+        exit 1
+    fi
+    curl -sL -o $POCKET_IC_BIN.gz https://github.com/dfinity/pocketic/releases/latest/download/pocket-ic-x86_64-$ARCH.gz
 
     echo "Extracting Pocket IC binary..."
     gzip -d $POCKET_IC_BIN.gz
