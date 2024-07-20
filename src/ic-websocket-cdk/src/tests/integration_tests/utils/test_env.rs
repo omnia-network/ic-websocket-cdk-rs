@@ -10,6 +10,8 @@ use pocket_ic::{PocketIc, PocketIcBuilder};
 
 use super::wasm::{load_canister_wasm_from_bin, load_canister_wasm_from_path};
 
+const NS_IN_MS: u64 = 1_000_000;
+
 /// The maximum number of messages returned by the **ws_get_messages** method.
 pub const DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES: u64 = 50;
 
@@ -94,11 +96,13 @@ impl TestEnv {
     }
 
     pub fn advance_canister_time_ms(&self, ms: u64) {
-        self.pic.advance_time(Duration::from_millis(ms));
+        self.advance_canister_time_ns(ms * NS_IN_MS);
+    }
+
+    pub fn advance_canister_time_ns(&self, ns: u64) {
+        self.pic.advance_time(Duration::from_nanos(ns));
         // produce and advance by some blocks to fire eventual timers
         // see https://forum.dfinity.org/t/pocketic-multi-subnet-canister-testing/24901/4
-        for _ in 0..10 {
-            self.pic.tick();
-        }
+        self.pic.tick();
     }
 }

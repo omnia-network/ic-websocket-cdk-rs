@@ -8,7 +8,7 @@ use crate::{
     types::CloseMessageReason,
     CanisterOutputCertifiedMessages, CanisterWsCloseArguments, CanisterWsCloseResult,
     CanisterWsGetMessagesArguments, CanisterWsMessageArguments, ClientKeepAliveMessageContent,
-    WebsocketServiceMessageContent, CLIENT_KEEP_ALIVE_TIMEOUT_MS,
+    WebsocketServiceMessageContent, CLIENT_KEEP_ALIVE_TIMEOUT_MS, CLIENT_KEEP_ALIVE_TIMEOUT_NS,
 };
 
 use super::utils::{
@@ -106,6 +106,8 @@ fn test_3_client_is_not_removed_if_it_sends_a_keep_alive_before_timeout() {
         call_ws_get_messages_with_panic(GATEWAY_1.deref(), CanisterWsGetMessagesArguments::new(1));
     helpers::check_ack_message_result(&res, client_1_key, 0, 2);
 
+    let current_time = get_test_env().get_canister_time();
+
     // send keep alive message
     call_ws_message_with_panic(
         &client_1_key.client_principal,
@@ -120,8 +122,11 @@ fn test_3_client_is_not_removed_if_it_sends_a_keep_alive_before_timeout() {
             true,
         )),
     );
-    // advance the canister time to make sure the keep alive timeout expires and the canister checks the keep alive
-    get_test_env().advance_canister_time_ms(CLIENT_KEEP_ALIVE_TIMEOUT_MS);
+
+    // advance the canister time to make sure the keep alive timeout expires and the canister checks the keep alive,
+    // keeping into account the time elapsed in the previous rounds
+    let elapsed_time = get_test_env().get_canister_time() - current_time;
+    get_test_env().advance_canister_time_ns(CLIENT_KEEP_ALIVE_TIMEOUT_NS - elapsed_time);
     // send a message to the canister to see the sequence number increasing in the ack message
     // and be sure that the client has not been removed
     call_ws_message_with_panic(
@@ -223,11 +228,10 @@ mod helpers {
             websocket_message.sequence_num,
             expected_websocket_message_sequence_number
         );
-        // since PocketIC [v4.0.0](https://github.com/dfinity/pocketic/releases/tag/4.0.0), every round advances the subnet time by 1ns,
-        // making it difficult to compare the timestamps of the messages
-        // so we can expect the timestamp to be less or equal to the current canister time minus 9ns,
-        // which corresponds to the number of `tick`s manually advanced in the `advance_canister_time_ms` method
-        assert!(websocket_message.timestamp <= (get_test_env().get_canister_time() - 9));
+        assert_eq!(
+            websocket_message.timestamp,
+            get_test_env().get_canister_time()
+        );
         assert_eq!(
             decode_websocket_service_message_content(&websocket_message.content),
             WebsocketServiceMessageContent::AckMessage(CanisterAckMessageContent {
