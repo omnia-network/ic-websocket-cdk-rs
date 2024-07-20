@@ -4,7 +4,7 @@ use super::common;
 use crate::utils::get_current_time;
 use crate::*;
 use candid::decode_one;
-use ic_certified_map::RbTree;
+use ic_certification::RbTree;
 use proptest::prelude::*;
 
 mod utils;
