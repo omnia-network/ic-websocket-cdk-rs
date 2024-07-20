@@ -88,9 +88,7 @@ fn send_ack_to_clients_timer_callback() {
                     // TODO: decide what to do when sending the message fails
 
                     custom_print!(
-                        "[ack-to-clients-timer-cb]: Error sending ack message to client {}: {:?}",
-                        client_key,
-                        e
+                        "[ack-to-clients-timer-cb]: Error sending ack message to client {client_key}: {e}"
                     );
                 } else {
                     add_client_to_wait_for_keep_alive(client_key);
@@ -99,10 +97,8 @@ fn send_ack_to_clients_timer_callback() {
             Err(e) => {
                 // TODO: decide what to do when getting the expected incoming sequence number fails (shouldn't happen)
                 custom_print!(
-                  "[ack-to-clients-timer-cb]: Error getting expected incoming sequence number for client {}: {:?}",
-                  client_key,
-                  e,
-              );
+                    "[ack-to-clients-timer-cb]: Error getting expected incoming sequence number for client {client_key}: {e}"
+                );
             },
         }
     }
