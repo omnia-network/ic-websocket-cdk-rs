@@ -13,7 +13,7 @@ license = "MIT"
 ic-websocket-cdk = { path = "src/ic-websocket-cdk" }
 
 candid = "0.10"
-ic-cdk = "0.13"
+ic-cdk = "0.15"
 ic-cdk-macros = "0.15"
 serde = "1.0"
 serde_cbor = "0.11"

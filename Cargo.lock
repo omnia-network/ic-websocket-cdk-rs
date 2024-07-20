@@ -1133,7 +1133,7 @@ dependencies = [
  "base64 0.22.1",
  "candid",
  "ic-agent",
- "ic-cdk 0.13.2",
+ "ic-cdk 0.15.0",
  "ic-cdk-macros 0.15.0",
  "ic-cdk-timers",
  "ic-certificate-verification",
@@ -2356,7 +2356,7 @@ name = "test_canister"
 version = "0.1.0"
 dependencies = [
  "candid",
- "ic-cdk 0.13.2",
+ "ic-cdk 0.15.0",
  "ic-cdk-macros 0.15.0",
  "ic-websocket-cdk",
  "serde",
