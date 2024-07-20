@@ -32,7 +32,7 @@ pub mod ws_open {
     fn call_ws_open_with_panic(caller: &Principal, args: CanisterWsOpenArguments) {
         match call_ws_open(caller, args) {
             CanisterWsOpenResult::Ok(_) => {},
-            CanisterWsOpenResult::Err(err) => panic!("failed ws_open: {:?}", err),
+            CanisterWsOpenResult::Err(err) => panic!("failed ws_open: {err}"),
         }
     }
 
@@ -95,7 +95,7 @@ pub mod ws_message {
     pub fn call_ws_message_with_panic(caller: &Principal, args: CanisterWsMessageArguments) {
         match call_ws_message(caller, args) {
             CanisterWsMessageResult::Ok(_) => {},
-            CanisterWsMessageResult::Err(err) => panic!("failed ws_message: {:?}", err),
+            CanisterWsMessageResult::Err(err) => panic!("failed ws_message: {err}"),
         }
     }
 }
@@ -130,7 +130,7 @@ pub mod ws_close {
     pub fn call_ws_close_with_panic(caller: &Principal, args: CanisterWsCloseArguments) {
         match call_ws_close(caller, args) {
             CanisterWsCloseResult::Ok(_) => {},
-            CanisterWsCloseResult::Err(err) => panic!("failed ws_close: {:?}", err),
+            CanisterWsCloseResult::Err(err) => panic!("failed ws_close: {err}"),
         }
     }
 }
@@ -176,7 +176,7 @@ pub mod ws_get_messages {
     ) -> CanisterOutputCertifiedMessages {
         match call_ws_get_messages(caller, args) {
             CanisterWsGetMessagesResult::Ok(res) => res,
-            CanisterWsGetMessagesResult::Err(err) => panic!("failed ws_get_messages: {:?}", err),
+            CanisterWsGetMessagesResult::Err(err) => panic!("failed ws_get_messages: {err}"),
         }
     }
 }
@@ -224,7 +224,7 @@ pub mod send {
     ) {
         match call_send(send_to_principal, messages) {
             CanisterSendResult::Ok(_) => {},
-            CanisterSendResult::Err(err) => panic!("failed send: {:?}", err),
+            CanisterSendResult::Err(err) => panic!("failed send: {err}"),
         }
     }
 }

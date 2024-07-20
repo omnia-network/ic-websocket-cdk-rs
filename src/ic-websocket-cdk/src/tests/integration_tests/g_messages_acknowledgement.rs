@@ -101,7 +101,7 @@ fn test_3_client_is_not_removed_if_it_sends_a_keep_alive_before_timeout() {
     call_ws_open_for_client_key_with_panic(client_1_key);
     // advance the canister time to make sure the ack timer expires and an ack is sent
     get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
-    // get messages to check if the ack message has been set
+    // get messages to check if the ack message has been sent
     let res =
         call_ws_get_messages_with_panic(GATEWAY_1.deref(), CanisterWsGetMessagesArguments::new(1));
     helpers::check_ack_message_result(&res, client_1_key, 0, 2);
@@ -223,10 +223,11 @@ mod helpers {
             websocket_message.sequence_num,
             expected_websocket_message_sequence_number
         );
-        assert_eq!(
-            websocket_message.timestamp,
-            get_test_env().get_canister_time()
-        );
+        // since PocketIC [v4.0.0](https://github.com/dfinity/pocketic/releases/tag/4.0.0), every round advances the subnet time by 1ns,
+        // making it difficult to compare the timestamps of the messages
+        // so we can expect the timestamp to be less or equal to the current canister time minus 9ns,
+        // which corresponds to the number of `tick`s manually advanced in the `advance_canister_time_ms` method
+        assert!(websocket_message.timestamp <= (get_test_env().get_canister_time() - 9));
         assert_eq!(
             decode_websocket_service_message_content(&websocket_message.content),
             WebsocketServiceMessageContent::AckMessage(CanisterAckMessageContent {

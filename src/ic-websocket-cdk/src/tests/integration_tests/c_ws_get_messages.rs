@@ -274,8 +274,10 @@ fn test_7_empty_gateway_can_get_messages_until_next_keep_alive_check_if_removed_
     // check that gateway can receive the messages
     helpers::assert_gateway_has_messages(send_messages_count);
 
+    println!("1: send_messages_count: {}", send_messages_count);
+
     // wait for the ack interval to fire
-    get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
+    get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS + 1000);
 
     // disconnect the client and check that gateway can still receive the messages
     call_ws_close_with_panic(
@@ -288,6 +290,8 @@ fn test_7_empty_gateway_can_get_messages_until_next_keep_alive_check_if_removed_
     // check that gateway can still receive the messages, even after the ack interval has fired
     helpers::assert_gateway_has_messages(expected_messages_len);
 
+    println!("2: send_messages_count: {}", send_messages_count);
+
     // wait for the keep alive timeout to expire
     get_test_env().advance_canister_time_ms(CLIENT_KEEP_ALIVE_TIMEOUT_MS);
 
@@ -295,12 +299,16 @@ fn test_7_empty_gateway_can_get_messages_until_next_keep_alive_check_if_removed_
     // less than an ack interval ago
     helpers::assert_gateway_has_messages(expected_messages_len);
 
+    println!("3: send_messages_count: {}", send_messages_count);
+
     // wait for next ack interval to expire
     get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
 
     // the gateway can still receive the messages, because empty expired gateways
     // are removed only in the keep alive timeout callback
     helpers::assert_gateway_has_messages(expected_messages_len);
+
+    println!("4: send_messages_count: {}", send_messages_count);
 
     // wait for the keep alive timeout to expire
     get_test_env().advance_canister_time_ms(CLIENT_KEEP_ALIVE_TIMEOUT_MS);

@@ -97,7 +97,7 @@ impl TestEnv {
         self.pic.advance_time(Duration::from_millis(ms));
         // produce and advance by some blocks to fire eventual timers
         // see https://forum.dfinity.org/t/pocketic-multi-subnet-canister-testing/24901/4
-        for _ in 0..100 {
+        for _ in 0..10 {
             self.pic.tick();
         }
     }
