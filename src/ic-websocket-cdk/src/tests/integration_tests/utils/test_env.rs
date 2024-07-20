@@ -20,6 +20,8 @@ pub const DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES: u64 = 50;
 ///
 /// Value: `300_000` = 5 minutes
 pub const DEFAULT_TEST_SEND_ACK_INTERVAL_MS: u64 = 300_000;
+/// Same as [DEFAULT_TEST_SEND_ACK_INTERVAL_MS], but in nanoseconds.
+pub const DEFAULT_TEST_SEND_ACK_INTERVAL_NS: u64 = DEFAULT_TEST_SEND_ACK_INTERVAL_MS * NS_IN_MS;
 
 /// (`max_number_or_returned_messages`, `send_ack_interval_ms`)
 pub type CanisterInitArgs = (u64, u64);

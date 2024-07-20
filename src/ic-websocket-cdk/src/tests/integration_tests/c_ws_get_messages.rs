@@ -16,7 +16,7 @@ use super::utils::{
     messages::{get_next_polling_nonce_from_messages, verify_messages, AppMessage},
     test_env::{
         get_test_env, DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES,
-        DEFAULT_TEST_SEND_ACK_INTERVAL_MS,
+        DEFAULT_TEST_SEND_ACK_INTERVAL_MS, DEFAULT_TEST_SEND_ACK_INTERVAL_NS,
     },
 };
 
@@ -260,6 +260,7 @@ fn test_7_empty_gateway_can_get_messages_until_next_keep_alive_check_if_removed_
     let send_messages_count = 10;
     // first, reset the canister
     call_wipe(None);
+    let current_time = get_test_env().get_canister_time();
     // second, register client 1
     let client_1_key = CLIENT_1_KEY.deref();
     call_ws_open_for_client_key_with_panic(client_1_key);
@@ -269,13 +270,14 @@ fn test_7_empty_gateway_can_get_messages_until_next_keep_alive_check_if_removed_
             text: format!("test{}", i),
         })
         .collect();
-    call_send_with_panic(&client_1_key.client_principal, messages_to_send.clone());
+    call_send_with_panic(&client_1_key.client_principal, messages_to_send);
 
     // check that gateway can receive the messages
     helpers::assert_gateway_has_messages(send_messages_count);
 
-    // wait for the ack interval to fire
-    get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
+    // wait for the ack interval to fire, accounting for the time elapsed in the previous rounds
+    let elapsed_time = get_test_env().get_canister_time() - current_time;
+    get_test_env().advance_canister_time_ns(DEFAULT_TEST_SEND_ACK_INTERVAL_NS - elapsed_time);
 
     // disconnect the client and check that gateway can still receive the messages
     call_ws_close_with_panic(
@@ -296,7 +298,8 @@ fn test_7_empty_gateway_can_get_messages_until_next_keep_alive_check_if_removed_
     helpers::assert_gateway_has_messages(expected_messages_len);
 
     // wait for next ack interval to expire
-    get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
+    get_test_env()
+        .advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS - CLIENT_KEEP_ALIVE_TIMEOUT_MS);
 
     // the gateway can still receive the messages, because empty expired gateways
     // are removed only in the keep alive timeout callback
