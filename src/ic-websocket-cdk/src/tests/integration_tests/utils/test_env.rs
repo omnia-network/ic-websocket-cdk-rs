@@ -10,6 +10,8 @@ use pocket_ic::{PocketIc, PocketIcBuilder};
 
 use super::wasm::{load_canister_wasm_from_bin, load_canister_wasm_from_path};
 
+const NS_IN_MS: u64 = 1_000_000;
+
 /// The maximum number of messages returned by the **ws_get_messages** method.
 pub const DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES: u64 = 50;
 
@@ -18,6 +20,8 @@ pub const DEFAULT_TEST_MAX_NUMBER_OF_RETURNED_MESSAGES: u64 = 50;
 ///
 /// Value: `300_000` = 5 minutes
 pub const DEFAULT_TEST_SEND_ACK_INTERVAL_MS: u64 = 300_000;
+/// Same as [DEFAULT_TEST_SEND_ACK_INTERVAL_MS], but in nanoseconds.
+pub const DEFAULT_TEST_SEND_ACK_INTERVAL_NS: u64 = DEFAULT_TEST_SEND_ACK_INTERVAL_MS * NS_IN_MS;
 
 /// (`max_number_or_returned_messages`, `send_ack_interval_ms`)
 pub type CanisterInitArgs = (u64, u64);
@@ -94,10 +98,23 @@ impl TestEnv {
     }
 
     pub fn advance_canister_time_ms(&self, ms: u64) {
-        self.pic.advance_time(Duration::from_millis(ms));
+        self.advance_canister_time_ns(ms * NS_IN_MS);
+    }
+
+    /// # Panics
+    /// If time is advanced for less than 100ns, due to an internal logic
+    /// that accounts for the time advanced in `tick`s.
+    pub fn advance_canister_time_ns(&self, ns: u64) {
+        // when calling `tick`, the time on pic advances by 1ns,
+        // so we have to account for that difference here
+        let ticks = 0..100;
+        let advance_diff = ticks.len() as u64;
+        assert!(ns > advance_diff, "Cannot advance for less than 99ns");
+        self.pic
+            .advance_time(Duration::from_nanos(ns - advance_diff));
         // produce and advance by some blocks to fire eventual timers
         // see https://forum.dfinity.org/t/pocketic-multi-subnet-canister-testing/24901/4
-        for _ in 0..100 {
+        for _ in ticks {
             self.pic.tick();
         }
     }

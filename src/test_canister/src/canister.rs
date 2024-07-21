@@ -10,13 +10,22 @@ pub struct AppMessage {
 }
 
 pub fn on_open(args: OnOpenCallbackArgs) {
-    print(format!("Opened websocket: {:?}", args.client_principal));
+    print(format!(
+        "Opened websocket: {}",
+        args.client_principal.to_text()
+    ));
 }
 
 pub fn on_message(args: OnMessageCallbackArgs) {
-    print(format!("Received message: {:?}", args.client_principal));
+    print(format!(
+        "Received message: {}",
+        args.client_principal.to_text()
+    ));
 }
 
 pub fn on_close(args: OnCloseCallbackArgs) {
-    print(format!("Client {:?} disconnected", args.client_principal));
+    print(format!(
+        "Client {} disconnected",
+        args.client_principal.to_text()
+    ));
 }

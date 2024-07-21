@@ -8,7 +8,6 @@ pub mod test_env;
 pub mod wasm;
 
 pub fn bin_folder_path() -> PathBuf {
-    println!("manifest dir: {:?}", std::env::var("CARGO_MANIFEST_DIR"));
     let mut file_path = PathBuf::from(
         std::env::var("CARGO_MANIFEST_DIR")
             .expect("Failed to read CARGO_MANIFEST_DIR env variable"),

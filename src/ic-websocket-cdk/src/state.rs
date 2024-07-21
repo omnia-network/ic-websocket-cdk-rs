@@ -8,7 +8,7 @@ use std::{
 use candid::{encode_one, Principal};
 #[allow(unused_imports)]
 use ic_cdk::api::{data_certificate, set_certified_data};
-use ic_certified_map::{labeled, labeled_hash, AsHashTree, Hash as ICHash, RbTree};
+use ic_certification::{labeled, labeled_hash, AsHashTree, Hash as ICHash, RbTree};
 use serde::Serialize;
 use serde_cbor::Serializer;
 use sha2::{Digest, Sha256};

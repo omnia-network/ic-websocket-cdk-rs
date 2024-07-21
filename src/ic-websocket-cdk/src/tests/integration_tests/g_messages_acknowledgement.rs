@@ -8,7 +8,7 @@ use crate::{
     types::CloseMessageReason,
     CanisterOutputCertifiedMessages, CanisterWsCloseArguments, CanisterWsCloseResult,
     CanisterWsGetMessagesArguments, CanisterWsMessageArguments, ClientKeepAliveMessageContent,
-    WebsocketServiceMessageContent, CLIENT_KEEP_ALIVE_TIMEOUT_MS,
+    WebsocketServiceMessageContent, CLIENT_KEEP_ALIVE_TIMEOUT_MS, CLIENT_KEEP_ALIVE_TIMEOUT_NS,
 };
 
 use super::utils::{
@@ -101,10 +101,12 @@ fn test_3_client_is_not_removed_if_it_sends_a_keep_alive_before_timeout() {
     call_ws_open_for_client_key_with_panic(client_1_key);
     // advance the canister time to make sure the ack timer expires and an ack is sent
     get_test_env().advance_canister_time_ms(DEFAULT_TEST_SEND_ACK_INTERVAL_MS);
-    // get messages to check if the ack message has been set
+    // get messages to check if the ack message has been sent
     let res =
         call_ws_get_messages_with_panic(GATEWAY_1.deref(), CanisterWsGetMessagesArguments::new(1));
     helpers::check_ack_message_result(&res, client_1_key, 0, 2);
+
+    let current_time = get_test_env().get_canister_time();
 
     // send keep alive message
     call_ws_message_with_panic(
@@ -120,8 +122,11 @@ fn test_3_client_is_not_removed_if_it_sends_a_keep_alive_before_timeout() {
             true,
         )),
     );
-    // advance the canister time to make sure the keep alive timeout expires and the canister checks the keep alive
-    get_test_env().advance_canister_time_ms(CLIENT_KEEP_ALIVE_TIMEOUT_MS);
+
+    // advance the canister time to make sure the keep alive timeout expires and the canister checks the keep alive,
+    // keeping into account the time elapsed in the previous rounds
+    let elapsed_time = get_test_env().get_canister_time() - current_time;
+    get_test_env().advance_canister_time_ns(CLIENT_KEEP_ALIVE_TIMEOUT_NS - elapsed_time);
     // send a message to the canister to see the sequence number increasing in the ack message
     // and be sure that the client has not been removed
     call_ws_message_with_panic(
@@ -223,10 +228,9 @@ mod helpers {
             websocket_message.sequence_num,
             expected_websocket_message_sequence_number
         );
-        assert_eq!(
-            websocket_message.timestamp,
-            get_test_env().get_canister_time()
-        );
+        // testing the timestamp is difficult, since pocketic advances the time
+        // at every round (at every update call)
+        assert!(websocket_message.timestamp <= get_test_env().get_canister_time());
         assert_eq!(
             decode_websocket_service_message_content(&websocket_message.content),
             WebsocketServiceMessageContent::AckMessage(CanisterAckMessageContent {

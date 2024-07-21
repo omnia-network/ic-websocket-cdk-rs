@@ -136,7 +136,7 @@ fn verify_message(
     }
 
     // check the certification
-    assert!(is_valid_certificate(&get_test_env(), cert, tree,));
+    assert!(is_valid_certificate(&get_test_env(), cert, tree));
     assert!(is_message_body_valid(&message.key, &message.content, tree));
 }
 

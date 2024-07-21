@@ -263,13 +263,6 @@ pub fn send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> CanisterSe
     _ws_send(&client_key, msg_bytes, false)
 }
 
-#[deprecated(since = "0.3.2", note = "use `ic_websocket_cdk::send` instead")]
-#[allow(deprecated)]
-/// Deprecated: use [send] instead.
-pub fn ws_send(client_principal: ClientPrincipal, msg_bytes: Vec<u8>) -> CanisterWsSendResult {
-    send(client_principal, msg_bytes)
-}
-
 /// Closes the connection with the client.
 ///
 /// This function **must not** be called in the `on_close` callback.
