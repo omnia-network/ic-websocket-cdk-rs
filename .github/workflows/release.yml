@@ -1,22 +1,13 @@
-name: Release ic-websocket-cdk-rs
+name: Publish ic-websocket-cdk-rs
 
-# only run when the tests complete
+# only run when a release is published
 on:
-  workflow_run:
-    workflows: [ic-websocket-cdk-rs tests]
-    types:
-      - completed
-    branches:
-      - main
-  workflow_dispatch:
+  release:
+    types: [published]
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    # only run if the tests were successful or the workflow was dispatched manually
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
-    outputs:
-      version: ${{ steps.cargo-publish.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
@@ -33,29 +24,3 @@ jobs:
           echo "version=$(cargo pkgid -p ic-websocket-cdk | cut -d# -f2 | cut -d: -f2)" >> "$GITHUB_OUTPUT"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
-  tag:
-    needs: publish
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.tag_version.outputs.new_tag }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Bump version and push tag
-        id: tag_version
-        uses: mathieudutour/github-tag-action@v6.1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          custom_tag: ${{ needs.publish.outputs.version }}
-
-  release:
-    needs: tag
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ needs.tag.outputs.version }}
