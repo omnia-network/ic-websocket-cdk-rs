@@ -101,10 +101,21 @@ impl TestEnv {
         self.advance_canister_time_ns(ms * NS_IN_MS);
     }
 
+    /// # Panics
+    /// If time is advanced for less than 100ns, due to an internal logic
+    /// that accounts for the time advanced in `tick`s.
     pub fn advance_canister_time_ns(&self, ns: u64) {
-        self.pic.advance_time(Duration::from_nanos(ns));
+        // when calling `tick`, the time on pic advances by 1ns,
+        // so we have to account for that difference here
+        let ticks = 0..100;
+        let advance_diff = ticks.len() as u64;
+        assert!(ns > advance_diff, "Cannot advance for less than 99ns");
+        self.pic
+            .advance_time(Duration::from_nanos(ns - advance_diff));
         // produce and advance by some blocks to fire eventual timers
         // see https://forum.dfinity.org/t/pocketic-multi-subnet-canister-testing/24901/4
-        self.pic.tick();
+        for _ in ticks {
+            self.pic.tick();
+        }
     }
 }

@@ -228,10 +228,9 @@ mod helpers {
             websocket_message.sequence_num,
             expected_websocket_message_sequence_number
         );
-        assert_eq!(
-            websocket_message.timestamp,
-            get_test_env().get_canister_time()
-        );
+        // testing the timestamp is difficult, since pocketic advances the time
+        // at every round (at every update call)
+        assert!(websocket_message.timestamp <= get_test_env().get_canister_time());
         assert_eq!(
             decode_websocket_service_message_content(&websocket_message.content),
             WebsocketServiceMessageContent::AckMessage(CanisterAckMessageContent {
