@@ -1,6 +1,6 @@
 [package]
 name = "ic-websocket-cdk"
-version = "0.4.0"
+version = "0.4.1"
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
@@ -14,23 +14,22 @@ exclude = ["**/*.did"]
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
-ic-cdk-macros = { workspace = true }
-ic-cdk-timers = "0.9"
+ic-cdk-timers = "0.10"
 serde = { workspace = true }
 serde_cbor = { workspace = true }
-ic-certification = "2.5"
+ic-certification = "2.6"
 base64 = "0.22"
 sha2 = "0.10"
 serde_bytes = "0.11"
 
 [dev-dependencies]
-ic-agent = "0.36"
+ic-agent = { version = "0.39", features = ["ring"] }
 proptest = "1.5"
 rand = "0.8"
 ring = "0.17"
 lazy_static = "1.5"
-pocket-ic = "3.1"
-ic-certificate-verification = "2.4"
+pocket-ic = "5.0"
+ic-certificate-verification = "2.6"
 
 [package.metadata.docs.rs]
 default-target = "wasm32-unknown-unknown"
