@@ -145,7 +145,7 @@ pub fn ws_close(args: CanisterWsCloseArguments) -> CanisterWsCloseResult {
 ///
 /// # Example
 /// ```rust
-/// use ic_cdk_macros::*;
+/// use ic_cdk::{update};
 /// use candid::{CandidType};
 /// use ic_websocket_cdk::{CanisterWsMessageArguments, CanisterWsMessageResult};
 /// use serde::Deserialize;
