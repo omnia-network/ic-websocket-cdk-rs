@@ -1,7 +1,7 @@
 use candid::{CandidType, Principal};
 use errors::WsError;
 
-use ic_cdk::api::caller;
+use ic_cdk::api::msg_caller;
 use serde::Deserialize;
 
 mod errors;
@@ -70,7 +70,7 @@ pub fn init(params: WsInitParams) {
 
 /// Handles the WS connection open event sent by the client and relayed by the Gateway.
 pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
-    let caller = caller();
+    let caller = msg_caller();
     // anonymous clients cannot open a connection
     caller
         .ne(&Principal::anonymous())
@@ -122,7 +122,7 @@ pub fn ws_open(args: CanisterWsOpenArguments) -> CanisterWsOpenResult {
 /// If you want to close the connection with the client in your logic,
 /// use the [close] function instead.
 pub fn ws_close(args: CanisterWsCloseArguments) -> CanisterWsCloseResult {
-    let gateway_principal = caller();
+    let gateway_principal = msg_caller();
 
     // check if the gateway is registered
     check_is_gateway_registered(&gateway_principal)?;
@@ -168,7 +168,7 @@ pub fn ws_message<T: CandidType + for<'a> Deserialize<'a>>(
     args: CanisterWsMessageArguments,
     _message_type: Option<T>,
 ) -> CanisterWsMessageResult {
-    let client_principal = caller();
+    let client_principal = msg_caller();
     let registered_client_key = get_client_key_from_principal(&client_principal)?;
 
     let WebsocketMessage {
@@ -222,7 +222,7 @@ pub fn ws_message<T: CandidType + for<'a> Deserialize<'a>>(
 
 /// Returns messages to the WS Gateway in response of a polling iteration.
 pub fn ws_get_messages(args: CanisterWsGetMessagesArguments) -> CanisterWsGetMessagesResult {
-    let gateway_principal = caller();
+    let gateway_principal = msg_caller();
     if !is_registered_gateway(&gateway_principal) {
         return get_cert_messages_empty();
     }

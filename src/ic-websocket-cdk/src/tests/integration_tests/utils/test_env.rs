@@ -58,7 +58,7 @@ impl TestEnv {
             .build();
 
         // set ic time to current time
-        pic.set_time(SystemTime::now());
+        pic.set_time(SystemTime::now().into());
 
         let app_subnet = pic.topology().get_app_subnets()[0];
         let canister_id = pic.create_canister_on_subnet(None, None, app_subnet);
@@ -86,11 +86,7 @@ impl TestEnv {
 
     /// Returns the current time of the canister in nanoseconds.
     pub fn get_canister_time(&self) -> u64 {
-        self.pic
-            .get_time()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64
+        self.pic.get_time().as_nanos_since_unix_epoch()
     }
 
     pub fn get_root_ic_key(&self) -> Vec<u8> {
