@@ -5,17 +5,15 @@ use std::{
     time::Duration,
 };
 
-use candid::{encode_one, Principal};
-#[allow(unused_imports)]
-use ic_cdk::api::{data_certificate, set_certified_data};
-use ic_certification::{labeled, labeled_hash, AsHashTree, Hash as ICHash, RbTree};
+use candid::{Principal, encode_one};
+use ic_certification::{AsHashTree, Hash as ICHash, RbTree, labeled, labeled_hash};
 use serde::Serialize;
 use serde_cbor::Serializer;
 use sha2::{Digest, Sha256};
 
 use crate::{
-    errors::WsError, types::*, utils::get_current_time, INITIAL_CANISTER_SEQUENCE_NUM,
-    INITIAL_CLIENT_SEQUENCE_NUM, LABEL_WEBSOCKET, MESSAGES_TO_DELETE_COUNT,
+    INITIAL_CANISTER_SEQUENCE_NUM, INITIAL_CLIENT_SEQUENCE_NUM, LABEL_WEBSOCKET,
+    MESSAGES_TO_DELETE_COUNT, errors::WsError, types::*, utils::get_current_time,
 };
 
 thread_local! {
@@ -454,7 +452,7 @@ pub(crate) fn put_cert_for_message(key: String, value: &Vec<u8>) {
 
     #[cfg(not(test))]
     // executing this in unit tests fails because it's an IC-specific API
-    set_certified_data(&root_hash);
+    ic_cdk::api::certified_data_set(&root_hash);
 }
 
 /// Adds the message to the gateway queue.
@@ -509,7 +507,7 @@ pub(crate) fn delete_keys_from_cert_tree(keys: Vec<String>) {
     // certify data with the new root hash
     #[cfg(not(test))]
     // executing this in unit tests fails because it's an IC-specific API
-    set_certified_data(&root_hash);
+    ic_cdk::api::certified_data_set(&root_hash);
 }
 
 fn get_cert_for_range(first: &String, last: &String) -> (Vec<u8>, Vec<u8>) {
@@ -522,7 +520,7 @@ fn get_cert_for_range(first: &String, last: &String) -> (Vec<u8>, Vec<u8>) {
         let mut serializer = Serializer::new(&mut data);
         serializer.self_describe().unwrap();
         tree.serialize(&mut serializer).unwrap();
-        (data_certificate().unwrap(), data)
+        (ic_cdk::api::data_certificate().unwrap(), data)
     })
 }
 

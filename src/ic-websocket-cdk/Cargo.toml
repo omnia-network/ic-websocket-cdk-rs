@@ -14,22 +14,25 @@ exclude = ["**/*.did"]
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
-ic-cdk-timers = "0.10"
+ic-cdk-timers = "0.12"
 serde = { workspace = true }
 serde_cbor = { workspace = true }
-ic-certification = "2.6"
+ic-certification = "3.0"
 base64 = "0.22"
 sha2 = "0.10"
 serde_bytes = "0.11"
 
 [dev-dependencies]
-ic-agent = { version = "0.39", features = ["ring"] }
-proptest = "1.5"
-rand = "0.8"
+ic-agent = { version = "0.40", features = ["ring"] }
+proptest = "1.7"
+rand = "0.9"
 ring = "0.17"
 lazy_static = "1.5"
-pocket-ic = "5.0"
-ic-certificate-verification = "2.6"
+ic-certificate-verification = "3.0"
+
+# Keep this version pinned to the patch, as it must be compatible
+# with the version used in the `download-pocket-ic.sh` script
+pocket-ic = "9.0.2"
 
 [package.metadata.docs.rs]
 default-target = "wasm32-unknown-unknown"
