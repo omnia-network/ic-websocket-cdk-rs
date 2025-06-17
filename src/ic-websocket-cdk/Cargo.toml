@@ -30,7 +30,8 @@ ring = "0.17"
 lazy_static = "1.5"
 ic-certificate-verification = "3.0"
 
-# keep this version pinned to the patch, as we use the same version in the download-pocket-ic.sh script
+# Keep this version pinned to the patch, as it must be compatible
+# with the version used in the `download-pocket-ic.sh` script
 pocket-ic = "9.0.2"
 
 [package.metadata.docs.rs]

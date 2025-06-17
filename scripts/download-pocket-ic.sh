@@ -3,7 +3,7 @@
 cd bin/
 
 POCKET_IC_BIN=pocket-ic
-POCKET_IC_VERSION=9.0.2
+POCKET_IC_VERSION=9.0.3
 
 if [ -f "$POCKET_IC_BIN" ]; then
     echo -e "$POCKET_IC_BIN exists. Path: $(pwd)/$POCKET_IC_BIN\n"
